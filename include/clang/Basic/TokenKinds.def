@@ -255,6 +255,7 @@ PUNCTUATOR(caretcaret,            "^^")
 //   BOOLSUPPORT - This is a keyword if 'bool' is a built-in type
 //   HALFSUPPORT - This is a keyword if 'half' is a built-in type
 //   WCHARSUPPORT - This is a keyword if 'wchar_t' is a built-in type
+//   KEYSIMD  - This is a keyword introduced to C/C++'s SIMD extension
 //
 KEYWORD(auto                        , KEYALL)
 KEYWORD(break                       , KEYALL)
@@ -286,9 +287,11 @@ KEYWORD(struct                      , KEYALL)
 KEYWORD(switch                      , KEYALL)
 KEYWORD(typedef                     , KEYALL)
 KEYWORD(union                       , KEYALL)
+KEYWORD(uniform                     , KEYSIMD)
 KEYWORD(unsigned                    , KEYALL)
 KEYWORD(void                        , KEYALL)
 KEYWORD(volatile                    , KEYALL)
+KEYWORD(varying                     , KEYSIMD)
 KEYWORD(while                       , KEYALL)
 KEYWORD(_Alignas                    , KEYALL)
 KEYWORD(_Alignof                    , KEYALL)
