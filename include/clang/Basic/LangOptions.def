@@ -113,6 +113,8 @@ LANGOPT(ShortEnums        , 1, 0, "short enum types")
 LANGOPT(OpenCL            , 1, 0, "OpenCL")
 LANGOPT(CUDA              , 1, 0, "CUDA")
 
+LANGOPT(SIMD              , 1, 0, "SIMD extension")
+
 LANGOPT(AssumeSaneOperatorNew , 1, 1, "implicit __attribute__((malloc)) for C++'s new operators")
 BENIGN_LANGOPT(ElideConstructors , 1, 1, "C++ copy constructor elision")
 BENIGN_LANGOPT(CatchUndefined    , 1, 0, "catching undefined behavior at run time")
