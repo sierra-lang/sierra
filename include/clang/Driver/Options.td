@@ -504,6 +504,7 @@ def frandom_seed_EQ : Joined<"-frandom-seed=">, Group<clang_ignored_f_Group>;
 def frtti : Flag<"-frtti">, Group<f_Group>;
 def fsched_interblock : Flag<"-fsched-interblock">, Group<clang_ignored_f_Group>;
 def fshort_enums : Flag<"-fshort-enums">, Group<f_Group>;
+def fsimd : Flag<"-fsimd">, Group<f_Group>;
 def freorder_blocks : Flag<"-freorder-blocks">, Group<clang_ignored_f_Group>;
 def fshort_wchar : Flag<"-fshort-wchar">, Group<f_Group>;
 def fshow_overloads_EQ : Joined<"-fshow-overloads=">, Group<f_Group>;
