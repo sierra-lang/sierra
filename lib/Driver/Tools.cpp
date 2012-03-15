@@ -5839,6 +5839,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    getToolChain().getArch() == llvm::Triple::hexagon))
     CmdArgs.push_back("-fshort-enums");
 
+  if (Args.hasArg(options::OPT_fsimd))
+    CmdArgs.push_back("-fsimd");
+
   // -fsigned-char is default.
   if (Arg *A = Args.getLastArg(
           options::OPT_fsigned_char, options::OPT_fno_signed_char,
