@@ -107,9 +107,9 @@ static void addDirectoryList(const ArgList &Args,
       CmdArgs.push_back(".");
     } else {
       CmdArgs.push_back(ArgName);
-      CmdArgs.push_back(Args.MakeArgString(Dirs.split(Delim).first));
+      CmdArgs.push_back(Args.MakeArgString(Dirs.substr(0, Delim)));
     }
-    Dirs = Dirs.split(Delim).second;
+    Dirs = Dirs.substr(Delim + 1);
   }
 
   if (Dirs.empty()) { // Trailing colon.
@@ -2175,6 +2175,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    options::OPT_fno_gnu89_inline,
                    false))
     CmdArgs.push_back("-fgnu89-inline");
+
+  if (Args.hasArg(options::OPT_fno_inline))
+    CmdArgs.push_back("-fno-inline");
 
   if (Args.hasArg(options::OPT_fno_inline_functions))
     CmdArgs.push_back("-fno-inline-functions");

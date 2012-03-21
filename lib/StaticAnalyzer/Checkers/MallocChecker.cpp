@@ -243,6 +243,29 @@ private:
                                    const ExplodedNode *PrevN,
                                    BugReporterContext &BRC,
                                    BugReport &BR);
+  private:
+    class StackHintGeneratorForReallocationFailed
+        : public StackHintGeneratorForSymbol {
+    public:
+      StackHintGeneratorForReallocationFailed(SymbolRef S, StringRef M)
+        : StackHintGeneratorForSymbol(S, M) {}
+
+      virtual std::string getMessageForArg(const Expr *ArgE, unsigned ArgIndex) {
+        SmallString<200> buf;
+        llvm::raw_svector_ostream os(buf);
+
+        os << "Reallocation of ";
+        // Printed parameters start at 1, not 0.
+        printOrdinal(++ArgIndex, os);
+        os << " parameter failed";
+
+        return os.str();
+      }
+
+      virtual std::string getMessageForReturn(const CallExpr *CallExpr) {
+        return "Reallocation of returned value failed";
+      }
+    };
   };
 };
 } // end anonymous namespace
@@ -823,6 +846,10 @@ void MallocChecker::reportLeak(SymbolRef Sym, ExplodedNode *N,
   BugReport *R = new BugReport(*BT_Leak,
     "Memory is never released; potential memory leak", N, LocUsedForUniqueing);
   R->markInteresting(Sym);
+  // FIXME: This is a hack to make sure the MallocBugVisitor gets to look at
+  // the ExplodedNode chain first, in order to mark any failed realloc symbols
+  // as interesting for ConditionBRVisitor.
+  R->addVisitor(new ConditionBRVisitor());
   R->addVisitor(new MallocBugVisitor(Sym));
   C.EmitReport(R);
 }
@@ -1237,18 +1264,37 @@ MallocChecker::checkRegionChanges(ProgramStateRef State,
   return State;
 }
 
+static SymbolRef findFailedReallocSymbol(ProgramStateRef currState,
+                                         ProgramStateRef prevState) {
+  ReallocMap currMap = currState->get<ReallocPairs>();
+  ReallocMap prevMap = prevState->get<ReallocPairs>();
+
+  for (ReallocMap::iterator I = prevMap.begin(), E = prevMap.end();
+       I != E; ++I) {
+    SymbolRef sym = I.getKey();
+    if (!currMap.lookup(sym))
+      return sym;
+  }
+
+  return NULL;
+}
+
 PathDiagnosticPiece *
 MallocChecker::MallocBugVisitor::VisitNode(const ExplodedNode *N,
                                            const ExplodedNode *PrevN,
                                            BugReporterContext &BRC,
                                            BugReport &BR) {
-  const RefState *RS = N->getState()->get<RegionState>(Sym);
-  const RefState *RSPrev = PrevN->getState()->get<RegionState>(Sym);
+  ProgramStateRef state = N->getState();
+  ProgramStateRef statePrev = PrevN->getState();
+
+  const RefState *RS = state->get<RegionState>(Sym);
+  const RefState *RSPrev = statePrev->get<RegionState>(Sym);
   if (!RS && !RSPrev)
     return 0;
 
   const Stmt *S = 0;
   const char *Msg = 0;
+  StackHintGeneratorForSymbol *StackHint = 0;
 
   // Retrieve the associated statement.
   ProgramPoint ProgLoc = N->getLocation();
@@ -1265,13 +1311,22 @@ MallocChecker::MallocBugVisitor::VisitNode(const ExplodedNode *N,
 
   // Find out if this is an interesting point and what is the kind.
   if (Mode == Normal) {
-    if (isAllocated(RS, RSPrev, S))
+    if (isAllocated(RS, RSPrev, S)) {
       Msg = "Memory is allocated";
-    else if (isReleased(RS, RSPrev, S))
+      StackHint = new StackHintGeneratorForSymbol(Sym,
+                                                  "Returned allocated memory");
+    } else if (isReleased(RS, RSPrev, S)) {
       Msg = "Memory is released";
-    else if (isReallocFailedCheck(RS, RSPrev, S)) {
+      StackHint = new StackHintGeneratorForSymbol(Sym,
+                                                  "Returned released memory");
+    } else if (isReallocFailedCheck(RS, RSPrev, S)) {
       Mode = ReallocationFailed;
       Msg = "Reallocation failed";
+      StackHint = new StackHintGeneratorForReallocationFailed(Sym,
+                                                       "Reallocation failed");
+
+      if (SymbolRef sym = findFailedReallocSymbol(state, statePrev))
+        BR.markInteresting(sym);
     }
 
   // We are in a special mode if a reallocation failed later in the path.
@@ -1291,16 +1346,19 @@ MallocChecker::MallocBugVisitor::VisitNode(const ExplodedNode *N,
     if (!(FunName.equals("realloc") || FunName.equals("reallocf")))
       return 0;
     Msg = "Attempt to reallocate memory";
+    StackHint = new StackHintGeneratorForSymbol(Sym,
+                                                "Returned reallocated memory");
     Mode = Normal;
   }
 
   if (!Msg)
     return 0;
+  assert(StackHint);
 
   // Generate the extra diagnostic.
   PathDiagnosticLocation Pos(S, BRC.getSourceManager(),
                              N->getLocationContext());
-  return new PathDiagnosticEventPiece(Pos, Msg);
+  return new PathDiagnosticEventPiece(Pos, Msg, true, StackHint);
 }
 
 

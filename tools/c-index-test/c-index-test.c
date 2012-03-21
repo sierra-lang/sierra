@@ -381,6 +381,7 @@ void PrintDiagnostic(CXDiagnostic Diagnostic) {
     return;
 
   num_fixits = clang_getDiagnosticNumFixIts(Diagnostic);
+  fprintf(stderr, "Number FIX-ITs = %d\n", num_fixits);
   for (i = 0; i != num_fixits; ++i) {
     CXSourceRange range;
     CXString insertion_text = clang_getDiagnosticFixIt(Diagnostic, i, &range);
@@ -1555,6 +1556,7 @@ typedef struct {
   int first_check_printed;
   int fail_for_error;
   int abort;
+  const char *main_filename;
 } IndexData;
 
 static void printCheck(IndexData *data) {
@@ -1574,13 +1576,15 @@ static void printCXIndexFile(CXIdxClientFile file) {
   clang_disposeString(filename);
 }
 
-static void printCXIndexLoc(CXIdxLoc loc) {
+static void printCXIndexLoc(CXIdxLoc loc, CXClientData client_data) {
+  IndexData *index_data;
   CXString filename;
-  const char *cname, *end;
+  const char *cname;
   CXIdxClientFile file;
   unsigned line, column;
-  int isHeader;
+  int isMainFile;
   
+  index_data = (IndexData *)client_data;
   clang_indexLoc_getFileLocation(loc, &file, 0, &line, &column, 0);
   if (line == 0) {
     printf("<null loc>");
@@ -1592,14 +1596,27 @@ static void printCXIndexLoc(CXIdxLoc loc) {
   }
   filename = clang_getFileName((CXFile)file);
   cname = clang_getCString(filename);
-  end = cname + strlen(cname);
-  isHeader = (end[-2] == '.' && end[-1] == 'h');
-  
-  if (isHeader) {
+  if (strcmp(cname, index_data->main_filename) == 0)
+    isMainFile = 1;
+  else
+    isMainFile = 0;
+  clang_disposeString(filename);
+
+  if (!isMainFile) {
     printCXIndexFile(file);
     printf(":");
   }
   printf("%d:%d", line, column);
+}
+
+static unsigned digitCount(unsigned val) {
+  unsigned c = 1;
+  while (1) {
+    if (val < 10)
+      return c;
+    ++c;
+    val /= 10;
+  }
 }
 
 static CXIdxClientContainer makeClientContainer(const CXIdxEntityInfo *info,
@@ -1615,7 +1632,8 @@ static CXIdxClientContainer makeClientContainer(const CXIdxEntityInfo *info,
 
   clang_indexLoc_getFileLocation(loc, &file, 0, &line, &column, 0);
   /* FIXME: free these.*/
-  newStr = (char *)malloc(strlen(name) + 10);
+  newStr = (char *)malloc(strlen(name) +
+                          digitCount(line) + digitCount(column) + 3);
   sprintf(newStr, "%s:%d:%d", name, line, column);
   return (CXIdxClientContainer)newStr;
 }
@@ -1722,7 +1740,7 @@ static void printBaseClassInfo(CXClientData client_data,
   printf(" | cursor: ");
   PrintCursor(info->cursor);
   printf(" | loc: ");
-  printCXIndexLoc(info->loc);
+  printCXIndexLoc(info->loc, client_data);
 }
 
 static void printProtocolList(const CXIdxObjCProtocolRefListInfo *ProtoInfo,
@@ -1734,7 +1752,7 @@ static void printProtocolList(const CXIdxObjCProtocolRefListInfo *ProtoInfo,
     printf(" | cursor: ");
     PrintCursor(ProtoInfo->protocols[i]->cursor);
     printf(" | loc: ");
-    printCXIndexLoc(ProtoInfo->protocols[i]->loc);
+    printCXIndexLoc(ProtoInfo->protocols[i]->loc, client_data);
     printf("\n");
   }
 }
@@ -1767,8 +1785,14 @@ static void index_diagnostic(CXClientData client_data,
 static CXIdxClientFile index_enteredMainFile(CXClientData client_data,
                                        CXFile file, void *reserved) {
   IndexData *index_data;
+  CXString filename;
+
   index_data = (IndexData *)client_data;
   printCheck(index_data);
+
+  filename = clang_getFileName(file);
+  index_data->main_filename = clang_getCString(filename);
+  clang_disposeString(filename);
 
   printf("[enteredMainFile]: ");
   printCXIndexFile((CXIdxClientFile)file);
@@ -1787,7 +1811,7 @@ static CXIdxClientFile index_ppIncludedFile(CXClientData client_data,
   printCXIndexFile((CXIdxClientFile)info->file);
   printf(" | name: \"%s\"", info->filename);
   printf(" | hash loc: ");
-  printCXIndexLoc(info->hashLoc);
+  printCXIndexLoc(info->hashLoc, client_data);
   printf(" | isImport: %d | isAngled: %d\n", info->isImport, info->isAngled);
 
   return (CXIdxClientFile)info->file;
@@ -1818,7 +1842,7 @@ static void index_indexDeclaration(CXClientData client_data,
   printf(" | cursor: ");
   PrintCursor(info->cursor);
   printf(" | loc: ");
-  printCXIndexLoc(info->loc);
+  printCXIndexLoc(info->loc, client_data);
   printf(" | semantic-container: ");
   printCXIndexContainer(info->semanticContainer);
   printf(" | lexical-container: ");
@@ -1856,7 +1880,7 @@ static void index_indexDeclaration(CXClientData client_data,
     printf(" | cursor: ");
     PrintCursor(CatInfo->classCursor);
     printf(" | loc: ");
-    printCXIndexLoc(CatInfo->classLoc);
+    printCXIndexLoc(CatInfo->classLoc, client_data);
     printf("\n");
   }
 
@@ -1900,7 +1924,7 @@ static void index_indexEntityReference(CXClientData client_data,
   printf(" | cursor: ");
   PrintCursor(info->cursor);
   printf(" | loc: ");
-  printCXIndexLoc(info->loc);
+  printCXIndexLoc(info->loc, client_data);
   printEntityInfo(" | <parent>:", client_data, info->parentEntity);
   printf(" | container: ");
   printCXIndexContainer(info->container);
@@ -2478,6 +2502,7 @@ static void printRanges(CXDiagnostic D, unsigned indent) {
 
 static void printFixIts(CXDiagnostic D, unsigned indent) {
   unsigned i, n = clang_getDiagnosticNumFixIts(D);
+  fprintf(stderr, "Number FIXITs = %d\n", n);
   for (i = 0 ; i < n; ++i) {
     CXSourceRange ReplacementRange;
     CXString text;

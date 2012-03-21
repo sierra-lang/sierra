@@ -304,6 +304,12 @@ void test_smartpointer_3() {
   foo.noAdopt(x);
 }
 
+void test_smartpointer_4() {
+  id x = [[NSObject alloc] init];  // no-warning
+  SmartPointer *foo = new SmartPointer(x);
+  delete foo;
+}
+
 extern CFStringRef ElectronMicroscopyEngage(void);
 void test_microscopy() {
   NSString *token = (NSString*) ElectronMicroscopyEngage();
@@ -315,3 +321,29 @@ void test_Scopy() {
   NSString *token = (NSString*) Scopy();
   [token release]; // expected-warning {{object that is not owned}}
 }
+
+//===----------------------------------------------------------------------===//
+// Test handling of template functions used to do magic with
+// tracked retained pointers.
+//===----------------------------------------------------------------------===//
+
+template <typename T, typename U> T static_objc_cast(U* value)
+{
+  // ...debugging code omitted...
+  return static_cast<T>(value);
+}
+
+int rdar10553686(void)
+{
+  NSObject* bar = static_objc_cast<NSObject*>([[NSObject alloc] init]);
+  [bar release];
+  return 0;
+}
+int rdar10553686_positive(void)
+{
+  NSObject* bar = static_objc_cast<NSObject*>([[NSObject alloc] init]); // expected-warning {{Potential leak}}
+  [bar release];
+  [bar retain];
+  return 0;
+}
+
