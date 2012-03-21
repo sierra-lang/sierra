@@ -720,6 +720,18 @@ static bool VersionNumberSeparator(const char Separator) {
   return (Separator == '.' || Separator == '_');
 }
 
+void Parser::ParseVaryingSize(DeclSpec &DS) {
+  BalancedDelimiterTracker T(*this, tok::l_square);
+
+  if (T.consumeOpen()) {
+    Diag(Tok, diag::err_expected_lsquare);
+    return;
+  }
+
+  ExprResult NumElements = ParseConstantExpression();
+  T.consumeClose();
+}
+
 /// \brief Parse a version number.
 ///
 /// version:
@@ -3464,6 +3476,16 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
                                  getLangOpts());
       break;
 
+    // SIMD extension
+    case tok::kw_uniform:
+      /* TODO */
+      break;
+
+    case tok::kw_varying:
+      ConsumeToken();
+      ParseVaryingSize(DS);
+      break;
+
     // C++ typename-specifier:
     case tok::kw_typename:
       if (TryAnnotateTypeOrScopeToken()) {
@@ -4444,6 +4466,10 @@ bool Parser::isTypeSpecifierQualifier() {
     // Debugger support.
   case tok::kw___unknown_anytype:
 
+    // SIMD extension
+  case tok::kw_uniform:
+  case tok::kw_varying:
+
     // typedef-name
   case tok::annot_typename:
     return true;
@@ -4594,6 +4620,10 @@ bool Parser::isDeclarationSpecifier(bool DisambiguatingWithExpression) {
   case tok::kw_const:
   case tok::kw_volatile:
   case tok::kw_restrict:
+
+    // SIMD extension
+  case tok::kw_uniform:
+  case tok::kw_varying:
 
     // function-specifier
   case tok::kw_inline:
@@ -4846,6 +4876,15 @@ void Parser::ParseTypeQualifierListOpt(DeclSpec &DS, unsigned AttrReqs,
         goto DoneWithTypeQuals;
       isInvalid = DS.SetTypeQual(DeclSpec::TQ_atomic, Loc, PrevSpec, DiagID,
                                  getLangOpts());
+      break;
+
+    case tok::kw_uniform:
+      /* TODO */
+      break;
+
+    case tok::kw_varying:
+      ConsumeToken();
+      ParseVaryingSize(DS);
       break;
 
     // OpenCL qualifiers:
