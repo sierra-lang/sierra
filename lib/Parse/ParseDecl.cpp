@@ -418,6 +418,18 @@ void Parser::ParseOpenCLQualifiers(DeclSpec &DS) {
   }
 }
 
+void Parser::ParseVaryingSize(DeclSpec &DS) {
+  BalancedDelimiterTracker T(*this, tok::l_square);
+
+  if (T.consumeOpen()) {
+    Diag(Tok, diag::err_expected_lsquare);
+    return;
+  }
+
+  ExprResult NumElements = ParseConstantExpression();
+  T.consumeClose();
+}
+
 /// \brief Parse a version number.
 ///
 /// version:
@@ -2321,6 +2333,16 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
                                  getLangOpts());
       break;
 
+    // SIMD extension
+    case tok::kw_uniform:
+      /* TODO */
+      break;
+
+    case tok::kw_varying:
+      ConsumeToken();
+      ParseVaryingSize(DS);
+      break;
+
     // C++ typename-specifier:
     case tok::kw_typename:
       if (TryAnnotateTypeOrScopeToken()) {
@@ -3000,6 +3022,8 @@ bool Parser::isTypeQualifier() const {
   case tok::kw___read_only:
   case tok::kw___read_write:
   case tok::kw___write_only:
+  case tok::kw_varying:
+  case tok::kw_uniform:
     return true;
   }
 }
@@ -3115,6 +3139,10 @@ bool Parser::isTypeSpecifierQualifier() {
   case tok::kw_const:
   case tok::kw_volatile:
   case tok::kw_restrict:
+
+    // SIMD extension
+  case tok::kw_uniform:
+  case tok::kw_varying:
 
     // typedef-name
   case tok::annot_typename:
@@ -3251,6 +3279,10 @@ bool Parser::isDeclarationSpecifier(bool DisambiguatingWithExpression) {
   case tok::kw_const:
   case tok::kw_volatile:
   case tok::kw_restrict:
+
+    // SIMD extension
+  case tok::kw_uniform:
+  case tok::kw_varying:
 
     // function-specifier
   case tok::kw_inline:
@@ -3408,6 +3440,15 @@ void Parser::ParseTypeQualifierListOpt(DeclSpec &DS,
     case tok::kw_restrict:
       isInvalid = DS.SetTypeQual(DeclSpec::TQ_restrict, Loc, PrevSpec, DiagID,
                                  getLangOpts());
+      break;
+
+    case tok::kw_uniform:
+      /* TODO */
+      break;
+
+    case tok::kw_varying:
+      ConsumeToken();
+      ParseVaryingSize(DS);
       break;
 
     // OpenCL qualifiers:
