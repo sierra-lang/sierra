@@ -535,6 +535,14 @@ isTemplate(const NamedDecl *ND, const TemplateArgumentList *&TemplateArgs) {
   return 0;
 }
 
+static bool isLambda(const NamedDecl *ND) {
+  const CXXRecordDecl *Record = dyn_cast<CXXRecordDecl>(ND);
+  if (!Record)
+    return false;
+  
+  return Record->isLambda();
+}
+
 void CXXNameMangler::mangleName(const NamedDecl *ND) {
   //  <name> ::= <nested-name>
   //         ::= <unscoped-name>
@@ -545,7 +553,9 @@ void CXXNameMangler::mangleName(const NamedDecl *ND) {
 
   // If this is an extern variable declared locally, the relevant DeclContext
   // is that of the containing namespace, or the translation unit.
-  if (isa<FunctionDecl>(DC) && ND->hasLinkage())
+  // FIXME: This is a hack; extern variables declared locally should have
+  // a proper semantic declaration context!
+  if (isa<FunctionDecl>(DC) && ND->hasLinkage() && !isLambda(ND))
     while (!DC->isNamespace() && !DC->isTranslationUnit())
       DC = getEffectiveParentContext(DC);
   else if (GetLocalClassDecl(ND)) {
@@ -3108,12 +3118,22 @@ void CXXNameMangler::mangleTemplateArg(const NamedDecl *P,
   case TemplateArgument::Declaration: {
     assert(P && "Missing template parameter for declaration argument");
     //  <expr-primary> ::= L <mangled-name> E # external name
-
+    //  <expr-primary> ::= L <type> 0 E
     // Clang produces AST's where pointer-to-member-function expressions
     // and pointer-to-function expressions are represented as a declaration not
     // an expression. We compensate for it here to produce the correct mangling.
-    NamedDecl *D = cast<NamedDecl>(A.getAsDecl());
     const NonTypeTemplateParmDecl *Parameter = cast<NonTypeTemplateParmDecl>(P);
+
+    // Handle NULL pointer arguments.
+    if (!A.getAsDecl()) {
+      Out << "L";
+      mangleType(Parameter->getType());
+      Out << "0E";
+      break;
+    }
+    
+
+    NamedDecl *D = cast<NamedDecl>(A.getAsDecl());
     bool compensateMangling = !Parameter->getType()->isReferenceType();
     if (compensateMangling) {
       Out << 'X';

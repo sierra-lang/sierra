@@ -193,14 +193,16 @@ public:
   void runCheckersForPostStmt(ExplodedNodeSet &Dst,
                               const ExplodedNodeSet &Src,
                               const Stmt *S,
-                              ExprEngine &Eng) {
-    runCheckersForStmt(/*isPreVisit=*/false, Dst, Src, S, Eng);
+                              ExprEngine &Eng,
+                              bool wasInlined = false) {
+    runCheckersForStmt(/*isPreVisit=*/false, Dst, Src, S, Eng, wasInlined);
   }
 
   /// \brief Run checkers for visiting Stmts.
   void runCheckersForStmt(bool isPreVisit,
                           ExplodedNodeSet &Dst, const ExplodedNodeSet &Src,
-                          const Stmt *S, ExprEngine &Eng);
+                          const Stmt *S, ExprEngine &Eng,
+                          bool wasInlined = false);
 
   /// \brief Run checkers for pre-visiting obj-c messages.
   void runCheckersForPreObjCMessage(ExplodedNodeSet &Dst,
@@ -227,8 +229,10 @@ public:
   /// \brief Run checkers for load/store of a location.
   void runCheckersForLocation(ExplodedNodeSet &Dst,
                               const ExplodedNodeSet &Src,
-                              SVal location, bool isLoad,
-                              const Stmt *S,
+                              SVal location,
+                              bool isLoad,
+                              const Stmt *NodeEx,
+                              const Stmt *BoundEx,
                               ExprEngine &Eng);
 
   /// \brief Run checkers for binding of a value to a location.
@@ -341,7 +345,8 @@ public:
   typedef CheckerFn<void (const ObjCMessage &, CheckerContext &)>
       CheckObjCMessageFunc;
   
-  typedef CheckerFn<void (const SVal &location, bool isLoad, const Stmt *S,
+  typedef CheckerFn<void (const SVal &location, bool isLoad,
+                          const Stmt *S,
                           CheckerContext &)>
       CheckLocationFunc;
   

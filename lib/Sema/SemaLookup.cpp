@@ -25,6 +25,7 @@
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
+#include "clang/AST/DeclLookups.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
@@ -38,14 +39,14 @@
 #include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/ADT/edit_distance.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <algorithm>
+#include <iterator>
 #include <limits>
 #include <list>
-#include <set>
-#include <vector>
-#include <iterator>
-#include <utility>
-#include <algorithm>
 #include <map>
+#include <set>
+#include <utility>
+#include <vector>
 
 using namespace clang;
 using namespace sema;
@@ -1413,8 +1414,7 @@ bool Sema::LookupQualifiedName(LookupResult &R, DeclContext *LookupCtx,
   assert((!isa<TagDecl>(LookupCtx) ||
           LookupCtx->isDependentContext() ||
           cast<TagDecl>(LookupCtx)->isCompleteDefinition() ||
-          Context.getTypeDeclType(cast<TagDecl>(LookupCtx))->getAs<TagType>()
-            ->isBeingDefined()) &&
+          cast<TagDecl>(LookupCtx)->isBeingDefined()) &&
          "Declaration context must already be complete!");
 
   // Perform qualified name lookup into the LookupCtx.
@@ -2275,8 +2275,9 @@ Sema::SpecialMemberOverloadResult *Sema::LookupSpecialMember(CXXRecordDecl *RD,
     CXXDestructorDecl *DD = RD->getDestructor();
     assert(DD && "record without a destructor");
     Result->setMethod(DD);
-    Result->setSuccess(!DD->isDeleted());
-    Result->setConstParamMatch(false);
+    Result->setKind(DD->isDeleted() ?
+                    SpecialMemberOverloadResult::NoMemberOrDeleted :
+                    SpecialMemberOverloadResult::SuccessNonConst);
     return Result;
   }
 
@@ -2346,7 +2347,8 @@ Sema::SpecialMemberOverloadResult *Sema::LookupSpecialMember(CXXRecordDecl *RD,
   // will always be a (possibly implicit) declaration to shadow any others.
   OverloadCandidateSet OCS((SourceLocation()));
   DeclContext::lookup_iterator I, E;
-  Result->setConstParamMatch(false);
+  SpecialMemberOverloadResult::Kind SuccessKind =
+      SpecialMemberOverloadResult::SuccessNonConst;
 
   llvm::tie(I, E) = RD->lookup(Name);
   assert((I != E) &&
@@ -2385,7 +2387,7 @@ Sema::SpecialMemberOverloadResult *Sema::LookupSpecialMember(CXXRecordDecl *RD,
         QualType ArgType = M->getType()->getAs<FunctionProtoType>()->getArgType(0);
         if (!ArgType->isReferenceType() ||
             ArgType->getPointeeType().isConstQualified())
-          Result->setConstParamMatch(true);
+          SuccessKind = SpecialMemberOverloadResult::SuccessConst;
       }
     } else if (FunctionTemplateDecl *Tmpl =
                  dyn_cast<FunctionTemplateDecl>(Cand)) {
@@ -2407,18 +2409,22 @@ Sema::SpecialMemberOverloadResult *Sema::LookupSpecialMember(CXXRecordDecl *RD,
   switch (OCS.BestViableFunction(*this, SourceLocation(), Best)) {
     case OR_Success:
       Result->setMethod(cast<CXXMethodDecl>(Best->Function));
-      Result->setSuccess(true);
+      Result->setKind(SuccessKind);
       break;
 
     case OR_Deleted:
       Result->setMethod(cast<CXXMethodDecl>(Best->Function));
-      Result->setSuccess(false);
+      Result->setKind(SpecialMemberOverloadResult::NoMemberOrDeleted);
       break;
 
     case OR_Ambiguous:
+      Result->setMethod(0);
+      Result->setKind(SpecialMemberOverloadResult::Ambiguous);
+      break;
+
     case OR_No_Viable_Function:
       Result->setMethod(0);
-      Result->setSuccess(false);
+      Result->setKind(SpecialMemberOverloadResult::NoMemberOrDeleted);
       break;
   }
 
@@ -2870,25 +2876,15 @@ static void LookupVisibleDecls(DeclContext *Ctx, LookupResult &Result,
     Result.getSema().ForceDeclarationOfImplicitMembers(Class);
 
   // Enumerate all of the results in this context.
-  llvm::SmallVector<DeclContext *, 2> Contexts;
-  Ctx->collectAllContexts(Contexts);
-  for (unsigned I = 0, N = Contexts.size(); I != N; ++I) {
-    DeclContext *CurCtx = Contexts[I];
-    for (DeclContext::decl_iterator D = CurCtx->decls_begin(),
-                                 DEnd = CurCtx->decls_end();
-         D != DEnd; ++D) {
-      if (NamedDecl *ND = dyn_cast<NamedDecl>(*D)) {
+  for (DeclContext::all_lookups_iterator L = Ctx->lookups_begin(),
+                                      LEnd = Ctx->lookups_end();
+       L != LEnd; ++L) {
+    for (DeclContext::lookup_result R = *L; R.first != R.second; ++R.first) {
+      if (NamedDecl *ND = dyn_cast<NamedDecl>(*R.first)) {
         if ((ND = Result.getAcceptableDecl(ND))) {
           Consumer.FoundDecl(ND, Visited.checkHidden(ND), Ctx, InBaseClass);
           Visited.add(ND);
         }
-      }
-      
-      // Visit transparent contexts and inline namespaces inside this context.
-      if (DeclContext *InnerCtx = dyn_cast<DeclContext>(*D)) {
-        if (InnerCtx->isTransparentContext() || InnerCtx->isInlineNamespace())
-          LookupVisibleDecls(InnerCtx, Result, QualifiedNameLookup, InBaseClass,
-                             Consumer, Visited);
       }
     }
   }
@@ -2979,7 +2975,7 @@ static void LookupVisibleDecls(DeclContext *Ctx, LookupResult &Result,
     if (IFace->getImplementation()) {
       ShadowContextRAII Shadow(Visited);
       LookupVisibleDecls(IFace->getImplementation(), Result,
-                         QualifiedNameLookup, true, Consumer, Visited);
+                         QualifiedNameLookup, InBaseClass, Consumer, Visited);
     }
   } else if (ObjCProtocolDecl *Protocol = dyn_cast<ObjCProtocolDecl>(Ctx)) {
     for (ObjCProtocolDecl::protocol_iterator I = Protocol->protocol_begin(),
@@ -3807,7 +3803,13 @@ TypoCorrection Sema::CorrectTypo(const DeclarationNameInfo &TypoName,
     }
   }
 
-  if (IsUnqualifiedLookup || (QualifiedDC && QualifiedDC->isNamespace())) {
+  // Determine whether we are going to search in the various namespaces for
+  // corrections.
+  bool SearchNamespaces
+    = getLangOpts().CPlusPlus &&
+      (IsUnqualifiedLookup || (QualifiedDC && QualifiedDC->isNamespace()));
+  
+  if (IsUnqualifiedLookup || SearchNamespaces) {
     // For unqualified lookup, look through all of the names that we have
     // seen in this translation unit.
     // FIXME: Re-add the ability to skip very unlikely potential corrections.
@@ -3853,8 +3855,9 @@ TypoCorrection Sema::CorrectTypo(const DeclarationNameInfo &TypoName,
     return TypoCorrection();
   }
 
-  // Build the NestedNameSpecifiers for the KnownNamespaces
-  if (getLangOpts().CPlusPlus) {
+  // Build the NestedNameSpecifiers for the KnownNamespaces, if we're going
+  // to search those namespaces.
+  if (SearchNamespaces) {
     // Load any externally-known namespaces.
     if (ExternalSource && !LoadedExternalKnownNamespaces) {
       SmallVector<NamespaceDecl *, 4> ExternalKnownNamespaces;
@@ -3949,7 +3952,7 @@ TypoCorrection Sema::CorrectTypo(const DeclarationNameInfo &TypoName,
       break;
 
     // Only perform the qualified lookups for C++
-    if (getLangOpts().CPlusPlus) {
+    if (SearchNamespaces) {
       TmpRes.suppressDiagnostics();
       for (llvm::SmallVector<TypoCorrection,
                              16>::iterator QRI = QualifiedResults.begin(),

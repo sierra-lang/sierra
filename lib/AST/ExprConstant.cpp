@@ -1743,8 +1743,10 @@ static bool HandleLValueToRValueConversion(EvalInfo &Info, const Expr *Conv,
     // parameters are constant expressions even if they're non-const.
     // In C, such things can also be folded, although they are not ICEs.
     const VarDecl *VD = dyn_cast<VarDecl>(D);
-    if (const VarDecl *VDef = VD->getDefinition(Info.Ctx))
-      VD = VDef;
+    if (VD) {
+      if (const VarDecl *VDef = VD->getDefinition(Info.Ctx))
+        VD = VDef;
+    }
     if (!VD || VD->isInvalidDecl()) {
       Info.Diag(Conv);
       return false;
@@ -3176,6 +3178,7 @@ bool PointerExprEvaluator::VisitCastExpr(const CastExpr* E) {
     return HandleBaseToDerivedCast(Info, E, Result);
 
   case CK_NullToPointer:
+    VisitIgnoredValue(E->getSubExpr());
     return ZeroInitialization(E);
 
   case CK_IntegralToPointer: {
@@ -3274,6 +3277,7 @@ bool MemberPointerExprEvaluator::VisitCastExpr(const CastExpr *E) {
     return ExprEvaluatorBaseTy::VisitCastExpr(E);
 
   case CK_NullToMemberPointer:
+    VisitIgnoredValue(E->getSubExpr());
     return ZeroInitialization(E);
 
   case CK_BaseToDerivedMemberPointer: {
@@ -4510,12 +4514,10 @@ public:
   bool Traverse(const BinaryOperator *E) {
     enqueue(E);
     EvalResult PrevResult;
-    while (!Queue.empty()) {
-      if (!process(PrevResult)) {
-        Queue.clear();
-        return false;
-      }
-    }
+    while (!Queue.empty())
+      process(PrevResult);
+
+    if (PrevResult.Failed) return false;
 
     FinalResult.swap(PrevResult.Val);
     return true;
@@ -4539,8 +4541,8 @@ private:
     return Info.CCEDiag(E, D);
   }
 
-  bool VisitBinOpLHSOnly(const EvalResult &LHSResult, const BinaryOperator *E,
-                         bool &IgnoreRHS, APValue &Result,
+  // \brief Returns true if visiting the RHS is necessary, false otherwise.
+  bool VisitBinOpLHSOnly(EvalResult &LHSResult, const BinaryOperator *E,
                          bool &SuppressRHSDiags);
 
   bool VisitBinOp(const EvalResult &LHSResult, const EvalResult &RHSResult,
@@ -4552,7 +4554,7 @@ private:
       Result.Val = APValue();
   }
 
-  bool process(EvalResult &Result);
+  void process(EvalResult &Result);
 
   void enqueue(const Expr *E) {
     E = E->IgnoreParens();
@@ -4565,8 +4567,7 @@ private:
 }
 
 bool DataRecursiveIntBinOpEvaluator::
-       VisitBinOpLHSOnly(const EvalResult &LHSResult, const BinaryOperator *E,
-                         bool &IgnoreRHS, APValue &Result,
+       VisitBinOpLHSOnly(EvalResult &LHSResult, const BinaryOperator *E,
                          bool &SuppressRHSDiags) {
   if (E->getOpcode() == BO_Comma) {
     // Ignore LHS but note if we could not evaluate it.
@@ -4581,8 +4582,8 @@ bool DataRecursiveIntBinOpEvaluator::
       // We were able to evaluate the LHS, see if we can get away with not
       // evaluating the RHS: 0 && X -> 0, 1 || X -> 1
       if (lhsResult == (E->getOpcode() == BO_LOr)) {
-        IgnoreRHS = true;
-        return Success(lhsResult, E, Result);
+        Success(lhsResult, E, LHSResult.Val);
+        return false; // Ignore RHS
       }
     } else {
       // Since we weren't able to evaluate the left hand side, it
@@ -4602,8 +4603,8 @@ bool DataRecursiveIntBinOpEvaluator::
          E->getRHS()->getType()->isIntegralOrEnumerationType());
   
   if (LHSResult.Failed && !Info.keepEvaluatingAfterFailure())
-    return false;
-  
+    return false; // Ignore RHS;
+
   return true;
 }
 
@@ -4785,7 +4786,7 @@ bool DataRecursiveIntBinOpEvaluator::
   }
 }
 
-bool DataRecursiveIntBinOpEvaluator::process(EvalResult &Result) {
+void DataRecursiveIntBinOpEvaluator::process(EvalResult &Result) {
   Job &job = Queue.back();
   
   switch (job.Kind) {
@@ -4794,40 +4795,37 @@ bool DataRecursiveIntBinOpEvaluator::process(EvalResult &Result) {
         if (shouldEnqueue(Bop)) {
           job.Kind = Job::BinOpKind;
           enqueue(Bop->getLHS());
-          return true;
+          return;
         }
       }
       
       EvaluateExpr(job.E, Result);
       Queue.pop_back();
-      return true;
+      return;
     }
       
     case Job::BinOpKind: {
       const BinaryOperator *Bop = cast<BinaryOperator>(job.E);
-      job.LHSResult.swap(Result);
-      bool IgnoreRHS = false;
       bool SuppressRHSDiags = false;
-      bool ret = VisitBinOpLHSOnly(job.LHSResult, Bop, IgnoreRHS, Result.Val,
-                                   SuppressRHSDiags);
-      if (IgnoreRHS) {
+      if (!VisitBinOpLHSOnly(Result, Bop, SuppressRHSDiags)) {
         Queue.pop_back();
-        return ret;
+        return;
       }
       if (SuppressRHSDiags)
         job.startSpeculativeEval(Info);
+      job.LHSResult.swap(Result);
       job.Kind = Job::BinOpVisitedLHSKind;
       enqueue(Bop->getRHS());
-      return ret;
+      return;
     }
       
     case Job::BinOpVisitedLHSKind: {
       const BinaryOperator *Bop = cast<BinaryOperator>(job.E);
       EvalResult RHS;
       RHS.swap(Result);
-      bool ret = VisitBinOp(job.LHSResult, RHS, Bop, Result.Val);
+      Result.Failed = !VisitBinOp(job.LHSResult, RHS, Bop, Result.Val);
       Queue.pop_back();
-      return ret;
+      return;
     }
   }
   

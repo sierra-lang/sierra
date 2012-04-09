@@ -245,6 +245,7 @@ public:
   static const TST TST_char16 = clang::TST_char16;
   static const TST TST_char32 = clang::TST_char32;
   static const TST TST_int = clang::TST_int;
+  static const TST TST_int128 = clang::TST_int128;
   static const TST TST_half = clang::TST_half;
   static const TST TST_float = clang::TST_float;
   static const TST TST_double = clang::TST_double;
@@ -1653,6 +1654,10 @@ public:
 
     if (getDeclSpec().getStorageClassSpec() == DeclSpec::SCS_extern &&
         Context != FileContext)
+      return false;
+
+    // Special names can't have direct initializers.
+    if (Name.getKind() != UnqualifiedId::IK_Identifier)
       return false;
 
     switch (Context) {

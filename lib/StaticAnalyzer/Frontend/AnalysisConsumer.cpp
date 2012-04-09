@@ -53,6 +53,9 @@ static ExplodedNode::Auditor* CreateUbiViz();
 
 STATISTIC(NumFunctionTopLevel, "The # of functions at top level.");
 STATISTIC(NumFunctionsAnalyzed, "The # of functions analysed (as top level).");
+STATISTIC(NumBlocksInAnalyzedFunctions,
+                     "The # of basic blocks in the analyzed functions.");
+STATISTIC(PercentReachableBlocks, "The % of reachable basic blocks.");
 
 //===----------------------------------------------------------------------===//
 // Special PathDiagnosticConsumers.
@@ -103,6 +106,10 @@ public:
 
   /// Time the analyzes time of each translation unit.
   static llvm::Timer* TUTotalTimer;
+
+  /// The information about analyzed functions shared throughout the
+  /// translation unit.
+  FunctionSummariesTy FunctionSummaries;
 
   AnalysisConsumer(const Preprocessor& pp,
                    const std::string& outdir,
@@ -203,7 +210,8 @@ public:
                                   Opts.IPAMode,
                                   Opts.InlineMaxStackDepth,
                                   Opts.InlineMaxFunctionSize,
-                                  Opts.InliningMode));
+                                  Opts.InliningMode,
+                                  Opts.NoRetryExhausted));
   }
 
   virtual void HandleTranslationUnit(ASTContext &C);
@@ -368,6 +376,14 @@ void AnalysisConsumer::HandleTranslationUnit(ASTContext &C) {
   Mgr.reset(NULL);
 
   if (TUTotalTimer) TUTotalTimer->stopTimer();
+
+  // Count how many basic blocks we have not covered.
+  NumBlocksInAnalyzedFunctions = FunctionSummaries.getTotalNumBasicBlocks();
+  if (NumBlocksInAnalyzedFunctions > 0)
+    PercentReachableBlocks =
+      (FunctionSummaries.getTotalNumVisitedBasicBlocks() * 100) /
+        NumBlocksInAnalyzedFunctions;
+
 }
 
 static void FindBlocks(DeclContext *D, SmallVectorImpl<Decl*> &WL) {
@@ -430,10 +446,11 @@ void AnalysisConsumer::HandleCode(Decl *D, AnalysisMode Mode,
     if ((*WI)->hasBody()) {
       if (Mode != ANALYSIS_PATH)
         checkerMgr->runCheckersOnASTBody(*WI, *Mgr, BR);
-      if (Mode != ANALYSIS_SYNTAX && checkerMgr->hasPathSensitiveCheckers())
+      if (Mode != ANALYSIS_SYNTAX && checkerMgr->hasPathSensitiveCheckers()) {
         RunPathSensitiveChecks(*WI, VisitedCallees);
+        NumFunctionsAnalyzed++;
+      }
     }
-  NumFunctionsAnalyzed++;
 }
 
 //===----------------------------------------------------------------------===//
@@ -447,7 +464,7 @@ void AnalysisConsumer::ActionExprEngine(Decl *D, bool ObjCGCEnabled,
   if (!Mgr->getCFG(D))
     return;
 
-  ExprEngine Eng(*Mgr, ObjCGCEnabled, VisitedCallees);
+  ExprEngine Eng(*Mgr, ObjCGCEnabled, VisitedCallees, &FunctionSummaries);
 
   // Set the graph auditor.
   OwningPtr<ExplodedNode::Auditor> Auditor;

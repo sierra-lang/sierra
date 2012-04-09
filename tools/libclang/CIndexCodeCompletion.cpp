@@ -213,7 +213,21 @@ CXString clang_getCompletionAnnotation(CXCompletionString completion_string,
                : createCXString((const char *) 0);
 }
 
-
+CXString
+clang_getCompletionParent(CXCompletionString completion_string,
+                          CXCursorKind *kind) {
+  if (kind)
+    *kind = CXCursor_NotImplemented;
+  
+  CodeCompletionString *CCStr = (CodeCompletionString *)completion_string;
+  if (!CCStr)
+    return createCXString((const char *)0);
+  
+  if (kind)
+    *kind = CCStr->getParentContextKind();
+  return createCXString(CCStr->getParentContextName(), /*DupString=*/false);
+}
+  
 /// \brief The CXCodeCompleteResults structure we allocate internally;
 /// the client only sees the initial CXCodeCompleteResults structure.
 struct AllocatedCXCodeCompleteResults : public CXCodeCompleteResults {
@@ -651,6 +665,10 @@ void clang_codeCompleteAt_Impl(void *UserData) {
   ASTUnit *AST = static_cast<ASTUnit *>(TU->TUData);
   if (!AST)
     return;
+
+  CIndexer *CXXIdx = (CIndexer*)TU->CIdx;
+  if (CXXIdx->isOptEnabled(CXGlobalOpt_ThreadBackgroundPriorityForEditing))
+    setThreadBackgroundPriority();
 
   ASTUnit::ConcurrencyCheck Check(*AST);
 

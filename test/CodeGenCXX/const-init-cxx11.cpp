@@ -78,6 +78,11 @@ namespace BaseClass {
   struct Test2 : X<E,0>, X<E,1>, X<E,2>, X<E,3> {};
   // CHECK: @_ZN9BaseClass2t2E = constant {{.*}} undef
   extern constexpr Test2 t2 = Test2();
+
+  struct __attribute((packed)) PackedD { double y = 2; };
+  struct Test3 : C, PackedD { constexpr Test3() {} };
+  // CHECK: @_ZN9BaseClass2t3E = constant <{ i8, double }> <{ i8 1, double 2.000000e+00 }>
+  extern constexpr Test3 t3 = Test3();
 }
 
 namespace Array {
@@ -408,4 +413,13 @@ namespace InitFromConst {
     // CHECK: call void @_ZN13InitFromConst7consumeIPKiEEvT_(i32* getelementptr inbounds ([3 x i32]* @_ZN13InitFromConstL1aE, i32 0, i32 0))
     consume(a);
   }
+}
+
+namespace Null {
+  decltype(nullptr) null();
+  // CHECK: call {{.*}} @_ZN4Null4nullEv(
+  int *p = null();
+  struct S {};
+  // CHECK: call {{.*}} @_ZN4Null4nullEv(
+  int S::*q = null();
 }

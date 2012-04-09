@@ -108,6 +108,28 @@ static AvailabilityResult DiagnoseAvailabilityOfDecl(Sema &S,
     return Result;
 }
 
+/// \brief Emit a note explaining that this function is deleted or unavailable.
+void Sema::NoteDeletedFunction(FunctionDecl *Decl) {
+  CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(Decl);
+
+  if (Method && Method->isDeleted() && !Method->isDeletedAsWritten()) {
+    // If the method was explicitly defaulted, point at that declaration.
+    if (!Method->isImplicit())
+      Diag(Decl->getLocation(), diag::note_implicitly_deleted);
+
+    // Try to diagnose why this special member function was implicitly
+    // deleted. This might fail, if that reason no longer applies.
+    CXXSpecialMember CSM = getSpecialMember(Method);
+    if (CSM != CXXInvalid)
+      ShouldDeleteSpecialMember(Method, CSM, /*Diagnose=*/true);
+
+    return;
+  }
+
+  Diag(Decl->getLocation(), diag::note_unavailable_here)
+    << 1 << Decl->isDeleted();
+}
+
 /// \brief Determine whether the use of this declaration is valid, and
 /// emit any corresponding diagnostics.
 ///
@@ -151,7 +173,7 @@ bool Sema::DiagnoseUseOfDecl(NamedDecl *D, SourceLocation Loc,
   if (FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
     if (FD->isDeleted()) {
       Diag(Loc, diag::err_deleted_function_use);
-      Diag(D->getLocation(), diag::note_unavailable_here) << 1 << true;
+      NoteDeletedFunction(FD);
       return true;
     }
   }
@@ -3115,18 +3137,18 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
     BaseExpr = LHSExp;
     IndexExpr = RHSExp;
     ResultType = PTy->getPointeeType();
-  } else if (const PointerType *PTy = RHSTy->getAs<PointerType>()) {
-     // Handle the uncommon case of "123[Ptr]".
-    BaseExpr = RHSExp;
-    IndexExpr = LHSExp;
-    ResultType = PTy->getPointeeType();
   } else if (const ObjCObjectPointerType *PTy =
-               LHSTy->getAs<ObjCObjectPointerType>()) {
+             LHSTy->getAs<ObjCObjectPointerType>()) {
     BaseExpr = LHSExp;
     IndexExpr = RHSExp;
     Result = BuildObjCSubscriptExpression(RLoc, BaseExpr, IndexExpr, 0, 0);
     if (!Result.isInvalid())
       return Owned(Result.take());
+    ResultType = PTy->getPointeeType();
+  } else if (const PointerType *PTy = RHSTy->getAs<PointerType>()) {
+     // Handle the uncommon case of "123[Ptr]".
+    BaseExpr = RHSExp;
+    IndexExpr = LHSExp;
     ResultType = PTy->getPointeeType();
   } else if (const ObjCObjectPointerType *PTy =
                RHSTy->getAs<ObjCObjectPointerType>()) {
@@ -3588,8 +3610,6 @@ Sema::ActOnCallExpr(Scope *S, Expr *Fn, SourceLocation LParenLoc,
           << FixItHint::CreateRemoval(
                                     SourceRange(Args[0]->getLocStart(),
                                                 Args[NumArgs-1]->getLocEnd()));
-
-        NumArgs = 0;
       }
 
       return Owned(new (Context) CallExpr(Context, Fn, 0, 0, Context.VoidTy,
@@ -4548,8 +4568,28 @@ static QualType checkConditionalPointerCompatibility(Sema &S, ExprResult &LHS,
     rhptee = RHSTy->castAs<PointerType>()->getPointeeType();
   }
 
-  if (!S.Context.typesAreCompatible(lhptee.getUnqualifiedType(),
-                                    rhptee.getUnqualifiedType())) {
+  // C99 6.5.15p6: If both operands are pointers to compatible types or to
+  // differently qualified versions of compatible types, the result type is
+  // a pointer to an appropriately qualified version of the composite
+  // type.
+
+  // Only CVR-qualifiers exist in the standard, and the differently-qualified
+  // clause doesn't make sense for our extensions. E.g. address space 2 should
+  // be incompatible with address space 3: they may live on different devices or
+  // anything.
+  Qualifiers lhQual = lhptee.getQualifiers();
+  Qualifiers rhQual = rhptee.getQualifiers();
+
+  unsigned MergedCVRQual = lhQual.getCVRQualifiers() | rhQual.getCVRQualifiers();
+  lhQual.removeCVRQualifiers();
+  rhQual.removeCVRQualifiers();
+
+  lhptee = S.Context.getQualifiedType(lhptee.getUnqualifiedType(), lhQual);
+  rhptee = S.Context.getQualifiedType(rhptee.getUnqualifiedType(), rhQual);
+
+  QualType CompositeTy = S.Context.mergeTypes(lhptee, rhptee);
+
+  if (CompositeTy.isNull()) {
     S.Diag(Loc, diag::warn_typecheck_cond_incompatible_pointers)
       << LHSTy << RHSTy << LHS.get()->getSourceRange()
       << RHS.get()->getSourceRange();
@@ -4563,16 +4603,12 @@ static QualType checkConditionalPointerCompatibility(Sema &S, ExprResult &LHS,
   }
 
   // The pointer types are compatible.
-  // C99 6.5.15p6: If both operands are pointers to compatible types *or* to
-  // differently qualified versions of compatible types, the result type is
-  // a pointer to an appropriately qualified version of the *composite*
-  // type.
-  // FIXME: Need to calculate the composite type.
-  // FIXME: Need to add qualifiers
+  QualType ResultTy = CompositeTy.withCVRQualifiers(MergedCVRQual);
+  ResultTy = S.Context.getPointerType(ResultTy);
 
-  LHS = S.ImpCastExprToType(LHS.take(), LHSTy, CK_BitCast);
-  RHS = S.ImpCastExprToType(RHS.take(), LHSTy, CK_BitCast);
-  return LHSTy;
+  LHS = S.ImpCastExprToType(LHS.take(), ResultTy, CK_BitCast);
+  RHS = S.ImpCastExprToType(RHS.take(), ResultTy, CK_BitCast);
+  return ResultTy;
 }
 
 /// \brief Return the resulting type when the operands are both block pointers.
@@ -7161,7 +7197,7 @@ static bool CheckForModifiableLvalue(Expr *E, SourceLocation Loc, Sema &S) {
                                                               &Loc);
   if (IsLV == Expr::MLV_Valid && IsReadonlyProperty(E, S))
     IsLV = Expr::MLV_ReadonlyProperty;
-  else if (Expr::MLV_ConstQualified && IsConstProperty(E, S))
+  else if (IsLV == Expr::MLV_ConstQualified && IsConstProperty(E, S))
     IsLV = Expr::MLV_Valid;
   else if (IsLV == Expr::MLV_ClassTemporary && IsReadonlyMessage(E, S))
     IsLV = Expr::MLV_InvalidMessageExpression;
@@ -8526,11 +8562,28 @@ static Expr *maybeRebuildARCConsumingStmt(Stmt *Statement) {
   return cleanups;
 }
 
+void Sema::ActOnStartStmtExpr() {
+  PushExpressionEvaluationContext(ExprEvalContexts.back().Context);
+}
+
+void Sema::ActOnStmtExprError() {
+  // Note that function is also called by TreeTransform when leaving a
+  // StmtExpr scope without rebuilding anything.
+
+  DiscardCleanupsInEvaluationContext();
+  PopExpressionEvaluationContext();
+}
+
 ExprResult
 Sema::ActOnStmtExpr(SourceLocation LPLoc, Stmt *SubStmt,
                     SourceLocation RPLoc) { // "({..})"
   assert(SubStmt && isa<CompoundStmt>(SubStmt) && "Invalid action invocation!");
   CompoundStmt *Compound = cast<CompoundStmt>(SubStmt);
+
+  if (hasAnyUnrecoverableErrorsInThisFunction())
+    DiscardCleanupsInEvaluationContext();
+  assert(!ExprNeedsCleanups && "cleanups within StmtExpr not correctly bound!");
+  PopExpressionEvaluationContext();
 
   bool isFileScope
     = (getCurFunctionOrMethodDecl() == 0) && (getCurBlock() == 0);
@@ -10087,6 +10140,17 @@ bool Sema::tryCaptureVariable(VarDecl *Var, SourceLocation Loc,
         return true;
       }
 
+      // Forbid the block-capture of autoreleasing variables.
+      if (CaptureType.getObjCLifetime() == Qualifiers::OCL_Autoreleasing) {
+        if (BuildAndDiagnose) {
+          Diag(Loc, diag::err_arc_autoreleasing_capture)
+            << /*block*/ 0;
+          Diag(Var->getLocation(), diag::note_previous_decl)
+            << Var->getDeclName();
+        }
+        return true;
+      }
+
       if (HasBlocksAttr || CaptureType->isReferenceType()) {
         // Block capture by reference does not change the capture or
         // declaration reference types.
@@ -10178,6 +10242,16 @@ bool Sema::tryCaptureVariable(VarDecl *Var, SourceLocation Loc,
       if (const ReferenceType *RefType = CaptureType->getAs<ReferenceType>()){
         if (!RefType->getPointeeType()->isFunctionType())
           CaptureType = RefType->getPointeeType();
+      }
+
+      // Forbid the lambda copy-capture of autoreleasing variables.
+      if (CaptureType.getObjCLifetime() == Qualifiers::OCL_Autoreleasing) {
+        if (BuildAndDiagnose) {
+          Diag(Loc, diag::err_arc_autoreleasing_capture) << /*lambda*/ 1;
+          Diag(Var->getLocation(), diag::note_previous_decl)
+            << Var->getDeclName();
+        }
+        return true;
       }
     }
 
@@ -10406,7 +10480,8 @@ namespace {
 bool MarkReferencedDecls::TraverseTemplateArgument(
   const TemplateArgument &Arg) {
   if (Arg.getKind() == TemplateArgument::Declaration) {
-    S.MarkAnyDeclReferenced(Loc, Arg.getAsDecl());
+    if (Decl *D = Arg.getAsDecl())
+      S.MarkAnyDeclReferenced(Loc, D);
   }
 
   return Inherited::TraverseTemplateArgument(Arg);

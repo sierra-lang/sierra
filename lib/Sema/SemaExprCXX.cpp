@@ -1899,8 +1899,7 @@ bool Sema::FindDeallocationFunction(SourceLocation StartLoc, CXXRecordDecl *RD,
     if (Operator->isDeleted()) {
       if (Diagnose) {
         Diag(StartLoc, diag::err_deleted_function_use);
-        Diag(Operator->getLocation(), diag::note_unavailable_here)
-          << /*function*/ 1 << /*deleted*/ 1;
+        NoteDeletedFunction(Operator);
       }
       return true;
     }
@@ -2277,8 +2276,9 @@ static ExprResult BuildCXXCastArgument(Sema &S,
                                   CastLoc, ConstructorArgs))
       return ExprError();
 
-    S.CheckConstructorAccess(CastLoc, Constructor, Constructor->getAccess(),
-                             S.PDiag(diag::err_access_ctor));
+    S.CheckConstructorAccess(CastLoc, Constructor,
+                             InitializedEntity::InitializeTemporary(Ty),
+                             Constructor->getAccess());
     
     ExprResult Result
       = S.BuildCXXConstructExpr(CastLoc, Ty, cast<CXXConstructorDecl>(Method),

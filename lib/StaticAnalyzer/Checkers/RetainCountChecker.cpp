@@ -985,6 +985,21 @@ const RetainSummary * RetainSummaryManager::getSummary(const FunctionDecl *FD) {
       // correctly.
       ScratchArgs = AF.add(ScratchArgs, 12, StopTracking);
       S = getPersistentSummary(RetEffect::MakeNoRet(), DoNothing, DoNothing);
+    } else if (FName == "dispatch_set_context") {
+      // <rdar://problem/11059275> - The analyzer currently doesn't have
+      // a good way to reason about the finalizer function for libdispatch.
+      // If we pass a context object that is memory managed, stop tracking it.
+      // FIXME: this hack should possibly go away once we can handle
+      // libdispatch finalizers.
+      ScratchArgs = AF.add(ScratchArgs, 1, StopTracking);
+      S = getPersistentSummary(RetEffect::MakeNoRet(), DoNothing, DoNothing);
+    } else if (FName.startswith("NS") &&
+                (FName.find("Insert") != StringRef::npos)) {
+      // Whitelist NSXXInsertXX, for example NSMapInsertIfAbsent, since they can
+      // be deallocated by NSMapRemove. (radar://11152419)
+      ScratchArgs = AF.add(ScratchArgs, 1, StopTracking);
+      ScratchArgs = AF.add(ScratchArgs, 2, StopTracking);
+      S = getPersistentSummary(RetEffect::MakeNoRet(), DoNothing, DoNothing);
     }
 
     // Did we get a summary?
@@ -1605,7 +1620,7 @@ namespace {
   class CFRefBug : public BugType {
   protected:
     CFRefBug(StringRef name)
-    : BugType(name, "Memory (Core Foundation/Objective-C)") {}
+    : BugType(name, categories::MemoryCoreFoundationObjectiveC) {}
   public:
 
     // FIXME: Eventually remove.
@@ -1705,7 +1720,7 @@ namespace {
   // Bug Reports.  //
   //===---------===//
 
-  class CFRefReportVisitor : public BugReporterVisitor {
+  class CFRefReportVisitor : public BugReporterVisitorImpl<CFRefReportVisitor> {
   protected:
     SymbolRef Sym;
     const SummaryLogTy &SummaryLog;
@@ -1740,6 +1755,15 @@ namespace {
     PathDiagnosticPiece *getEndPath(BugReporterContext &BRC,
                                     const ExplodedNode *N,
                                     BugReport &BR);
+
+    virtual BugReporterVisitor *clone() const {
+      // The curiously-recurring template pattern only works for one level of
+      // subclassing. Rather than make a new template base for
+      // CFRefReportVisitor, we simply override clone() to do the right thing.
+      // This could be trouble someday if BugReporterVisitorImpl is ever
+      // used for something else besides a convenient implementation of clone().
+      return new CFRefLeakReportVisitor(*this);
+    }
   };
 
   class CFRefReport : public BugReport {
@@ -2106,38 +2130,6 @@ PathDiagnosticPiece *CFRefReportVisitor::VisitNode(const ExplodedNode *N,
   return P;
 }
 
-namespace {
-  class FindUniqueBinding :
-  public StoreManager::BindingsHandler {
-    SymbolRef Sym;
-    const MemRegion* Binding;
-    bool First;
-
-  public:
-    FindUniqueBinding(SymbolRef sym) : Sym(sym), Binding(0), First(true) {}
-
-    bool HandleBinding(StoreManager& SMgr, Store store, const MemRegion* R,
-                       SVal val) {
-
-      SymbolRef SymV = val.getAsSymbol();
-      if (!SymV || SymV != Sym)
-        return true;
-
-      if (Binding) {
-        First = false;
-        return false;
-      }
-      else
-        Binding = R;
-
-      return true;
-    }
-
-    operator bool() { return First && Binding; }
-    const MemRegion *getRegion() { return Binding; }
-  };
-}
-
 // Find the first node in the current function context that referred to the
 // tracked symbol and the memory location that value was stored to. Note, the
 // value is only reported if the allocation occurred in the same function as
@@ -2156,7 +2148,7 @@ GetAllocationSite(ProgramStateManager& StateMgr, const ExplodedNode *N,
     if (!B.lookup(Sym))
       break;
 
-    FindUniqueBinding FB(Sym);
+    StoreManager::FindUniqueBinding FB(Sym);
     StateMgr.iterBindings(St, FB);
     if (FB) FirstBinding = FB.getRegion();
 
@@ -2623,6 +2615,9 @@ void RetainCountChecker::checkPostStmt(const CastExpr *CE,
 
 void RetainCountChecker::checkPostStmt(const CallExpr *CE,
                                        CheckerContext &C) const {
+  if (C.wasInlined)
+    return;
+  
   // Get the callee.
   ProgramStateRef state = C.getState();
   const Expr *Callee = CE->getCallee();
@@ -3352,6 +3347,12 @@ void RetainCountChecker::checkBind(SVal loc, SVal val, const Stmt *S,
       // the same state, then it escapes (since the store cannot represent
       // the binding).
       escapes = (state == (state->bindLoc(*regionLoc, val)));
+    }
+    if (!escapes) {
+      // Case 4: We do not currently model what happens when a symbol is
+      // assigned to a struct field, so be conservative here and let the symbol
+      // go. TODO: This could definitely be improved upon.
+      escapes = !isa<VarRegion>(regionLoc->getRegion());
     }
   }
 

@@ -20,6 +20,7 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/SubEngine.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CoreEngine.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/ProgramStateTrait.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/BugReporter.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/Type.h"
@@ -90,21 +91,24 @@ class ExprEngine : public SubEngine {
   GRBugReporter BR;
 
 public:
-  ExprEngine(AnalysisManager &mgr, bool gcEnabled, SetOfDecls *VisitedCallees);
+  ExprEngine(AnalysisManager &mgr, bool gcEnabled, SetOfDecls *VisitedCallees,
+             FunctionSummariesTy *FS);
 
   ~ExprEngine();
 
-  void ExecuteWorkList(const LocationContext *L, unsigned Steps = 150000) {
-    Engine.ExecuteWorkList(L, Steps, 0);
+  /// Returns true if there is still simulation state on the worklist.
+  bool ExecuteWorkList(const LocationContext *L, unsigned Steps = 150000) {
+    return Engine.ExecuteWorkList(L, Steps, 0);
   }
 
   /// Execute the work list with an initial state. Nodes that reaches the exit
   /// of the function are added into the Dst set, which represent the exit
-  /// state of the function call.
-  void ExecuteWorkListWithInitialState(const LocationContext *L, unsigned Steps,
+  /// state of the function call. Returns true if there is still simulation
+  /// state on the worklist.
+  bool ExecuteWorkListWithInitialState(const LocationContext *L, unsigned Steps,
                                        ProgramStateRef InitState, 
                                        ExplodedNodeSet &Dst) {
-    Engine.ExecuteWorkListWithInitialState(L, Steps, InitState, Dst);
+    return Engine.ExecuteWorkListWithInitialState(L, Steps, InitState, Dst);
   }
 
   /// getContext - Return the ASTContext associated with this analysis.
@@ -167,7 +171,8 @@ public:
                             ExplodedNode *Pred, ExplodedNodeSet &Dst);
 
   /// Called by CoreEngine when processing the entrance of a CFGBlock.
-  virtual void processCFGBlockEntrance(NodeBuilderWithSinks &nodeBuilder);
+  virtual void processCFGBlockEntrance(const BlockEdge &L,
+                                       NodeBuilderWithSinks &nodeBuilder);
   
   /// ProcessBranch - Called by CoreEngine.  Used to generate successor
   ///  nodes by processing the 'effects' of a branch condition.
@@ -426,8 +431,7 @@ protected:
   /// evalBind - Handle the semantics of binding a value to a specific location.
   ///  This method is used by evalStore, VisitDeclStmt, and others.
   void evalBind(ExplodedNodeSet &Dst, const Stmt *StoreE, ExplodedNode *Pred,
-                SVal location, SVal Val, bool atDeclInit = false,
-                ProgramPoint::Kind PP = ProgramPoint::PostStmtKind);
+                SVal location, SVal Val, bool atDeclInit = false);
 
 public:
   // FIXME: 'tag' should be removed, and a LocationContext should be used
@@ -436,8 +440,13 @@ public:
   // be the same as Pred->state, and when 'location' may not be the
   // same as state->getLValue(Ex).
   /// Simulate a read of the result of Ex.
-  void evalLoad(ExplodedNodeSet &Dst, const Expr *Ex, ExplodedNode *Pred,
-                ProgramStateRef St, SVal location, const ProgramPointTag *tag = 0,
+  void evalLoad(ExplodedNodeSet &Dst,
+                const Expr *NodeEx,  /* Eventually will be a CFGStmt */
+                const Expr *BoundExpr,
+                ExplodedNode *Pred,
+                ProgramStateRef St,
+                SVal location,
+                const ProgramPointTag *tag = 0,
                 QualType LoadTy = QualType());
 
   // FIXME: 'tag' should be removed, and a LocationContext should be used
@@ -446,17 +455,37 @@ public:
                  ExplodedNode *Pred, ProgramStateRef St, SVal TargetLV, SVal Val,
                  const ProgramPointTag *tag = 0);
 private:
-  void evalLoadCommon(ExplodedNodeSet &Dst, const Expr *Ex, ExplodedNode *Pred,
-                      ProgramStateRef St, SVal location, const ProgramPointTag *tag,
+  void evalLoadCommon(ExplodedNodeSet &Dst,
+                      const Expr *NodeEx,  /* Eventually will be a CFGStmt */
+                      const Expr *BoundEx,
+                      ExplodedNode *Pred,
+                      ProgramStateRef St,
+                      SVal location,
+                      const ProgramPointTag *tag,
                       QualType LoadTy);
 
   // FIXME: 'tag' should be removed, and a LocationContext should be used
   // instead.
-  void evalLocation(ExplodedNodeSet &Dst, const Stmt *S, ExplodedNode *Pred,
+  void evalLocation(ExplodedNodeSet &Dst,
+                    const Stmt *NodeEx, /* This will eventually be a CFGStmt */
+                    const Stmt *BoundEx,
+                    ExplodedNode *Pred,
                     ProgramStateRef St, SVal location,
                     const ProgramPointTag *tag, bool isLoad);
 
+  bool shouldInlineDecl(const FunctionDecl *FD, ExplodedNode *Pred);
   bool InlineCall(ExplodedNodeSet &Dst, const CallExpr *CE, ExplodedNode *Pred);
+
+  bool replayWithoutInlining(ExplodedNode *P, const LocationContext *CalleeLC);
+};
+
+/// Traits for storing the call processing policy inside GDM.
+/// The GDM stores the corresponding CallExpr pointer.
+struct ReplayWithoutInlining{};
+template <>
+struct ProgramStateTrait<ReplayWithoutInlining> :
+  public ProgramStatePartialTrait<void*> {
+  static void *GDMIndex() { static int index = 0; return &index; }
 };
 
 } // end ento namespace

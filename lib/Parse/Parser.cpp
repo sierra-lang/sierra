@@ -213,15 +213,14 @@ bool Parser::ExpectAndConsumeSemi(unsigned DiagID) {
 ///
 /// If SkipUntil finds the specified token, it returns true, otherwise it
 /// returns false.
-bool Parser::SkipUntil(const tok::TokenKind *Toks, unsigned NumToks,
-                       bool StopAtSemi, bool DontConsume,
-                       bool StopAtCodeCompletion) {
+bool Parser::SkipUntil(ArrayRef<tok::TokenKind> Toks, bool StopAtSemi,
+                       bool DontConsume, bool StopAtCodeCompletion) {
   // We always want this function to skip at least one token if the first token
   // isn't T and if not at EOF.
   bool isFirstTokenSkipped = true;
   while (1) {
     // If we found one of the tokens, stop and return true.
-    for (unsigned i = 0; i != NumToks; ++i) {
+    for (unsigned i = 0, NumToks = Toks.size(); i != NumToks; ++i) {
       if (Tok.is(Toks[i])) {
         if (DontConsume) {
           // Noop, don't consume the token.
@@ -1111,7 +1110,7 @@ void Parser::ParseKNRParamDeclarations(Declarator &D) {
     if (Tok.is(tok::semi)) {
       ConsumeToken();
     } else {
-      Diag(Tok, diag::err_parse_error);
+      Diag(Tok, diag::err_expected_semi_declaration);
       // Skip to end of block or statement
       SkipUntil(tok::semi, true);
       if (Tok.is(tok::semi))
@@ -1681,9 +1680,9 @@ bool Parser::BalancedDelimiterTracker::diagnoseMissingClose() {
   assert(!P.Tok.is(Close) && "Should have consumed closing delimiter");
   
   const char *LHSName = "unknown";
-  diag::kind DID = diag::err_parse_error;
+  diag::kind DID;
   switch (Close) {
-  default: break;
+  default: llvm_unreachable("Unexpected balanced token");
   case tok::r_paren : LHSName = "("; DID = diag::err_expected_rparen; break;
   case tok::r_brace : LHSName = "{"; DID = diag::err_expected_rbrace; break;
   case tok::r_square: LHSName = "["; DID = diag::err_expected_rsquare; break;

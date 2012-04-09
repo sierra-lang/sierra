@@ -860,6 +860,63 @@ llvm::Value *CodeGenFunction::EmitLoadOfScalar(LValue lvalue) {
                           lvalue.getType(), lvalue.getTBAAInfo());
 }
 
+static bool hasBooleanRepresentation(QualType Ty) {
+  if (Ty->isBooleanType())
+    return true;
+
+  if (const EnumType *ET = Ty->getAs<EnumType>())
+    return ET->getDecl()->getIntegerType()->isBooleanType();
+
+  return false;
+}
+
+llvm::MDNode *CodeGenFunction::getRangeForLoadFromType(QualType Ty) {
+  const EnumType *ET = Ty->getAs<EnumType>();
+  bool IsRegularCPlusPlusEnum = (getLangOpts().CPlusPlus && ET &&
+                                 CGM.getCodeGenOpts().StrictEnums &&
+                                 !ET->getDecl()->isFixed());
+  bool IsBool = hasBooleanRepresentation(Ty);
+  llvm::Type *LTy;
+  if (!IsBool && !IsRegularCPlusPlusEnum)
+    return NULL;
+
+  llvm::APInt Min;
+  llvm::APInt End;
+  if (IsBool) {
+    Min = llvm::APInt(8, 0);
+    End = llvm::APInt(8, 2);
+    LTy = Int8Ty;
+  } else {
+    const EnumDecl *ED = ET->getDecl();
+    LTy = ConvertTypeForMem(ED->getIntegerType());
+    unsigned Bitwidth = LTy->getScalarSizeInBits();
+    unsigned NumNegativeBits = ED->getNumNegativeBits();
+    unsigned NumPositiveBits = ED->getNumPositiveBits();
+
+    if (NumNegativeBits) {
+      unsigned NumBits = std::max(NumNegativeBits, NumPositiveBits + 1);
+      assert(NumBits <= Bitwidth);
+      End = llvm::APInt(Bitwidth, 1) << (NumBits - 1);
+      Min = -End;
+    } else {
+      assert(NumPositiveBits <= Bitwidth);
+      End = llvm::APInt(Bitwidth, 1) << NumPositiveBits;
+      Min = llvm::APInt(Bitwidth, 0);
+    }
+  }
+
+  if (End == Min)
+    return NULL;
+
+  llvm::Value *LowAndHigh[2];
+  LowAndHigh[0] = llvm::ConstantInt::get(LTy, Min);
+  LowAndHigh[1] = llvm::ConstantInt::get(LTy, End);
+
+  llvm::LLVMContext &C = getLLVMContext();
+  llvm::MDNode *Range = llvm::MDNode::get(C, LowAndHigh);
+  return Range;
+}
+
 llvm::Value *CodeGenFunction::EmitLoadOfScalar(llvm::Value *Addr, bool Volatile,
                                               unsigned Alignment, QualType Ty,
                                               llvm::MDNode *TBAAInfo) {
@@ -874,18 +931,16 @@ llvm::Value *CodeGenFunction::EmitLoadOfScalar(llvm::Value *Addr, bool Volatile,
   if (Ty->isAtomicType())
     Load->setAtomic(llvm::SequentiallyConsistent);
 
-  return EmitFromMemory(Load, Ty);
-}
+  if (CGM.getCodeGenOpts().OptimizationLevel > 0)
+    if (llvm::MDNode *RangeInfo = getRangeForLoadFromType(Ty))
+      Load->setMetadata(llvm::LLVMContext::MD_range, RangeInfo);
 
-static bool isBooleanUnderlyingType(QualType Ty) {
-  if (const EnumType *ET = dyn_cast<EnumType>(Ty))
-    return ET->getDecl()->getIntegerType()->isBooleanType();
-  return false;
+  return EmitFromMemory(Load, Ty);
 }
 
 llvm::Value *CodeGenFunction::EmitToMemory(llvm::Value *Value, QualType Ty) {
   // Bool has a different representation in memory than in registers.
-  if (Ty->isBooleanType() || isBooleanUnderlyingType(Ty)) {
+  if (hasBooleanRepresentation(Ty)) {
     // This should really always be an i1, but sometimes it's already
     // an i8, and it's awkward to track those cases down.
     if (Value->getType()->isIntegerTy(1))
@@ -898,7 +953,7 @@ llvm::Value *CodeGenFunction::EmitToMemory(llvm::Value *Value, QualType Ty) {
 
 llvm::Value *CodeGenFunction::EmitFromMemory(llvm::Value *Value, QualType Ty) {
   // Bool has a different representation in memory than in registers.
-  if (Ty->isBooleanType() || isBooleanUnderlyingType(Ty)) {
+  if (hasBooleanRepresentation(Ty)) {
     assert(Value->getType()->isIntegerTy(8) && "memory rep of bool not i8");
     return Builder.CreateTrunc(Value, Builder.getInt1Ty(), "tobool");
   }
@@ -950,9 +1005,10 @@ RValue CodeGenFunction::EmitLoadOfLValue(LValue LV) {
   }
 
   if (LV.isVectorElt()) {
-    llvm::Value *Vec = Builder.CreateLoad(LV.getVectorAddr(),
-                                          LV.isVolatileQualified());
-    return RValue::get(Builder.CreateExtractElement(Vec, LV.getVectorIdx(),
+    llvm::LoadInst *Load = Builder.CreateLoad(LV.getVectorAddr(),
+                                              LV.isVolatileQualified());
+    Load->setAlignment(LV.getAlignment().getQuantity());
+    return RValue::get(Builder.CreateExtractElement(Load, LV.getVectorIdx(),
                                                     "vecext"));
   }
 
@@ -1039,8 +1095,10 @@ RValue CodeGenFunction::EmitLoadOfBitfieldLValue(LValue LV) {
 // If this is a reference to a subset of the elements of a vector, create an
 // appropriate shufflevector.
 RValue CodeGenFunction::EmitLoadOfExtVectorElementLValue(LValue LV) {
-  llvm::Value *Vec = Builder.CreateLoad(LV.getExtVectorAddr(),
-                                        LV.isVolatileQualified());
+  llvm::LoadInst *Load = Builder.CreateLoad(LV.getExtVectorAddr(),
+                                            LV.isVolatileQualified());
+  Load->setAlignment(LV.getAlignment().getQuantity());
+  llvm::Value *Vec = Load;
 
   const llvm::Constant *Elts = LV.getExtVectorElts();
 
@@ -1075,11 +1133,15 @@ void CodeGenFunction::EmitStoreThroughLValue(RValue Src, LValue Dst, bool isInit
   if (!Dst.isSimple()) {
     if (Dst.isVectorElt()) {
       // Read/modify/write the vector, inserting the new element.
-      llvm::Value *Vec = Builder.CreateLoad(Dst.getVectorAddr(),
-                                            Dst.isVolatileQualified());
+      llvm::LoadInst *Load = Builder.CreateLoad(Dst.getVectorAddr(),
+                                                Dst.isVolatileQualified());
+      Load->setAlignment(Dst.getAlignment().getQuantity());
+      llvm::Value *Vec = Load;
       Vec = Builder.CreateInsertElement(Vec, Src.getScalarVal(),
                                         Dst.getVectorIdx(), "vecins");
-      Builder.CreateStore(Vec, Dst.getVectorAddr(),Dst.isVolatileQualified());
+      llvm::StoreInst *Store = Builder.CreateStore(Vec, Dst.getVectorAddr(),
+                                                   Dst.isVolatileQualified());
+      Store->setAlignment(Dst.getAlignment().getQuantity());
       return;
     }
 
@@ -1263,8 +1325,10 @@ void CodeGenFunction::EmitStoreThroughExtVectorComponentLValue(RValue Src,
                                                                LValue Dst) {
   // This access turns into a read/modify/write of the vector.  Load the input
   // value now.
-  llvm::Value *Vec = Builder.CreateLoad(Dst.getExtVectorAddr(),
-                                        Dst.isVolatileQualified());
+  llvm::LoadInst *Load = Builder.CreateLoad(Dst.getExtVectorAddr(),
+                                            Dst.isVolatileQualified());
+  Load->setAlignment(Dst.getAlignment().getQuantity());
+  llvm::Value *Vec = Load;
   const llvm::Constant *Elts = Dst.getExtVectorElts();
 
   llvm::Value *SrcVal = Src.getScalarVal();
@@ -1320,7 +1384,9 @@ void CodeGenFunction::EmitStoreThroughExtVectorComponentLValue(RValue Src,
     Vec = Builder.CreateInsertElement(Vec, SrcVal, Elt);
   }
 
-  Builder.CreateStore(Vec, Dst.getExtVectorAddr(), Dst.isVolatileQualified());
+  llvm::StoreInst *Store = Builder.CreateStore(Vec, Dst.getExtVectorAddr(),
+                                               Dst.isVolatileQualified());
+  Store->setAlignment(Dst.getAlignment().getQuantity());
 }
 
 // setObjCGCLValueClass - sets class of he lvalue for the purpose of
@@ -1722,7 +1788,7 @@ LValue CodeGenFunction::EmitArraySubscriptExpr(const ArraySubscriptExpr *E) {
     assert(LHS.isSimple() && "Can only subscript lvalue vectors here!");
     Idx = Builder.CreateIntCast(Idx, Int32Ty, IdxSigned, "vidx");
     return LValue::MakeVectorElt(LHS.getAddress(), Idx,
-                                 E->getBase()->getType());
+                                 E->getBase()->getType(), LHS.getAlignment());
   }
 
   // Extend or truncate the index type to 32 or 64-bits.
@@ -1888,7 +1954,8 @@ EmitExtVectorElementExpr(const ExtVectorElementExpr *E) {
 
   if (Base.isSimple()) {
     llvm::Constant *CV = GenerateConstantVector(Builder, Indices);
-    return LValue::MakeExtVectorElt(Base.getAddress(), CV, type);
+    return LValue::MakeExtVectorElt(Base.getAddress(), CV, type,
+                                    Base.getAlignment());
   }
   assert(Base.isExtVectorElt() && "Can only subscript lvalue vec elts here!");
 
@@ -1898,7 +1965,8 @@ EmitExtVectorElementExpr(const ExtVectorElementExpr *E) {
   for (unsigned i = 0, e = Indices.size(); i != e; ++i)
     CElts.push_back(BaseElts->getAggregateElement(Indices[i]));
   llvm::Constant *CV = llvm::ConstantVector::get(CElts);
-  return LValue::MakeExtVectorElt(Base.getExtVectorAddr(), CV, type);
+  return LValue::MakeExtVectorElt(Base.getExtVectorAddr(), CV, type,
+                                  Base.getAlignment());
 }
 
 LValue CodeGenFunction::EmitMemberExpr(const MemberExpr *E) {
@@ -2730,7 +2798,6 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E, llvm::Value *Dest) {
     Val1 = EmitScalarExpr(E->getVal1());
     Val2 = EmitValToTemp(*this, E->getVal2());
     OrderFail = EmitScalarExpr(E->getOrderFail());
-    (void)OrderFail; // OrderFail is unused at the moment
   } else if ((E->getOp() == AtomicExpr::Add || E->getOp() == AtomicExpr::Sub) &&
              MemTy->isPointerType()) {
     // For pointers, we're required to do a bit of math: adding 1 to an int*
@@ -2749,50 +2816,78 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E, llvm::Value *Dest) {
   if (E->getOp() != AtomicExpr::Store && !Dest)
     Dest = CreateMemTemp(E->getType(), ".atomicdst");
 
+  // Use a library call.  See: http://gcc.gnu.org/wiki/Atomic/GCCMM/LIbrary .
   if (UseLibcall) {
-    // FIXME: Finalize what the libcalls are actually supposed to look like.
-    // See also http://gcc.gnu.org/wiki/Atomic/GCCMM/LIbrary .
-    return EmitUnsupportedRValue(E, "atomic library call");
-  }
-#if 0
-  if (UseLibcall) {
+
+    llvm::SmallVector<QualType, 5> Params;
+    CallArgList Args;
+    // Size is always the first parameter
+    Args.add(RValue::get(llvm::ConstantInt::get(SizeTy, Size)),
+             getContext().getSizeType());
+    // Atomic address is always the second parameter
+    Args.add(RValue::get(EmitCastToVoidPtr(Ptr)),
+             getContext().VoidPtrTy);
+
     const char* LibCallName;
+    QualType RetTy = getContext().VoidTy;
     switch (E->getOp()) {
+    // There is only one libcall for compare an exchange, because there is no
+    // optimisation benefit possible from a libcall version of a weak compare
+    // and exchange.
+    // bool __atomic_compare_exchange(size_t size, void *obj, void *expected,
+     //                               void *desired, int success, int failure)
     case AtomicExpr::CmpXchgWeak:
-      LibCallName = "__atomic_compare_exchange_generic"; break;
     case AtomicExpr::CmpXchgStrong:
-      LibCallName = "__atomic_compare_exchange_generic"; break;
+      LibCallName = "__atomic_compare_exchange";
+      RetTy = getContext().BoolTy;
+      Args.add(RValue::get(EmitCastToVoidPtr(Val1)),
+               getContext().VoidPtrTy);
+      Args.add(RValue::get(EmitCastToVoidPtr(Val2)),
+               getContext().VoidPtrTy);
+      Args.add(RValue::get(Order),
+               getContext().IntTy);
+      Order = OrderFail;
+      break;
+    // void __atomic_exchange(size_t size, void *mem, void *val, void *return,
+    //                        int order)
+    case AtomicExpr::Xchg:
+      LibCallName = "__atomic_exchange";
+      Args.add(RValue::get(EmitCastToVoidPtr(Val1)),
+               getContext().VoidPtrTy);
+      Args.add(RValue::get(EmitCastToVoidPtr(Dest)),
+               getContext().VoidPtrTy);
+      break;
+    // void __atomic_store(size_t size, void *mem, void *val, int order)
+    case AtomicExpr::Store:
+      LibCallName = "__atomic_store";
+      Args.add(RValue::get(EmitCastToVoidPtr(Val1)),
+               getContext().VoidPtrTy);
+      break;
+    // void __atomic_load(size_t size, void *mem, void *return, int order)
+    case AtomicExpr::Load:
+      LibCallName = "__atomic_load";
+      Args.add(RValue::get(EmitCastToVoidPtr(Dest)),
+               getContext().VoidPtrTy);
+      break;
+#if 0
+    // These are only defined for 1-16 byte integers.  It is not clear what
+    // their semantics would be on anything else...
     case AtomicExpr::Add:   LibCallName = "__atomic_fetch_add_generic"; break;
     case AtomicExpr::Sub:   LibCallName = "__atomic_fetch_sub_generic"; break;
     case AtomicExpr::And:   LibCallName = "__atomic_fetch_and_generic"; break;
     case AtomicExpr::Or:    LibCallName = "__atomic_fetch_or_generic"; break;
     case AtomicExpr::Xor:   LibCallName = "__atomic_fetch_xor_generic"; break;
-    case AtomicExpr::Xchg:  LibCallName = "__atomic_exchange_generic"; break;
-    case AtomicExpr::Store: LibCallName = "__atomic_store_generic"; break;
-    case AtomicExpr::Load:  LibCallName = "__atomic_load_generic"; break;
+#endif
+    default: return EmitUnsupportedRValue(E, "atomic library call");
     }
-    llvm::SmallVector<QualType, 4> Params;
-    CallArgList Args;
-    QualType RetTy = getContext().VoidTy;
-    if (E->getOp() != AtomicExpr::Store && !E->isCmpXChg())
-      Args.add(RValue::get(EmitCastToVoidPtr(Dest)),
-               getContext().VoidPtrTy);
-    Args.add(RValue::get(EmitCastToVoidPtr(Ptr)),
-             getContext().VoidPtrTy);
-    if (E->getOp() != AtomicExpr::Load)
-      Args.add(RValue::get(EmitCastToVoidPtr(Val1)),
-               getContext().VoidPtrTy);
-    if (E->isCmpXChg()) {
-      Args.add(RValue::get(EmitCastToVoidPtr(Val2)),
-               getContext().VoidPtrTy);
-      RetTy = getContext().IntTy;
-    }
-    Args.add(RValue::get(llvm::ConstantInt::get(SizeTy, Size)),
-             getContext().getSizeType());
+    // order is always the last parameter
+    Args.add(RValue::get(Order),
+             getContext().IntTy);
+
     const CGFunctionInfo &FuncInfo =
-        CGM.getTypes().arrangeFunctionCall(RetTy, Args, FunctionType::ExtInfo(),
-                                           /*variadic*/ false);
-    llvm::FunctionType *FTy = CGM.getTypes().GetFunctionType(FuncInfo, false);
+        CGM.getTypes().arrangeFunctionCall(RetTy, Args,
+            FunctionType::ExtInfo(), RequiredArgs::All);
+    llvm::FunctionType *FTy = CGM.getTypes().GetFunctionType(FuncInfo);
     llvm::Constant *Func = CGM.CreateRuntimeFunction(FTy, LibCallName);
     RValue Res = EmitCall(FuncInfo, Func, ReturnValueSlot(), Args);
     if (E->isCmpXChg())
@@ -2801,7 +2896,7 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E, llvm::Value *Dest) {
       return RValue::get(0);
     return ConvertTempToRValue(*this, E->getType(), Dest);
   }
-#endif
+
   llvm::Type *IPtrTy =
       llvm::IntegerType::get(getLLVMContext(), Size * 8)->getPointerTo();
   llvm::Value *OrigDest = Dest;

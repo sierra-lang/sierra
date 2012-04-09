@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -triple i386-apple-darwin9 -analyze -analyzer-checker=core,experimental.deadcode.IdempotentOperations,experimental.core.CastToStruct,experimental.security.ReturnPtrRange,experimental.security.ArrayBound -analyzer-store=region -verify -fblocks -analyzer-opt-analyze-nested-blocks %s
-// RUN: %clang_cc1 -triple x86_64-apple-darwin9 -DTEST_64 -analyze -analyzer-checker=core,experimental.deadcode.IdempotentOperations,experimental.core.CastToStruct,experimental.security.ReturnPtrRange,experimental.security.ArrayBound -analyzer-store=region -verify -fblocks   -analyzer-opt-analyze-nested-blocks %s
+// RUN: %clang_cc1 -triple i386-apple-darwin9 -analyze -analyzer-checker=core,experimental.deadcode.IdempotentOperations,experimental.core.CastToStruct,experimental.security.ReturnPtrRange,experimental.security.ArrayBound -analyzer-store=region -verify -fblocks -analyzer-opt-analyze-nested-blocks -Wno-objc-root-class %s
+// RUN: %clang_cc1 -triple x86_64-apple-darwin9 -DTEST_64 -analyze -analyzer-checker=core,experimental.deadcode.IdempotentOperations,experimental.core.CastToStruct,experimental.security.ReturnPtrRange,experimental.security.ArrayBound -analyzer-store=region -verify -fblocks   -analyzer-opt-analyze-nested-blocks -Wno-objc-root-class %s
 
 typedef long unsigned int size_t;
 void *memcpy(void *, const void *, size_t);
@@ -1323,5 +1323,21 @@ void rdar9444714() {
     *dst++ = *( --( ptr ) ); // no-warning
   }
   *dst = '\0';
+}
+
+// Test handling symbolic elements with field accesses.
+// <rdar://problem/11127008>
+typedef struct {
+    unsigned value;
+} RDar11127008;
+
+signed rdar_11127008_index();
+
+static unsigned rdar_11127008(void) {
+    RDar11127008 values[] = {{.value = 0}, {.value = 1}};
+    signed index = rdar_11127008_index();
+    if (index < 0) return 0;
+    if (index >= 2) return 0;
+    return values[index].value;
 }
 

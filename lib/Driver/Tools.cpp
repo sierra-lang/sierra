@@ -483,6 +483,9 @@ static const char *getLLVMArchSuffixForARM(StringRef CPU) {
     .Cases("arm1176jzf-s",  "mpcorenovfp",  "mpcore", "v6")
     .Cases("arm1156t2-s",  "arm1156t2f-s", "v6t2")
     .Cases("cortex-a8", "cortex-a9", "v7")
+    .Case("cortex-m3", "v7m")
+    .Case("cortex-m4", "v7m")
+    .Case("cortex-m0", "v6m")
     .Default("");
 }
 
@@ -501,41 +504,75 @@ static bool isSignedCharDefault(const llvm::Triple &Triple) {
   }
 }
 
-void Clang::AddARMTargetArgs(const ArgList &Args,
-                             ArgStringList &CmdArgs,
-                             bool KernelOrKext) const {
-  const Driver &D = getToolChain().getDriver();
-  llvm::Triple Triple = getToolChain().getTriple();
+// Handle -mfpu=.
+//
+// FIXME: Centralize feature selection, defaulting shouldn't be also in the
+// frontend target.
+static void addFPUArgs(const Driver &D, const Arg *A, const ArgList &Args,
+                       ArgStringList &CmdArgs) {
+  StringRef FPU = A->getValue(Args);
 
-  // Select the ABI to use.
-  //
-  // FIXME: Support -meabi.
-  const char *ABIName = 0;
-  if (Arg *A = Args.getLastArg(options::OPT_mabi_EQ)) {
-    ABIName = A->getValue(Args);
-  } else {
-    // Select the default based on the platform.
-    switch(Triple.getEnvironment()) {
-    case llvm::Triple::ANDROIDEABI:
-    case llvm::Triple::GNUEABI:
-      ABIName = "aapcs-linux";
-      break;
-    case llvm::Triple::EABI:
-      ABIName = "aapcs";
-      break;
-    default:
-      ABIName = "apcs-gnu";
-    }
-  }
-  CmdArgs.push_back("-target-abi");
-  CmdArgs.push_back(ABIName);
+  // Set the target features based on the FPU.
+  if (FPU == "fpa" || FPU == "fpe2" || FPU == "fpe3" || FPU == "maverick") {
+    // Disable any default FPU support.
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("-vfp2");
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("-vfp3");
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("-neon");
+  } else if (FPU == "vfp3-d16" || FPU == "vfpv3-d16") {
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("+vfp3");
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("+d16");
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("-neon");
+  } else if (FPU == "vfp") {
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("+vfp2");
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("-neon");
+  } else if (FPU == "vfp3" || FPU == "vfpv3") {
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("+vfp3");
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("-neon");
+  } else if (FPU == "neon") {
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("+neon");
+  } else
+    D.Diag(diag::err_drv_clang_unsupported) << A->getAsString(Args);
+}
 
-  // Set the CPU based on -march= and -mcpu=.
-  CmdArgs.push_back("-target-cpu");
-  CmdArgs.push_back(getARMTargetCPU(Args, Triple));
+// Handle -mfpmath=.
+static void addFPMathArgs(const Driver &D, const Arg *A, const ArgList &Args,
+                          ArgStringList &CmdArgs, StringRef CPU) {
+  StringRef FPMath = A->getValue(Args);
+  
+  // Set the target features based on the FPMath.
+  if (FPMath == "neon") {
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("+neonfp");
+    
+    if (CPU != "cortex-a8" && CPU != "cortex-a9" && CPU != "cortex-a9-mp")    
+      D.Diag(diag::err_drv_invalid_feature) << "-mfpmath=neon" << CPU;
+    
+  } else if (FPMath == "vfp" || FPMath == "vfp2" || FPMath == "vfp3" ||
+             FPMath == "vfp4") {
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("-neonfp");
 
-  // Select the float ABI as determined by -msoft-float, -mhard-float, and
-  // -mfloat-abi=.
+    // FIXME: Add warnings when disabling a feature not present for a given CPU.    
+  } else
+    D.Diag(diag::err_drv_clang_unsupported) << A->getAsString(Args);
+}
+
+// Select the float ABI as determined by -msoft-float, -mhard-float, and
+// -mfloat-abi=.
+static StringRef getARMFloatABI(const Driver &D,
+                                const ArgList &Args,
+                                const llvm::Triple &Triple) {
   StringRef FloatABI;
   if (Arg *A = Args.getLastArg(options::OPT_msoft_float,
                                options::OPT_mhard_float,
@@ -607,6 +644,45 @@ void Clang::AddARMTargetArgs(const ArgList &Args,
     }
   }
 
+  return FloatABI;
+}
+
+
+void Clang::AddARMTargetArgs(const ArgList &Args,
+                             ArgStringList &CmdArgs,
+                             bool KernelOrKext) const {
+  const Driver &D = getToolChain().getDriver();
+  llvm::Triple Triple = getToolChain().getTriple();
+
+  // Select the ABI to use.
+  //
+  // FIXME: Support -meabi.
+  const char *ABIName = 0;
+  if (Arg *A = Args.getLastArg(options::OPT_mabi_EQ)) {
+    ABIName = A->getValue(Args);
+  } else {
+    // Select the default based on the platform.
+    switch(Triple.getEnvironment()) {
+    case llvm::Triple::ANDROIDEABI:
+    case llvm::Triple::GNUEABI:
+      ABIName = "aapcs-linux";
+      break;
+    case llvm::Triple::EABI:
+      ABIName = "aapcs";
+      break;
+    default:
+      ABIName = "apcs-gnu";
+    }
+  }
+  CmdArgs.push_back("-target-abi");
+  CmdArgs.push_back(ABIName);
+
+  // Set the CPU based on -march= and -mcpu=.
+  CmdArgs.push_back("-target-cpu");
+  CmdArgs.push_back(getARMTargetCPU(Args, Triple));
+
+  // Determine floating point ABI from the options & target defaults.
+  StringRef FloatABI = getARMFloatABI(D, Args, Triple);
   if (FloatABI == "soft") {
     // Floating point operations and argument passing are soft.
     //
@@ -644,44 +720,12 @@ void Clang::AddARMTargetArgs(const ArgList &Args,
   }
 
   // Honor -mfpu=.
-  //
-  // FIXME: Centralize feature selection, defaulting shouldn't be also in the
-  // frontend target.
-  if (const Arg *A = Args.getLastArg(options::OPT_mfpu_EQ)) {
-    StringRef FPU = A->getValue(Args);
+  if (const Arg *A = Args.getLastArg(options::OPT_mfpu_EQ))
+    addFPUArgs(D, A, Args, CmdArgs);
 
-    // Set the target features based on the FPU.
-    if (FPU == "fpa" || FPU == "fpe2" || FPU == "fpe3" || FPU == "maverick") {
-      // Disable any default FPU support.
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("-vfp2");
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("-vfp3");
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("-neon");
-    } else if (FPU == "vfp3-d16" || FPU == "vfpv3-d16") {
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("+vfp3");
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("+d16");
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("-neon");
-    } else if (FPU == "vfp") {
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("+vfp2");
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("-neon");
-    } else if (FPU == "vfp3" || FPU == "vfpv3") {
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("+vfp3");
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("-neon");
-    } else if (FPU == "neon") {
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("+neon");
-    } else
-      D.Diag(diag::err_drv_clang_unsupported) << A->getAsString(Args);
-  }
+  // Honor -mfpmath=.
+  if (const Arg *A = Args.getLastArg(options::OPT_mfpmath_EQ))
+    addFPMathArgs(D, A, Args, CmdArgs, getARMTargetCPU(Args, Triple));
 
   // Setting -msoft-float effectively disables NEON because of the GCC
   // implementation, although the same isn't true of VFP or VFP3.
@@ -752,64 +796,98 @@ static const char* getMipsABIFromArch(StringRef ArchName) {
     return "n64";
 }
 
-void Clang::AddMIPSTargetArgs(const ArgList &Args,
-                             ArgStringList &CmdArgs) const {
-  const Driver &D = getToolChain().getDriver();
-
+// Get CPU and ABI names. They are not independent
+// so we have to calculate them together.
+static void getMipsCPUAndABI(const ArgList &Args,
+                             const ToolChain &TC,
+                             StringRef &CPUName,
+                             StringRef &ABIName) {
   StringRef ArchName;
-  const char *CPUName;
 
-  // Set target cpu and architecture.
+  // Select target cpu and architecture.
   if (Arg *A = Args.getLastArg(options::OPT_mcpu_EQ)) {
     CPUName = A->getValue(Args);
     ArchName = getMipsArchFromCPU(CPUName);
   }
   else {
-    ArchName = Args.MakeArgString(getToolChain().getArchName());
+    ArchName = Args.MakeArgString(TC.getArchName());
     if (!checkMipsArchName(ArchName))
-      D.Diag(diag::err_drv_invalid_arch_name) << ArchName;
+      TC.getDriver().Diag(diag::err_drv_invalid_arch_name) << ArchName;
     else
       CPUName = getMipsCPUFromArch(ArchName);
   }
-
-  CmdArgs.push_back("-target-cpu");
-  CmdArgs.push_back(CPUName);
  
   // Select the ABI to use.
-  const char *ABIName = 0;
   if (Arg *A = Args.getLastArg(options::OPT_mabi_EQ))
     ABIName = A->getValue(Args);
   else 
     ABIName = getMipsABIFromArch(ArchName);
+}
+
+void Clang::AddMIPSTargetArgs(const ArgList &Args,
+                             ArgStringList &CmdArgs) const {
+  const Driver &D = getToolChain().getDriver();
+  StringRef CPUName;
+  StringRef ABIName;
+  getMipsCPUAndABI(Args, getToolChain(), CPUName, ABIName);
+
+  CmdArgs.push_back("-target-cpu");
+  CmdArgs.push_back(CPUName.data());
 
   CmdArgs.push_back("-target-abi");
-  CmdArgs.push_back(ABIName);
+  CmdArgs.push_back(ABIName.data());
 
-  // Select the float ABI as determined by -msoft-float, -mhard-float, and
+  // Select the float ABI as determined by -msoft-float, -mhard-float,
+  // and -mfloat-abi=.
   StringRef FloatABI;
   if (Arg *A = Args.getLastArg(options::OPT_msoft_float,
-                               options::OPT_mhard_float)) {
+                               options::OPT_mhard_float,
+                               options::OPT_mfloat_abi_EQ)) {
     if (A->getOption().matches(options::OPT_msoft_float))
       FloatABI = "soft";
     else if (A->getOption().matches(options::OPT_mhard_float))
       FloatABI = "hard";
+    else {
+      FloatABI = A->getValue(Args);
+      if (FloatABI != "soft" && FloatABI != "single" && FloatABI != "hard") {
+        D.Diag(diag::err_drv_invalid_mfloat_abi)
+          << A->getAsString(Args);
+        FloatABI = "hard";
+      }
+    }
   }
 
   // If unspecified, choose the default based on the platform.
   if (FloatABI.empty()) {
-    // Assume "soft", but warn the user we are guessing.
-    FloatABI = "soft";
-    D.Diag(diag::warn_drv_assuming_mfloat_abi_is) << "soft";
+    // Assume "hard", because it's a default value used by gcc.
+    // When we start to recognize specific target MIPS processors,
+    // we will be able to select the default more correctly.
+    FloatABI = "hard";
   }
 
   if (FloatABI == "soft") {
     // Floating point operations and argument passing are soft.
-    //
-    // FIXME: This changes CPP defines, we need -target-soft-float.
     CmdArgs.push_back("-msoft-float");
-  } else {
+    CmdArgs.push_back("-mfloat-abi");
+    CmdArgs.push_back("soft");
+
+    // FIXME: Note, this is a hack. We need to pass the selected float
+    // mode to the MipsTargetInfoBase to define appropriate macros there.
+    // Now it is the only method.
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("+soft-float");
+  }
+  else if (FloatABI == "single") {
+    // Restrict the use of hardware floating-point
+    // instructions to 32-bit operations.
+    CmdArgs.push_back("-target-feature");
+    CmdArgs.push_back("+single-float");
+  }
+  else {
+    // Floating point operations and argument passing are hard.
     assert(FloatABI == "hard" && "Invalid float abi!");
-    CmdArgs.push_back("-mhard-float");
+    CmdArgs.push_back("-mfloat-abi");
+    CmdArgs.push_back("hard");
   }
 }
 
@@ -1050,11 +1128,20 @@ shouldUseExceptionTablesForObjCExceptions(unsigned objcABIVersion,
 /// Objective-C exceptions.
 static void addExceptionArgs(const ArgList &Args, types::ID InputType,
                              const llvm::Triple &Triple,
-                             bool KernelOrKext, bool IsRewriter,
+                             bool KernelOrKext,
                              unsigned objcABIVersion,
                              ArgStringList &CmdArgs) {
-  if (KernelOrKext)
+  if (KernelOrKext) {
+    // -mkernel and -fapple-kext imply no exceptions, so claim exception related
+    // arguments now to avoid warnings about unused arguments.
+    Args.ClaimAllArgs(options::OPT_fexceptions);
+    Args.ClaimAllArgs(options::OPT_fno_exceptions);
+    Args.ClaimAllArgs(options::OPT_fobjc_exceptions);
+    Args.ClaimAllArgs(options::OPT_fno_objc_exceptions);
+    Args.ClaimAllArgs(options::OPT_fcxx_exceptions);
+    Args.ClaimAllArgs(options::OPT_fno_cxx_exceptions);
     return;
+  }
 
   // Exceptions are enabled by default.
   bool ExceptionsEnabled = true;
@@ -1241,6 +1328,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   // Select the appropriate action.
   bool IsRewriter = false;
+  bool IsModernRewriter = false;
+  
   if (isa<AnalyzeJobAction>(JA)) {
     assert(JA.getType() == types::TY_Plist && "Invalid output type.");
     CmdArgs.push_back("-analyze");
@@ -1310,6 +1399,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     } else if (JA.getType() == types::TY_AST) {
       CmdArgs.push_back("-emit-pch");
     } else if (JA.getType() == types::TY_RewrittenObjC) {
+      CmdArgs.push_back("-rewrite-objc");
+      IsModernRewriter = true;
+    } else if (JA.getType() == types::TY_RewrittenLegacyObjC) {
       CmdArgs.push_back("-rewrite-objc");
       IsRewriter = true;
     } else {
@@ -1397,15 +1489,43 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // would do to enable flag_pic.
   //
   // FIXME: Centralize this code.
-  bool PICEnabled = (Args.hasArg(options::OPT_fPIC) ||
-                     Args.hasArg(options::OPT_fpic) ||
-                     Args.hasArg(options::OPT_fPIE) ||
-                     Args.hasArg(options::OPT_fpie));
-  bool PICDisabled = (Args.hasArg(options::OPT_mkernel) ||
-                      Args.hasArg(options::OPT_static));
+  Arg *LastPICArg = 0;
+  for (ArgList::const_iterator I = Args.begin(), E = Args.end(); I != E; ++I) {
+    if ((*I)->getOption().matches(options::OPT_fPIC) ||
+        (*I)->getOption().matches(options::OPT_fno_PIC) ||
+        (*I)->getOption().matches(options::OPT_fpic) ||
+        (*I)->getOption().matches(options::OPT_fno_pic) ||
+        (*I)->getOption().matches(options::OPT_fPIE) ||
+        (*I)->getOption().matches(options::OPT_fno_PIE) ||
+        (*I)->getOption().matches(options::OPT_fpie) ||
+        (*I)->getOption().matches(options::OPT_fno_pie)) {
+      LastPICArg = *I;
+      (*I)->claim();
+    }
+  }
+  bool PICDisabled = false;
+  bool PICEnabled = false;
+  bool PICForPIE = false;
+  if (LastPICArg) {
+    PICForPIE = (LastPICArg->getOption().matches(options::OPT_fPIE) ||
+                 LastPICArg->getOption().matches(options::OPT_fpie));
+    PICEnabled = (PICForPIE ||
+                  LastPICArg->getOption().matches(options::OPT_fPIC) ||
+                  LastPICArg->getOption().matches(options::OPT_fpic));
+    PICDisabled = !PICEnabled;
+  }
+  // Note that these flags are trump-cards. Regardless of the order w.r.t. the
+  // PIC or PIE options above, if these show up, PIC is disabled.
+  if (Args.hasArg(options::OPT_mkernel))
+    PICDisabled = true;
+  if (Args.hasArg(options::OPT_static))
+    PICDisabled = true;
+  bool DynamicNoPIC = Args.hasArg(options::OPT_mdynamic_no_pic);
+
+  // Select the relocation model.
   const char *Model = getToolChain().GetForcedPicModel();
   if (!Model) {
-    if (Args.hasArg(options::OPT_mdynamic_no_pic))
+    if (DynamicNoPIC)
       Model = "dynamic-no-pic";
     else if (PICDisabled)
       Model = "static";
@@ -1414,19 +1534,25 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     else
       Model = getToolChain().GetDefaultRelocationModel();
   }
-  if (StringRef(Model) != "pic") {
+  StringRef ModelStr = Model ? Model : "";
+  if (Model && ModelStr != "pic") {
     CmdArgs.push_back("-mrelocation-model");
     CmdArgs.push_back(Model);
   }
 
-  // Infer the __PIC__ value.
-  //
-  // FIXME:  This isn't quite right on Darwin, which always sets
-  // __PIC__=2.
-  if (strcmp(Model, "pic") == 0 || strcmp(Model, "dynamic-no-pic") == 0) {
+  // Infer the __PIC__ and __PIE__ values.
+  if (ModelStr == "pic" && PICForPIE) {
+    CmdArgs.push_back("-pie-level");
+    CmdArgs.push_back((LastPICArg &&
+                       LastPICArg->getOption().matches(options::OPT_fPIE)) ?
+                      "2" : "1");
+  } else if (ModelStr == "pic" || ModelStr == "dynamic-no-pic") {
     CmdArgs.push_back("-pic-level");
-    CmdArgs.push_back(Args.hasArg(options::OPT_fPIC) ? "2" : "1");
+    CmdArgs.push_back(((ModelStr != "dynamic-no-pic" && LastPICArg &&
+                        LastPICArg->getOption().matches(options::OPT_fPIC)) ||
+                       getToolChain().getTriple().isOSDarwin()) ? "2" : "1");
   }
+
   if (!Args.hasFlag(options::OPT_fmerge_all_constants,
                     options::OPT_fno_merge_all_constants))
     CmdArgs.push_back("-fno-merge-all-constants");
@@ -1450,6 +1576,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                     options::OPT_fno_strict_aliasing,
                     getToolChain().IsStrictAliasingDefault()))
     CmdArgs.push_back("-relaxed-aliasing");
+  if (Args.hasFlag(options::OPT_fstrict_enums, options::OPT_fno_strict_enums,
+                   false))
+    CmdArgs.push_back("-fstrict-enums");
   if (!Args.hasFlag(options::OPT_foptimize_sibling_calls,
                     options::OPT_fno_optimize_sibling_calls))
     CmdArgs.push_back("-mdisable-tail-calls");
@@ -1937,9 +2066,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   Args.AddLastArg(CmdArgs, options::OPT_fvisibility_inlines_hidden);
 
   // -fhosted is default.
-  if (KernelOrKext || Args.hasFlag(options::OPT_ffreestanding,
-                                   options::OPT_fhosted,
-                                   false))
+  if (Args.hasFlag(options::OPT_ffreestanding, options::OPT_fhosted, false) ||
+      KernelOrKext)
     CmdArgs.push_back("-ffreestanding");
 
   // Forward -f (flag) options which we can pass directly.
@@ -2048,6 +2176,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-fapple-kext");
     if (!Args.hasArg(options::OPT_fbuiltin))
       CmdArgs.push_back("-fno-builtin");
+    Args.ClaimAllArgs(options::OPT_fno_builtin);
   }
   // -fbuiltin is default.
   else if (!Args.hasFlag(options::OPT_fbuiltin, options::OPT_fno_builtin))
@@ -2094,8 +2223,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fno-elide-constructors");
 
   // -frtti is default.
-  if (KernelOrKext ||
-      !Args.hasFlag(options::OPT_frtti, options::OPT_fno_rtti))
+  if (!Args.hasFlag(options::OPT_frtti, options::OPT_fno_rtti) ||
+      KernelOrKext)
     CmdArgs.push_back("-fno-rtti");
 
   // -fshort-enums=0 is default for all architectures except Hexagon.
@@ -2119,12 +2248,12 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fno-threadsafe-statics");
 
   // -fuse-cxa-atexit is default.
-  if (KernelOrKext ||
-    !Args.hasFlag(options::OPT_fuse_cxa_atexit, options::OPT_fno_use_cxa_atexit,
-                  getToolChain().getTriple().getOS() != llvm::Triple::Cygwin &&
+  if (!Args.hasFlag(options::OPT_fuse_cxa_atexit,
+                    options::OPT_fno_use_cxa_atexit,
+                   getToolChain().getTriple().getOS() != llvm::Triple::Cygwin &&
                   getToolChain().getTriple().getOS() != llvm::Triple::MinGW32 &&
-                  getToolChain().getTriple().getArch() !=
-                  llvm::Triple::hexagon))
+              getToolChain().getTriple().getArch() != llvm::Triple::hexagon) ||
+      KernelOrKext)
     CmdArgs.push_back("-fno-use-cxa-atexit");
 
   // -fms-extensions=0 is default.
@@ -2186,7 +2315,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   ObjCRuntime objCRuntime;
   unsigned objcABIVersion = 0;
   bool NeXTRuntimeIsDefault
-    = (IsRewriter || getToolChain().getTriple().isOSDarwin());
+    = (IsRewriter || IsModernRewriter ||
+       getToolChain().getTriple().isOSDarwin());
   if (Args.hasFlag(options::OPT_fnext_runtime, options::OPT_fgnu_runtime,
                    NeXTRuntimeIsDefault)) {
     objCRuntime.setKind(ObjCRuntime::NeXT);
@@ -2220,8 +2350,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       D.Diag(diag::err_drv_clang_unsupported) << A->getAsString(Args);
   } else {
     // Otherwise, determine if we are using the non-fragile ABI.
-    bool NonFragileABIIsDefault
-      = (!IsRewriter && getToolChain().IsObjCNonFragileABIDefault());
+    bool NonFragileABIIsDefault = 
+      (IsModernRewriter || 
+       (!IsRewriter && getToolChain().IsObjCNonFragileABIDefault()));
     if (Args.hasFlag(options::OPT_fobjc_nonfragile_abi,
                      options::OPT_fno_objc_nonfragile_abi,
                      NonFragileABIIsDefault)) {
@@ -2266,9 +2397,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   // -fobjc-default-synthesize-properties=1 is default. This only has an effect
   // if the nonfragile objc abi is used.
-  if (Args.hasFlag(options::OPT_fobjc_default_synthesize_properties,
-                   options::OPT_fno_objc_default_synthesize_properties,
-                   getToolChain().IsObjCDefaultSynthPropertiesDefault())) {
+  if (getToolChain().IsObjCDefaultSynthPropertiesDefault()) {
     CmdArgs.push_back("-fobjc-default-synthesize-properties");
   }
 
@@ -2301,7 +2430,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   // -fobjc-infer-related-result-type is the default, except in the Objective-C
   // rewriter.
-  if (IsRewriter)
+  if (IsRewriter || IsModernRewriter)
     CmdArgs.push_back("-fno-objc-infer-related-result-type");
 
   // Handle -fobjc-gc and -fobjc-gc-only. They are exclusive, and -fobjc-gc-only
@@ -2324,7 +2453,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   // Add exception args.
   addExceptionArgs(Args, InputType, getToolChain().getTriple(),
-                   KernelOrKext, IsRewriter, objcABIVersion, CmdArgs);
+                   KernelOrKext, objcABIVersion, CmdArgs);
 
   if (getToolChain().UseSjLjExceptions())
     CmdArgs.push_back("-fsjlj-exceptions");
@@ -2375,6 +2504,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       Args.hasArg(options::OPT_fapple_kext)) {
     if (!Args.hasArg(options::OPT_fcommon))
       CmdArgs.push_back("-fno-common");
+    Args.ClaimAllArgs(options::OPT_fno_common);
   }
 
   // -fcommon is default, only pass non-default.
@@ -2604,44 +2734,12 @@ void ClangAs::AddARMTargetArgs(const ArgList &Args,
   CmdArgs.push_back(getARMTargetCPU(Args, Triple));
 
   // Honor -mfpu=.
-  //
-  // FIXME: Centralize feature selection, defaulting shouldn't be also in the
-  // frontend target.
-  if (const Arg *A = Args.getLastArg(options::OPT_mfpu_EQ)) {
-    StringRef FPU = A->getValue(Args);
+  if (const Arg *A = Args.getLastArg(options::OPT_mfpu_EQ))
+    addFPUArgs(D, A, Args, CmdArgs);
 
-    // Set the target features based on the FPU.
-    if (FPU == "fpa" || FPU == "fpe2" || FPU == "fpe3" || FPU == "maverick") {
-      // Disable any default FPU support.
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("-vfp2");
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("-vfp3");
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("-neon");
-    } else if (FPU == "vfp3-d16" || FPU == "vfpv3-d16") {
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("+vfp3");
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("+d16");
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("-neon");
-    } else if (FPU == "vfp") {
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("+vfp2");
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("-neon");
-    } else if (FPU == "vfp3" || FPU == "vfpv3") {
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("+vfp3");
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("-neon");
-    } else if (FPU == "neon") {
-      CmdArgs.push_back("-target-feature");
-      CmdArgs.push_back("+neon");
-    } else
-      D.Diag(diag::err_drv_clang_unsupported) << A->getAsString(Args);
-  }
+  // Honor -mfpmath=.
+  if (const Arg *A = Args.getLastArg(options::OPT_mfpmath_EQ))
+    addFPMathArgs(D, A, Args, CmdArgs, getARMTargetCPU(Args, Triple));
 }
 
 void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
@@ -3580,9 +3678,11 @@ void darwin::Compile::ConstructJob(Compilation &C, const JobAction &JA,
 
   assert(Inputs.size() == 1 && "Unexpected number of inputs!");
 
+  // Silence warning about unused --serialize-diagnostics
+  Args.ClaimAllArgs(options::OPT__serialize_diags);
+
   types::ID InputType = Inputs[0].getType();
-  const Arg *A;
-  if ((A = Args.getLastArg(options::OPT_traditional)))
+  if (const Arg *A = Args.getLastArg(options::OPT_traditional))
     D.Diag(diag::err_drv_argument_only_allowed_with)
       << A->getAsString(Args) << "-E";
 
@@ -4803,7 +4903,6 @@ void netbsd::Assemble::ConstructJob(Compilation &C, const JobAction &JA,
   if (getToolChain().getArch() == llvm::Triple::x86)
     CmdArgs.push_back("--32");
 
-
   // Set byte order explicitly
   if (getToolChain().getArchName() == "mips")
     CmdArgs.push_back("-EB");
@@ -4970,17 +5069,27 @@ void linuxtools::Assemble::ConstructJob(Compilation &C, const JobAction &JA,
              getToolChain().getArch() == llvm::Triple::mipsel ||
              getToolChain().getArch() == llvm::Triple::mips64 ||
              getToolChain().getArch() == llvm::Triple::mips64el) {
-    // Get Mips CPU name and pass it to 'as'.
-    const char *CPUName;
-    if (Arg *A = Args.getLastArg(options::OPT_mcpu_EQ))
-      CPUName = A->getValue(Args);
-    else
-      CPUName = getMipsCPUFromArch(getToolChain().getArchName());
+    StringRef CPUName;
+    StringRef ABIName;
+    getMipsCPUAndABI(Args, getToolChain(), CPUName, ABIName);
 
-    if (CPUName) {
-      CmdArgs.push_back("-march");
-      CmdArgs.push_back(CPUName);
-    }
+    CmdArgs.push_back("-march");
+    CmdArgs.push_back(CPUName.data());
+
+    // Convert ABI name to the GNU tools acceptable variant.
+    if (ABIName == "o32")
+      ABIName = "32";
+    else if (ABIName == "n64")
+      ABIName = "64";
+
+    CmdArgs.push_back("-mabi");
+    CmdArgs.push_back(ABIName.data());
+
+    if (getToolChain().getArch() == llvm::Triple::mips ||
+        getToolChain().getArch() == llvm::Triple::mips64)
+      CmdArgs.push_back("-EB");
+    else
+      CmdArgs.push_back("-EL");
   }
 
   Args.AddAllArgValues(CmdArgs, options::OPT_Wa_COMMA,
@@ -5107,6 +5216,9 @@ void linuxtools::Link::ConstructJob(Compilation &C, const JobAction &JA,
     else if (ToolChain.getArch() == llvm::Triple::mips ||
              ToolChain.getArch() == llvm::Triple::mipsel)
       CmdArgs.push_back("/lib/ld.so.1");
+    else if (ToolChain.getArch() == llvm::Triple::mips64 ||
+             ToolChain.getArch() == llvm::Triple::mips64el)
+      CmdArgs.push_back("/lib64/ld.so.1");
     else if (ToolChain.getArch() == llvm::Triple::ppc)
       CmdArgs.push_back("/lib/ld.so.1");
     else if (ToolChain.getArch() == llvm::Triple::ppc64)

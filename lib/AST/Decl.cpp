@@ -845,7 +845,7 @@ static LinkageInfo getLVForDecl(const NamedDecl *D, LVFlags Flags) {
 }
 
 std::string NamedDecl::getQualifiedNameAsString() const {
-  return getQualifiedNameAsString(getASTContext().getLangOpts());
+  return getQualifiedNameAsString(getASTContext().getPrintingPolicy());
 }
 
 std::string NamedDecl::getQualifiedNameAsString(const PrintingPolicy &P) const {
@@ -2255,22 +2255,7 @@ FunctionDecl::setFunctionTemplateSpecialization(ASTContext &C,
                                                       TemplateArgsAsWritten,
                                                       PointOfInstantiation);
   TemplateOrSpecialization = Info;
-
-  // Insert this function template specialization into the set of known
-  // function template specializations.
-  if (InsertPos)
-    Template->addSpecialization(Info, InsertPos);
-  else {
-    // Try to insert the new node. If there is an existing node, leave it, the
-    // set will contain the canonical decls while
-    // FunctionTemplateDecl::findSpecialization will return
-    // the most recent redeclarations.
-    FunctionTemplateSpecializationInfo *Existing
-      = Template->getSpecializations().GetOrInsertNode(Info);
-    (void)Existing;
-    assert((!Existing || Existing->Function->isCanonicalDecl()) &&
-           "Set is supposed to only contain canonical decls");
-  }
+  Template->addSpecialization(Info, InsertPos);
 }
 
 void
@@ -2672,6 +2657,24 @@ void EnumDecl::completeDefinition(QualType NewType,
   setNumPositiveBits(NumPositiveBits);
   setNumNegativeBits(NumNegativeBits);
   TagDecl::completeDefinition();
+}
+
+TemplateSpecializationKind EnumDecl::getTemplateSpecializationKind() const {
+  if (MemberSpecializationInfo *MSI = getMemberSpecializationInfo())
+    return MSI->getTemplateSpecializationKind();
+
+  return TSK_Undeclared;
+}
+
+void EnumDecl::setTemplateSpecializationKind(TemplateSpecializationKind TSK,
+                                         SourceLocation PointOfInstantiation) {
+  MemberSpecializationInfo *MSI = getMemberSpecializationInfo();
+  assert(MSI && "Not an instantiated member enumeration?");
+  MSI->setTemplateSpecializationKind(TSK);
+  if (TSK != TSK_ExplicitSpecialization &&
+      PointOfInstantiation.isValid() &&
+      MSI->getPointOfInstantiation().isInvalid())
+    MSI->setPointOfInstantiation(PointOfInstantiation);
 }
 
 EnumDecl *EnumDecl::getInstantiatedFromMemberEnum() const {

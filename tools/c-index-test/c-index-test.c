@@ -171,7 +171,8 @@ static void PrintRange(CXSourceRange R, const char *str) {
   if (!begin_file || !end_file)
     return;
 
-  printf(" %s=", str);
+  if (str)
+    printf(" %s=", str);
   PrintExtent(stdout, begin_line, begin_column, end_line, end_column);
 }
 
@@ -1082,7 +1083,9 @@ void print_completion_result(CXCompletionResult *completion_result,
   FILE *file = (FILE *)client_data;
   CXString ks = clang_getCursorKindSpelling(completion_result->CursorKind);
   unsigned annotationCount;
-
+  enum CXCursorKind ParentKind;
+  CXString ParentName;
+  
   fprintf(file, "%s:", clang_getCString(ks));
   clang_disposeString(ks);
 
@@ -1121,6 +1124,19 @@ void print_completion_result(CXCompletionResult *completion_result,
     fprintf(file, ")");
   }
 
+  if (!getenv("CINDEXTEST_NO_COMPLETION_PARENTS")) {
+    ParentName = clang_getCompletionParent(completion_result->CompletionString,
+                                           &ParentKind);
+    if (ParentKind != CXCursor_NotImplemented) {
+      CXString KindSpelling = clang_getCursorKindSpelling(ParentKind);
+      fprintf(file, " (parent: %s '%s')",
+              clang_getCString(KindSpelling),
+              clang_getCString(ParentName));
+      clang_disposeString(KindSpelling);
+    }
+    clang_disposeString(ParentName);
+  }
+  
   fprintf(file, "\n");
 }
 
@@ -1424,7 +1440,31 @@ static int inspect_cursor_at(int argc, const char **argv) {
       if (I + 1 == Repeats) {
         CXCompletionString completionString = clang_getCursorCompletionString(
                                                                         Cursor);
+        CXSourceLocation CursorLoc = clang_getCursorLocation(Cursor);
+        CXString Spelling;
+        const char *cspell;
+        unsigned line, column;
+        clang_getSpellingLocation(CursorLoc, 0, &line, &column, 0);
+        printf("%d:%d ", line, column);
         PrintCursor(Cursor);
+        PrintCursorExtent(Cursor);
+        Spelling = clang_getCursorSpelling(Cursor);
+        cspell = clang_getCString(Spelling);
+        if (cspell && strlen(cspell) != 0) {
+          unsigned pieceIndex;
+          printf(" Spelling=%s (", cspell);
+          for (pieceIndex = 0; ; ++pieceIndex) {
+            CXSourceRange range =
+              clang_Cursor_getSpellingNameRange(Cursor, pieceIndex, 0);
+            if (clang_Range_isNull(range))
+              break;
+            PrintRange(range, 0);
+          }
+          printf(")");
+        }
+        clang_disposeString(Spelling);
+        if (clang_Cursor_getObjCSelectorIndex(Cursor) != -1)
+          printf(" Selector index=%d",clang_Cursor_getObjCSelectorIndex(Cursor));
         if (completionString != NULL) {
           printf("\nCompletion string: ");
           print_completion_string(completionString, stdout);
@@ -2741,6 +2781,9 @@ typedef struct thread_info {
 void thread_runner(void *client_data_v) {
   thread_info *client_data = client_data_v;
   client_data->result = cindextest_main(client_data->argc, client_data->argv);
+#ifdef __CYGWIN__
+  fflush(stdout);  /* stdout is not flushed on Cygwin. */
+#endif
 }
 
 int main(int argc, const char **argv) {

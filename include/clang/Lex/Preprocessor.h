@@ -124,6 +124,9 @@ class Preprocessor : public RefCountedBase<Preprocessor> {
   /// \brief Whether we have already loaded macros from the external source.
   mutable bool ReadMacrosFromExternalSource : 1;
 
+  /// \brief True if we are pre-expanding macro arguments.
+  bool InMacroArgPreExpansion;
+
   /// Identifiers - This is mapping/lookup information for all identifiers in
   /// the program, including program keywords.
   mutable IdentifierTable Identifiers;
@@ -1120,9 +1123,10 @@ private:
 
   /// ReadMacroDefinitionArgList - The ( starting an argument list of a macro
   /// definition has just been read.  Lex the rest of the arguments and the
-  /// closing ), updating MI with what we learn.  Return true if an error occurs
-  /// parsing the arg list.
-  bool ReadMacroDefinitionArgList(MacroInfo *MI);
+  /// closing ), updating MI with what we learn and saving in LastTok the
+  /// last token read.
+  /// Return true if an error occurs parsing the arg list.
+  bool ReadMacroDefinitionArgList(MacroInfo *MI, Token& LastTok);
 
   /// SkipExcludedConditionalBlock - We just read a #if or related directive and
   /// decided that the subsequent tokens are in the #if'd out portion of the

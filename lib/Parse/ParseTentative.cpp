@@ -553,7 +553,8 @@ Parser::TPResult Parser::TryParseDeclarator(bool mayBeAbstract,
     ConsumeParen();
     if (mayBeAbstract &&
         (Tok.is(tok::r_paren) ||       // 'int()' is a function.
-         Tok.is(tok::ellipsis) ||      // 'int(...)' is a function.
+         // 'int(...)' is a function.
+         (Tok.is(tok::ellipsis) && NextToken().is(tok::r_paren)) ||
          isDeclarationSpecifier())) {   // 'int(int)' is a function.
       // '(' parameter-declaration-clause ')' cv-qualifier-seq[opt]
       //        exception-specification[opt]
@@ -706,6 +707,7 @@ Parser::isExpressionOrTypeSpecifierSimple(tok::TokenKind Kind) {
   case tok::kw_int:
   case tok::kw_long:
   case tok::kw___int64:
+  case tok::kw___int128:
   case tok::kw_restrict:
   case tok::kw_short:
   case tok::kw_signed:
@@ -1037,6 +1039,7 @@ Parser::isCXXDeclarationSpecifier(Parser::TPResult BracedCastResult) {
   case tok::kw_int:
   case tok::kw_long:
   case tok::kw___int64:
+  case tok::kw___int128:
   case tok::kw_signed:
   case tok::kw_unsigned:
   case tok::kw_half:
@@ -1236,7 +1239,10 @@ Parser::TPResult Parser::TryParseParameterDeclarationClause() {
     // '...'[opt]
     if (Tok.is(tok::ellipsis)) {
       ConsumeToken();
-      return TPResult::True(); // '...' is a sign of a function declarator.
+      if (Tok.is(tok::r_paren))
+        return TPResult::True(); // '...)' is a sign of a function declarator.
+      else
+        return TPResult::False();
     }
 
     ParsedAttributes attrs(AttrFactory);
@@ -1262,14 +1268,17 @@ Parser::TPResult Parser::TryParseParameterDeclarationClause() {
     if (Tok.is(tok::equal)) {
       // '=' assignment-expression
       // Parse through assignment-expression.
-      tok::TokenKind StopToks[2] ={ tok::comma, tok::r_paren };
-      if (!SkipUntil(StopToks, 2, true/*StopAtSemi*/, true/*DontConsume*/))
+      if (!SkipUntil(tok::comma, tok::r_paren, true/*StopAtSemi*/,
+                     true/*DontConsume*/))
         return TPResult::Error();
     }
 
     if (Tok.is(tok::ellipsis)) {
       ConsumeToken();
-      return TPResult::True(); // '...' is a sign of a function declarator.
+      if (Tok.is(tok::r_paren))
+        return TPResult::True(); // '...)' is a sign of a function declarator.
+      else
+        return TPResult::False();
     }
 
     if (Tok.isNot(tok::comma))

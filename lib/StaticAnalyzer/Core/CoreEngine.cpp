@@ -29,6 +29,8 @@ using namespace ento;
 
 STATISTIC(NumReachedMaxSteps,
             "The # of times we reached the max number of steps.");
+STATISTIC(NumPathsExplored,
+            "The # of paths explored by the analyzer.");
 
 //===----------------------------------------------------------------------===//
 // Worklist classes for exploration of reachable states.
@@ -172,6 +174,11 @@ bool CoreEngine::ExecuteWorkList(const LocationContext *L, unsigned Steps,
     assert (Entry->succ_size() == 1 &&
             "Entry block must have 1 successor.");
 
+    // Mark the entry block as visited.
+    FunctionSummaries->markVisitedBasicBlock(Entry->getBlockID(),
+                                             L->getDecl(),
+                                             L->getCFG()->getNumBlockIDs());
+
     // Get the solitary successor.
     const CFGBlock *Succ = *(Entry->succ_begin());
 
@@ -209,62 +216,80 @@ bool CoreEngine::ExecuteWorkList(const LocationContext *L, unsigned Steps,
     // Retrieve the node.
     ExplodedNode *Node = WU.getNode();
 
-    // Dispatch on the location type.
-    switch (Node->getLocation().getKind()) {
-      case ProgramPoint::BlockEdgeKind:
-        HandleBlockEdge(cast<BlockEdge>(Node->getLocation()), Node);
-        break;
-
-      case ProgramPoint::BlockEntranceKind:
-        HandleBlockEntrance(cast<BlockEntrance>(Node->getLocation()), Node);
-        break;
-
-      case ProgramPoint::BlockExitKind:
-        assert (false && "BlockExit location never occur in forward analysis.");
-        break;
-
-      case ProgramPoint::CallEnterKind: {
-        CallEnter CEnter = cast<CallEnter>(Node->getLocation());
-        if (AnalyzedCallees)
-          if (const CallExpr* CE =
-              dyn_cast_or_null<CallExpr>(CEnter.getCallExpr()))
-            if (const Decl *CD = CE->getCalleeDecl())
-              AnalyzedCallees->insert(CD);
-        SubEng.processCallEnter(CEnter, Node);
-        break;
-      }
-
-      case ProgramPoint::CallExitKind:
-        SubEng.processCallExit(Node);
-        break;
-
-      default:
-        assert(isa<PostStmt>(Node->getLocation()) || 
-               isa<PostInitializer>(Node->getLocation()));
-        HandlePostStmt(WU.getBlock(), WU.getIndex(), Node);
-        break;
-    }
+    dispatchWorkItem(Node, Node->getLocation(), WU);
   }
-
   SubEng.processEndWorklist(hasWorkRemaining());
   return WList->hasWork();
 }
 
-void CoreEngine::ExecuteWorkListWithInitialState(const LocationContext *L, 
+void CoreEngine::dispatchWorkItem(ExplodedNode* Pred, ProgramPoint Loc,
+                                  const WorkListUnit& WU) {
+  // Dispatch on the location type.
+  switch (Loc.getKind()) {
+    case ProgramPoint::BlockEdgeKind:
+      HandleBlockEdge(cast<BlockEdge>(Loc), Pred);
+      break;
+
+    case ProgramPoint::BlockEntranceKind:
+      HandleBlockEntrance(cast<BlockEntrance>(Loc), Pred);
+      break;
+
+    case ProgramPoint::BlockExitKind:
+      assert (false && "BlockExit location never occur in forward analysis.");
+      break;
+
+    case ProgramPoint::CallEnterKind: {
+      CallEnter CEnter = cast<CallEnter>(Loc);
+      if (AnalyzedCallees)
+        if (const CallExpr* CE =
+            dyn_cast_or_null<CallExpr>(CEnter.getCallExpr()))
+          if (const Decl *CD = CE->getCalleeDecl())
+            AnalyzedCallees->insert(CD);
+      SubEng.processCallEnter(CEnter, Pred);
+      break;
+    }
+
+    case ProgramPoint::CallExitKind:
+      SubEng.processCallExit(Pred);
+      break;
+
+    case ProgramPoint::EpsilonKind: {
+      assert(Pred->hasSinglePred() &&
+             "Assume epsilon has exactly one predecessor by construction");
+      ExplodedNode *PNode = Pred->getFirstPred();
+      dispatchWorkItem(Pred, PNode->getLocation(), WU);
+      break;
+    }
+    default:
+      assert(isa<PostStmt>(Loc) ||
+             isa<PostInitializer>(Loc));
+      HandlePostStmt(WU.getBlock(), WU.getIndex(), Pred);
+      break;
+  }
+}
+
+bool CoreEngine::ExecuteWorkListWithInitialState(const LocationContext *L,
                                                  unsigned Steps,
                                                  ProgramStateRef InitState, 
                                                  ExplodedNodeSet &Dst) {
-  ExecuteWorkList(L, Steps, InitState);
+  bool DidNotFinish = ExecuteWorkList(L, Steps, InitState);
   for (ExplodedGraph::eop_iterator I = G->eop_begin(), 
                                    E = G->eop_end(); I != E; ++I) {
     Dst.Add(*I);
   }
+  return DidNotFinish;
 }
 
 void CoreEngine::HandleBlockEdge(const BlockEdge &L, ExplodedNode *Pred) {
 
   const CFGBlock *Blk = L.getDst();
   NodeBuilderContext BuilderCtx(*this, Blk, Pred);
+
+  // Mark this block as visited.
+  const LocationContext *LC = Pred->getLocationContext();
+  FunctionSummaries->markVisitedBasicBlock(Blk->getBlockID(),
+                                           LC->getDecl(),
+                                           LC->getCFG()->getNumBlockIDs());
 
   // Check if we are entering the EXIT block.
   if (Blk == &(L.getLocationContext()->getCFG()->getExit())) {
@@ -283,7 +308,7 @@ void CoreEngine::HandleBlockEdge(const BlockEdge &L, ExplodedNode *Pred) {
   ExplodedNodeSet dstNodes;
   BlockEntrance BE(Blk, Pred->getLocationContext());
   NodeBuilderWithSinks nodeBuilder(Pred, dstNodes, BuilderCtx, BE);
-  SubEng.processCFGBlockEntrance(nodeBuilder);
+  SubEng.processCFGBlockEntrance(L, nodeBuilder);
 
   // Auto-generate a node.
   if (!nodeBuilder.hasGeneratedNodes()) {
@@ -292,23 +317,17 @@ void CoreEngine::HandleBlockEdge(const BlockEdge &L, ExplodedNode *Pred) {
 
   // Enqueue nodes onto the worklist.
   enqueue(dstNodes);
-
-  // Make sink nodes as exhausted.
-  const SmallVectorImpl<ExplodedNode*> &Sinks =  nodeBuilder.getSinks();
-  for (SmallVectorImpl<ExplodedNode*>::const_iterator
-         I =Sinks.begin(), E = Sinks.end(); I != E; ++I) {
-    blocksExhausted.push_back(std::make_pair(L, *I));
-  }
 }
 
 void CoreEngine::HandleBlockEntrance(const BlockEntrance &L,
                                        ExplodedNode *Pred) {
 
   // Increment the block counter.
+  const LocationContext *LC = Pred->getLocationContext();
+  unsigned BlockId = L.getBlock()->getBlockID();
   BlockCounter Counter = WList->getBlockCounter();
-  Counter = BCounterFactory.IncrementCount(Counter, 
-                             Pred->getLocationContext()->getCurrentStackFrame(),
-                                           L.getBlock()->getBlockID());
+  Counter = BCounterFactory.IncrementCount(Counter, LC->getCurrentStackFrame(),
+                                           BlockId);
   WList->setBlockCounter(Counter);
 
   // Process the entrance of the block.
@@ -489,6 +508,11 @@ void CoreEngine::enqueueStmtNode(ExplodedNode *N,
     return;
   }
 
+  if (isa<EpsilonPoint>(N->getLocation())) {
+    WList->enqueue(N, Block, Idx);
+    return;
+  }
+
   const CFGStmt *CS = (*Block)[Idx].getAs<CFGStmt>();
   const Stmt *St = CS ? CS->getStmt() : 0;
   PostStmt Loc(St, N->getLocationContext());
@@ -547,8 +571,10 @@ void CoreEngine::enqueueEndOfFunction(ExplodedNodeSet &Set) {
       N = generateCallExitNode(N);
       if (N)
         WList->enqueue(N);
-    } else
+    } else {
       G->addEndOfPath(N);
+      NumPathsExplored++;
+    }
   }
 }
 

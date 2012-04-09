@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -verify -Wno-objc-root-class %s
 
 @interface I
 - Meth; // expected-note{{method definition for 'Meth' not found}} \
@@ -31,7 +31,7 @@
 @implementation Q
 
 __attribute__((visibility("default")))
-@interface QN 
+@interface QN // expected-error {{Objective-C declarations may only appear in global scope}}
 {
 }
 @end

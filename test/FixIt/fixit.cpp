@@ -199,3 +199,8 @@ template<class T> typedef Mystery<T>::type getMysteriousThing() { // \
   expected-error {{missing 'typename' prior to dependent}}
   return Mystery<T>::get();
 }
+
+template<template<typename> Foo, // expected-error {{template template parameter requires 'class' after the parameter list}}
+         template<typename> typename Bar, // expected-error {{template template parameter requires 'class' after the parameter list}}
+         template<typename> struct Baz> // expected-error {{template template parameter requires 'class' after the parameter list}}
+void func();

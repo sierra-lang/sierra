@@ -731,6 +731,9 @@ void CodeGenFunction::EmitConstructorBody(FunctionArgList &Args) {
 
   EHScopeStack::stable_iterator CleanupDepth = EHStack.stable_begin();
 
+  // TODO: in restricted cases, we can emit the vbase initializers of
+  // a complete ctor and then delegate to the base ctor.
+
   // Emit the constructor prologue, i.e. the base and member
   // initializers.
   EmitCtorPrologue(Ctor, CtorType, Args);
@@ -1514,7 +1517,8 @@ CodeGenFunction::InitializeVTablePointer(BaseSubobject Base,
   llvm::Type *AddressPointPtrTy =
     VTableAddressPoint->getType()->getPointerTo();
   VTableField = Builder.CreateBitCast(VTableField, AddressPointPtrTy);
-  Builder.CreateStore(VTableAddressPoint, VTableField);
+  llvm::StoreInst *Store = Builder.CreateStore(VTableAddressPoint, VTableField);
+  CGM.DecorateInstruction(Store, CGM.getTBAAInfoForVTablePtr());
 }
 
 void
@@ -1597,7 +1601,9 @@ void CodeGenFunction::InitializeVTablePointers(const CXXRecordDecl *RD) {
 llvm::Value *CodeGenFunction::GetVTablePtr(llvm::Value *This,
                                            llvm::Type *Ty) {
   llvm::Value *VTablePtrSrc = Builder.CreateBitCast(This, Ty->getPointerTo());
-  return Builder.CreateLoad(VTablePtrSrc, "vtable");
+  llvm::Instruction *VTable = Builder.CreateLoad(VTablePtrSrc, "vtable");
+  CGM.DecorateInstruction(VTable, CGM.getTBAAInfoForVTablePtr());
+  return VTable;
 }
 
 static const CXXRecordDecl *getMostDerivedClassDecl(const Expr *Base) {

@@ -2121,15 +2121,16 @@ void CGObjCGNU::GenerateClass(const ObjCImplementationDecl *OID) {
       // Get the existing variable, if one exists.
       llvm::GlobalVariable *offset = TheModule.getNamedGlobal(Name);
       if (offset) {
-          offset->setInitializer(offsetValue);
-          // If this is the real definition, change its linkage type so that
-          // different modules will use this one, rather than their private
-          // copy.
-          offset->setLinkage(llvm::GlobalValue::ExternalLinkage);
+        offset->setInitializer(offsetValue);
+        // If this is the real definition, change its linkage type so that
+        // different modules will use this one, rather than their private
+        // copy.
+        offset->setLinkage(llvm::GlobalValue::ExternalLinkage);
       } else {
-          // Add a new alias if there isn't one already.
-          offset = new llvm::GlobalVariable(TheModule, offsetValue->getType(),
-                  false, llvm::GlobalValue::ExternalLinkage, offsetValue, Name);
+        // Add a new alias if there isn't one already.
+        offset = new llvm::GlobalVariable(TheModule, offsetValue->getType(),
+                false, llvm::GlobalValue::ExternalLinkage, offsetValue, Name);
+        (void) offset; // Silence dead store warning.
       }
       ++ivarIndex;
   }
@@ -2593,7 +2594,7 @@ llvm::GlobalVariable *CGObjCGNU::ObjCIvarOffsetVariable(
     // to replace it with the real version for a library.  In non-PIC code you
     // must compile with the fragile ABI if you want to use ivars from a
     // GCC-compiled class.
-    if (CGM.getLangOpts().PICLevel) {
+    if (CGM.getLangOpts().PICLevel || CGM.getLangOpts().PIELevel) {
       llvm::GlobalVariable *IvarOffsetGV = new llvm::GlobalVariable(TheModule,
             Int32Ty, false,
             llvm::GlobalValue::PrivateLinkage, OffsetGuess, Name+".guess");
@@ -2653,7 +2654,10 @@ llvm::Value *CGObjCGNU::EmitIvarOffset(CodeGenFunction &CGF,
       Offset = new llvm::GlobalVariable(TheModule, IntTy,
           false, llvm::GlobalValue::LinkOnceAnyLinkage,
           llvm::Constant::getNullValue(IntTy), name);
-    return CGF.Builder.CreateLoad(Offset);
+    Offset = CGF.Builder.CreateLoad(Offset);
+    if (Offset->getType() != PtrDiffTy)
+      Offset = CGF.Builder.CreateZExtOrBitCast(Offset, PtrDiffTy);
+    return Offset;
   }
   uint64_t Offset = ComputeIvarBaseOffset(CGF.CGM, Interface, Ivar);
   return llvm::ConstantInt::get(PtrDiffTy, Offset, /*isSigned*/true);

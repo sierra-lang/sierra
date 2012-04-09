@@ -73,7 +73,9 @@ namespace {
     
     TypeDecl *ProtocolTypeDecl;
     VarDecl *GlobalVarDecl;
+    Expr *GlobalConstructionExp;
     unsigned RewriteFailedDiag;
+    unsigned GlobalBlockRewriteFailedDiag;
     // ObjC string constant support.
     unsigned NumObjCStringLiterals;
     VarDecl *ConstantStringClassReference;
@@ -315,6 +317,10 @@ namespace {
     Stmt *RewriteAtSelector(ObjCSelectorExpr *Exp);
     Stmt *RewriteMessageExpr(ObjCMessageExpr *Exp);
     Stmt *RewriteObjCStringLiteral(ObjCStringLiteral *Exp);
+    Stmt *RewriteObjCBoolLiteralExpr(ObjCBoolLiteralExpr *Exp);
+    Stmt *RewriteObjCNumericLiteralExpr(ObjCNumericLiteral *Exp);
+    Stmt *RewriteObjCArrayLiteralExpr(ObjCArrayLiteral *Exp);
+    Stmt *RewriteObjCDictionaryLiteralExpr(ObjCDictionaryLiteral *Exp);
     Stmt *RewriteObjCProtocolExpr(ObjCProtocolExpr *Exp);
     Stmt *RewriteObjCTryStmt(ObjCAtTryStmt *S);
     Stmt *RewriteObjCSynchronizedStmt(ObjCAtSynchronizedStmt *S);
@@ -324,6 +330,7 @@ namespace {
     Stmt *RewriteBreakStmt(BreakStmt *S);
     Stmt *RewriteContinueStmt(ContinueStmt *S);
     void RewriteCastExpr(CStyleCastExpr *CE);
+    void RewriteLinkageSpec(LinkageSpecDecl *LSD);
     
     // Block rewriting.
     void RewriteBlocksInFunctionProtoType(QualType funcType, NamedDecl *D);
@@ -385,10 +392,13 @@ namespace {
                    StringRef prefix, StringRef ClassName, std::string &Result);
     virtual void RewriteObjCClassMetaData(ObjCImplementationDecl *IDecl,
                                           std::string &Result);
+    virtual void RewriteClassSetupInitHook(std::string &Result);
+    
     virtual void RewriteMetaDataIntoBuffer(std::string &Result);
     virtual void WriteImageInfo(std::string &Result);
     virtual void RewriteObjCCategoryImplDecl(ObjCCategoryImplDecl *CDecl,
                                              std::string &Result);
+    virtual void RewriteCategorySetupInitHook(std::string &Result);
     
     // Rewriting ivar
     virtual void RewriteIvarOffsetComputation(ObjCIvarDecl *ivar,
@@ -455,8 +465,11 @@ namespace {
     bool BufferContainsPPDirectives(const char *startBuf, const char *endBuf);
     
     void convertToUnqualifiedObjCType(QualType &T) {
-      if (T->isObjCQualifiedIdType())
-        T = Context->getObjCIdType();
+      if (T->isObjCQualifiedIdType()) {
+        bool isConst = T.isConstQualified();
+        T = isConst ? Context->getObjCIdType().withConst() 
+                    : Context->getObjCIdType();
+      }
       else if (T->isObjCQualifiedClassType())
         T = Context->getObjCClassType();
       else if (T->isObjCObjectPointerType() &&
@@ -572,6 +585,11 @@ RewriteModernObjC::RewriteModernObjC(std::string inFile, raw_ostream* OS,
   IsHeader = IsHeaderFile(inFile);
   RewriteFailedDiag = Diags.getCustomDiagID(DiagnosticsEngine::Warning,
                "rewriting sub-expression within a macro (may not be correct)");
+  // FIXME. This should be an error. But if block is not called, it is OK. And it
+  // may break including some headers.
+  GlobalBlockRewriteFailedDiag = Diags.getCustomDiagID(DiagnosticsEngine::Warning,
+    "rewriting block literal declared in global scope is not implemented");
+          
   TryFinallyContainsReturnDiag = Diags.getCustomDiagID(
                DiagnosticsEngine::Warning,
                "rewriter doesn't support user-specified control flow semantics "
@@ -606,6 +624,7 @@ void RewriteModernObjC::InitializeCommon(ASTContext &context) {
   CurFunctionDef = 0;
   CurFunctionDeclToDeclareForBlock = 0;
   GlobalVarDecl = 0;
+  GlobalConstructionExp = 0;
   SuperStructDecl = 0;
   ProtocolTypeDecl = 0;
   ConstantStringDecl = 0;
@@ -658,6 +677,10 @@ void RewriteModernObjC::HandleTopLevelSingleDecl(Decl *D) {
     if (PD->isThisDeclarationADefinition())
       RewriteProtocolDecl(PD);
   } else if (LinkageSpecDecl *LSD = dyn_cast<LinkageSpecDecl>(D)) {
+    // FIXME. This will not work in all situations and leaving it out
+    // is harmless.
+    // RewriteLinkageSpec(LSD);
+    
     // Recurse into linkage specifications
     for (DeclContext::decl_iterator DI = LSD->decls_begin(),
                                  DIEnd = LSD->decls_end();
@@ -677,6 +700,12 @@ void RewriteModernObjC::HandleTopLevelSingleDecl(Decl *D) {
             ++DI;
           } while (DI != DIEnd);
           RewriteForwardClassDecl(DG);
+          continue;
+        }
+        else {
+          // Keep track of all interface declarations seen.
+          ObjCInterfacesSeen.push_back(IFace);
+          ++DI;
           continue;
         }
       }
@@ -1044,6 +1073,22 @@ RewriteModernObjC::RewriteForwardProtocolDecl(const llvm::SmallVector<Decl*, 8> 
   ReplaceText(LocStart, 0, "// ");
 }
 
+void 
+RewriteModernObjC::RewriteLinkageSpec(LinkageSpecDecl *LSD) {
+  SourceLocation LocStart = LSD->getExternLoc();
+  if (LocStart.isInvalid())
+    llvm_unreachable("Invalid extern SourceLocation");
+  
+  ReplaceText(LocStart, 0, "// ");
+  if (!LSD->hasBraces())
+    return;
+  // FIXME. We don't rewrite well if '{' is not on same line as 'extern'.
+  SourceLocation LocRBrace = LSD->getRBraceLoc();
+  if (LocRBrace.isInvalid())
+    llvm_unreachable("Invalid rbrace SourceLocation");
+  ReplaceText(LocRBrace, 0, "// ");
+}
+
 void RewriteModernObjC::RewriteTypeIntoString(QualType T, std::string &ResultStr,
                                         const FunctionType *&FPRetType) {
   if (T->isObjCQualifiedIdType())
@@ -1140,10 +1185,8 @@ void RewriteModernObjC::RewriteObjCMethodDecl(const ObjCInterfaceDecl *IDecl,
       std::string Name = PDecl->getNameAsString();
       QualType QT = PDecl->getType();
       // Make sure we convert "t (^)(...)" to "t (*)(...)".
-      if (convertBlockPointerToFunctionPointer(QT))
-        QT.getAsStringInternal(Name, Context->getPrintingPolicy());
-      else
-        PDecl->getType().getAsStringInternal(Name, Context->getPrintingPolicy());
+      (void)convertBlockPointerToFunctionPointer(QT);
+      QT.getAsStringInternal(Name, Context->getPrintingPolicy());
       ResultStr += Name;
     }
   }
@@ -2441,6 +2484,434 @@ Stmt *RewriteModernObjC::RewriteObjCStringLiteral(ObjCStringLiteral *Exp) {
   return cast;
 }
 
+Stmt *RewriteModernObjC::RewriteObjCBoolLiteralExpr(ObjCBoolLiteralExpr *Exp) {
+  unsigned IntSize =
+    static_cast<unsigned>(Context->getTypeSize(Context->IntTy));
+  
+  Expr *FlagExp = IntegerLiteral::Create(*Context, 
+                                         llvm::APInt(IntSize, Exp->getValue()), 
+                                         Context->IntTy, Exp->getLocation());
+  CastExpr *cast = NoTypeInfoCStyleCastExpr(Context, Context->ObjCBuiltinBoolTy,
+                                            CK_BitCast, FlagExp);
+  ParenExpr *PE = new (Context) ParenExpr(Exp->getLocation(), Exp->getExprLoc(), 
+                                          cast);
+  ReplaceStmt(Exp, PE);
+  return PE;
+}
+
+Stmt *RewriteModernObjC::RewriteObjCNumericLiteralExpr(ObjCNumericLiteral *Exp) {
+  // synthesize declaration of helper functions needed in this routine.
+  if (!SelGetUidFunctionDecl)
+    SynthSelGetUidFunctionDecl();
+  // use objc_msgSend() for all.
+  if (!MsgSendFunctionDecl)
+    SynthMsgSendFunctionDecl();
+  if (!GetClassFunctionDecl)
+    SynthGetClassFunctionDecl();
+  
+  FunctionDecl *MsgSendFlavor = MsgSendFunctionDecl;
+  SourceLocation StartLoc = Exp->getLocStart();
+  SourceLocation EndLoc = Exp->getLocEnd();
+  
+  // Synthesize a call to objc_msgSend().
+  SmallVector<Expr*, 4> MsgExprs;
+  SmallVector<Expr*, 4> ClsExprs;
+  QualType argType = Context->getPointerType(Context->CharTy);
+  QualType expType = Exp->getType();
+  
+  // Create a call to objc_getClass("NSNumber"). It will be th 1st argument.
+  ObjCInterfaceDecl *Class = 
+    expType->getPointeeType()->getAs<ObjCObjectType>()->getInterface();
+  
+  IdentifierInfo *clsName = Class->getIdentifier();
+  ClsExprs.push_back(StringLiteral::Create(*Context,
+                                           clsName->getName(),
+                                           StringLiteral::Ascii, false,
+                                           argType, SourceLocation()));
+  CallExpr *Cls = SynthesizeCallToFunctionDecl(GetClassFunctionDecl,
+                                               &ClsExprs[0],
+                                               ClsExprs.size(), 
+                                               StartLoc, EndLoc);
+  MsgExprs.push_back(Cls);
+  
+  // Create a call to sel_registerName("numberWithBool:"), etc.
+  // it will be the 2nd argument.
+  SmallVector<Expr*, 4> SelExprs;
+  ObjCMethodDecl *NumericMethod = Exp->getObjCNumericLiteralMethod();
+  SelExprs.push_back(StringLiteral::Create(*Context,
+                                           NumericMethod->getSelector().getAsString(),
+                                           StringLiteral::Ascii, false,
+                                           argType, SourceLocation()));
+  CallExpr *SelExp = SynthesizeCallToFunctionDecl(SelGetUidFunctionDecl,
+                                                  &SelExprs[0], SelExprs.size(),
+                                                  StartLoc, EndLoc);
+  MsgExprs.push_back(SelExp);
+  
+  // User provided numeric literal is the 3rd, and last, argument.
+  Expr *userExpr  = Exp->getNumber();
+  if (ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(userExpr)) {
+    QualType type = ICE->getType();
+    const Expr *SubExpr = ICE->IgnoreParenImpCasts();
+    CastKind CK = CK_BitCast;
+    if (SubExpr->getType()->isIntegralType(*Context) && type->isBooleanType())
+      CK = CK_IntegralToBoolean;
+    userExpr = NoTypeInfoCStyleCastExpr(Context, type, CK, userExpr);
+  }
+  MsgExprs.push_back(userExpr);
+  
+  SmallVector<QualType, 4> ArgTypes;
+  ArgTypes.push_back(Context->getObjCIdType());
+  ArgTypes.push_back(Context->getObjCSelType());
+  for (ObjCMethodDecl::param_iterator PI = NumericMethod->param_begin(),
+       E = NumericMethod->param_end(); PI != E; ++PI)
+    ArgTypes.push_back((*PI)->getType());
+    
+  QualType returnType = Exp->getType();
+  // Get the type, we will need to reference it in a couple spots.
+  QualType msgSendType = MsgSendFlavor->getType();
+  
+  // Create a reference to the objc_msgSend() declaration.
+  DeclRefExpr *DRE = new (Context) DeclRefExpr(MsgSendFlavor, false, msgSendType,
+                                               VK_LValue, SourceLocation());
+  
+  CastExpr *cast = NoTypeInfoCStyleCastExpr(Context,
+                                  Context->getPointerType(Context->VoidTy),
+                                  CK_BitCast, DRE);
+  
+  // Now do the "normal" pointer to function cast.
+  QualType castType =
+    getSimpleFunctionType(returnType, &ArgTypes[0], ArgTypes.size(),
+                          NumericMethod->isVariadic());
+  castType = Context->getPointerType(castType);
+  cast = NoTypeInfoCStyleCastExpr(Context, castType, CK_BitCast,
+                                  cast);
+  
+  // Don't forget the parens to enforce the proper binding.
+  ParenExpr *PE = new (Context) ParenExpr(StartLoc, EndLoc, cast);
+  
+  const FunctionType *FT = msgSendType->getAs<FunctionType>();
+  CallExpr *CE = new (Context) CallExpr(*Context, PE, &MsgExprs[0],
+                                        MsgExprs.size(),
+                                        FT->getResultType(), VK_RValue,
+                                        EndLoc);
+  ReplaceStmt(Exp, CE);
+  return CE;
+}
+
+Stmt *RewriteModernObjC::RewriteObjCArrayLiteralExpr(ObjCArrayLiteral *Exp) {
+  // synthesize declaration of helper functions needed in this routine.
+  if (!SelGetUidFunctionDecl)
+    SynthSelGetUidFunctionDecl();
+  // use objc_msgSend() for all.
+  if (!MsgSendFunctionDecl)
+    SynthMsgSendFunctionDecl();
+  if (!GetClassFunctionDecl)
+    SynthGetClassFunctionDecl();
+  
+  FunctionDecl *MsgSendFlavor = MsgSendFunctionDecl;
+  SourceLocation StartLoc = Exp->getLocStart();
+  SourceLocation EndLoc = Exp->getLocEnd();
+  
+  // Build the expression: __NSContainer_literal(int, ...).arr
+  QualType IntQT = Context->IntTy;
+  QualType NSArrayFType =
+    getSimpleFunctionType(Context->VoidTy, &IntQT, 1, true);
+  std::string NSArrayFName("__NSContainer_literal");
+  FunctionDecl *NSArrayFD = SynthBlockInitFunctionDecl(NSArrayFName);
+  DeclRefExpr *NSArrayDRE = 
+    new (Context) DeclRefExpr(NSArrayFD, false, NSArrayFType, VK_RValue,
+                              SourceLocation());
+
+  SmallVector<Expr*, 16> InitExprs;
+  unsigned NumElements = Exp->getNumElements();
+  unsigned UnsignedIntSize = 
+    static_cast<unsigned>(Context->getTypeSize(Context->UnsignedIntTy));
+  Expr *count = IntegerLiteral::Create(*Context,
+                                       llvm::APInt(UnsignedIntSize, NumElements),
+                                       Context->UnsignedIntTy, SourceLocation());
+  InitExprs.push_back(count);
+  for (unsigned i = 0; i < NumElements; i++)
+    InitExprs.push_back(Exp->getElement(i));
+  Expr *NSArrayCallExpr = 
+    new (Context) CallExpr(*Context, NSArrayDRE, &InitExprs[0], InitExprs.size(),
+                           NSArrayFType, VK_LValue, SourceLocation());
+  
+  FieldDecl *ARRFD = FieldDecl::Create(*Context, 0, SourceLocation(),
+                                    SourceLocation(),
+                                    &Context->Idents.get("arr"),
+                                    Context->getPointerType(Context->VoidPtrTy), 0,
+                                    /*BitWidth=*/0, /*Mutable=*/true,
+                                    /*HasInit=*/false);
+  MemberExpr *ArrayLiteralME = 
+    new (Context) MemberExpr(NSArrayCallExpr, false, ARRFD, 
+                             SourceLocation(),
+                             ARRFD->getType(), VK_LValue,
+                             OK_Ordinary);
+  QualType ConstIdT = Context->getObjCIdType().withConst();
+  CStyleCastExpr * ArrayLiteralObjects = 
+    NoTypeInfoCStyleCastExpr(Context, 
+                             Context->getPointerType(ConstIdT),
+                             CK_BitCast,
+                             ArrayLiteralME);
+  
+  // Synthesize a call to objc_msgSend().
+  SmallVector<Expr*, 32> MsgExprs;
+  SmallVector<Expr*, 4> ClsExprs;
+  QualType argType = Context->getPointerType(Context->CharTy);
+  QualType expType = Exp->getType();
+  
+  // Create a call to objc_getClass("NSArray"). It will be th 1st argument.
+  ObjCInterfaceDecl *Class = 
+    expType->getPointeeType()->getAs<ObjCObjectType>()->getInterface();
+  
+  IdentifierInfo *clsName = Class->getIdentifier();
+  ClsExprs.push_back(StringLiteral::Create(*Context,
+                                           clsName->getName(),
+                                           StringLiteral::Ascii, false,
+                                           argType, SourceLocation()));
+  CallExpr *Cls = SynthesizeCallToFunctionDecl(GetClassFunctionDecl,
+                                               &ClsExprs[0],
+                                               ClsExprs.size(), 
+                                               StartLoc, EndLoc);
+  MsgExprs.push_back(Cls);
+  
+  // Create a call to sel_registerName("arrayWithObjects:count:").
+  // it will be the 2nd argument.
+  SmallVector<Expr*, 4> SelExprs;
+  ObjCMethodDecl *ArrayMethod = Exp->getArrayWithObjectsMethod();
+  SelExprs.push_back(StringLiteral::Create(*Context,
+                                           ArrayMethod->getSelector().getAsString(),
+                                           StringLiteral::Ascii, false,
+                                           argType, SourceLocation()));
+  CallExpr *SelExp = SynthesizeCallToFunctionDecl(SelGetUidFunctionDecl,
+                                                  &SelExprs[0], SelExprs.size(),
+                                                  StartLoc, EndLoc);
+  MsgExprs.push_back(SelExp);
+  
+  // (const id [])objects
+  MsgExprs.push_back(ArrayLiteralObjects);
+  
+  // (NSUInteger)cnt
+  Expr *cnt = IntegerLiteral::Create(*Context,
+                                     llvm::APInt(UnsignedIntSize, NumElements),
+                                     Context->UnsignedIntTy, SourceLocation());
+  MsgExprs.push_back(cnt);
+  
+  
+  SmallVector<QualType, 4> ArgTypes;
+  ArgTypes.push_back(Context->getObjCIdType());
+  ArgTypes.push_back(Context->getObjCSelType());
+  for (ObjCMethodDecl::param_iterator PI = ArrayMethod->param_begin(),
+       E = ArrayMethod->param_end(); PI != E; ++PI)
+    ArgTypes.push_back((*PI)->getType());
+  
+  QualType returnType = Exp->getType();
+  // Get the type, we will need to reference it in a couple spots.
+  QualType msgSendType = MsgSendFlavor->getType();
+  
+  // Create a reference to the objc_msgSend() declaration.
+  DeclRefExpr *DRE = new (Context) DeclRefExpr(MsgSendFlavor, false, msgSendType,
+                                               VK_LValue, SourceLocation());
+  
+  CastExpr *cast = NoTypeInfoCStyleCastExpr(Context,
+                                            Context->getPointerType(Context->VoidTy),
+                                            CK_BitCast, DRE);
+  
+  // Now do the "normal" pointer to function cast.
+  QualType castType =
+  getSimpleFunctionType(returnType, &ArgTypes[0], ArgTypes.size(),
+                        ArrayMethod->isVariadic());
+  castType = Context->getPointerType(castType);
+  cast = NoTypeInfoCStyleCastExpr(Context, castType, CK_BitCast,
+                                  cast);
+  
+  // Don't forget the parens to enforce the proper binding.
+  ParenExpr *PE = new (Context) ParenExpr(StartLoc, EndLoc, cast);
+  
+  const FunctionType *FT = msgSendType->getAs<FunctionType>();
+  CallExpr *CE = new (Context) CallExpr(*Context, PE, &MsgExprs[0],
+                                        MsgExprs.size(),
+                                        FT->getResultType(), VK_RValue,
+                                        EndLoc);
+  ReplaceStmt(Exp, CE);
+  return CE;
+}
+
+Stmt *RewriteModernObjC::RewriteObjCDictionaryLiteralExpr(ObjCDictionaryLiteral *Exp) {
+  // synthesize declaration of helper functions needed in this routine.
+  if (!SelGetUidFunctionDecl)
+    SynthSelGetUidFunctionDecl();
+  // use objc_msgSend() for all.
+  if (!MsgSendFunctionDecl)
+    SynthMsgSendFunctionDecl();
+  if (!GetClassFunctionDecl)
+    SynthGetClassFunctionDecl();
+  
+  FunctionDecl *MsgSendFlavor = MsgSendFunctionDecl;
+  SourceLocation StartLoc = Exp->getLocStart();
+  SourceLocation EndLoc = Exp->getLocEnd();
+  
+  // Build the expression: __NSContainer_literal(int, ...).arr
+  QualType IntQT = Context->IntTy;
+  QualType NSDictFType =
+    getSimpleFunctionType(Context->VoidTy, &IntQT, 1, true);
+  std::string NSDictFName("__NSContainer_literal");
+  FunctionDecl *NSDictFD = SynthBlockInitFunctionDecl(NSDictFName);
+  DeclRefExpr *NSDictDRE = 
+    new (Context) DeclRefExpr(NSDictFD, false, NSDictFType, VK_RValue,
+                              SourceLocation());
+  
+  SmallVector<Expr*, 16> KeyExprs;
+  SmallVector<Expr*, 16> ValueExprs;
+  
+  unsigned NumElements = Exp->getNumElements();
+  unsigned UnsignedIntSize = 
+    static_cast<unsigned>(Context->getTypeSize(Context->UnsignedIntTy));
+  Expr *count = IntegerLiteral::Create(*Context,
+                                       llvm::APInt(UnsignedIntSize, NumElements),
+                                       Context->UnsignedIntTy, SourceLocation());
+  KeyExprs.push_back(count);
+  ValueExprs.push_back(count);
+  for (unsigned i = 0; i < NumElements; i++) {
+    ObjCDictionaryElement Element = Exp->getKeyValueElement(i);
+    KeyExprs.push_back(Element.Key);
+    ValueExprs.push_back(Element.Value);
+  }
+  
+  // (const id [])objects
+  Expr *NSValueCallExpr = 
+    new (Context) CallExpr(*Context, NSDictDRE, &ValueExprs[0], ValueExprs.size(),
+                           NSDictFType, VK_LValue, SourceLocation());
+  
+  FieldDecl *ARRFD = FieldDecl::Create(*Context, 0, SourceLocation(),
+                                       SourceLocation(),
+                                       &Context->Idents.get("arr"),
+                                       Context->getPointerType(Context->VoidPtrTy), 0,
+                                       /*BitWidth=*/0, /*Mutable=*/true,
+                                       /*HasInit=*/false);
+  MemberExpr *DictLiteralValueME = 
+    new (Context) MemberExpr(NSValueCallExpr, false, ARRFD, 
+                             SourceLocation(),
+                             ARRFD->getType(), VK_LValue,
+                             OK_Ordinary);
+  QualType ConstIdT = Context->getObjCIdType().withConst();
+  CStyleCastExpr * DictValueObjects = 
+    NoTypeInfoCStyleCastExpr(Context, 
+                             Context->getPointerType(ConstIdT),
+                             CK_BitCast,
+                             DictLiteralValueME);
+  // (const id <NSCopying> [])keys
+  Expr *NSKeyCallExpr = 
+    new (Context) CallExpr(*Context, NSDictDRE, &KeyExprs[0], KeyExprs.size(),
+                           NSDictFType, VK_LValue, SourceLocation());
+  
+  MemberExpr *DictLiteralKeyME = 
+    new (Context) MemberExpr(NSKeyCallExpr, false, ARRFD, 
+                             SourceLocation(),
+                             ARRFD->getType(), VK_LValue,
+                             OK_Ordinary);
+  
+  CStyleCastExpr * DictKeyObjects = 
+    NoTypeInfoCStyleCastExpr(Context, 
+                             Context->getPointerType(ConstIdT),
+                             CK_BitCast,
+                             DictLiteralKeyME);
+  
+  
+  
+  // Synthesize a call to objc_msgSend().
+  SmallVector<Expr*, 32> MsgExprs;
+  SmallVector<Expr*, 4> ClsExprs;
+  QualType argType = Context->getPointerType(Context->CharTy);
+  QualType expType = Exp->getType();
+  
+  // Create a call to objc_getClass("NSArray"). It will be th 1st argument.
+  ObjCInterfaceDecl *Class = 
+  expType->getPointeeType()->getAs<ObjCObjectType>()->getInterface();
+  
+  IdentifierInfo *clsName = Class->getIdentifier();
+  ClsExprs.push_back(StringLiteral::Create(*Context,
+                                           clsName->getName(),
+                                           StringLiteral::Ascii, false,
+                                           argType, SourceLocation()));
+  CallExpr *Cls = SynthesizeCallToFunctionDecl(GetClassFunctionDecl,
+                                               &ClsExprs[0],
+                                               ClsExprs.size(), 
+                                               StartLoc, EndLoc);
+  MsgExprs.push_back(Cls);
+  
+  // Create a call to sel_registerName("arrayWithObjects:count:").
+  // it will be the 2nd argument.
+  SmallVector<Expr*, 4> SelExprs;
+  ObjCMethodDecl *DictMethod = Exp->getDictWithObjectsMethod();
+  SelExprs.push_back(StringLiteral::Create(*Context,
+                                           DictMethod->getSelector().getAsString(),
+                                           StringLiteral::Ascii, false,
+                                           argType, SourceLocation()));
+  CallExpr *SelExp = SynthesizeCallToFunctionDecl(SelGetUidFunctionDecl,
+                                                  &SelExprs[0], SelExprs.size(),
+                                                  StartLoc, EndLoc);
+  MsgExprs.push_back(SelExp);
+  
+  // (const id [])objects
+  MsgExprs.push_back(DictValueObjects);
+  
+  // (const id <NSCopying> [])keys
+  MsgExprs.push_back(DictKeyObjects);
+  
+  // (NSUInteger)cnt
+  Expr *cnt = IntegerLiteral::Create(*Context,
+                                     llvm::APInt(UnsignedIntSize, NumElements),
+                                     Context->UnsignedIntTy, SourceLocation());
+  MsgExprs.push_back(cnt);
+  
+  
+  SmallVector<QualType, 8> ArgTypes;
+  ArgTypes.push_back(Context->getObjCIdType());
+  ArgTypes.push_back(Context->getObjCSelType());
+  for (ObjCMethodDecl::param_iterator PI = DictMethod->param_begin(),
+       E = DictMethod->param_end(); PI != E; ++PI) {
+    QualType T = (*PI)->getType();
+    if (const PointerType* PT = T->getAs<PointerType>()) {
+      QualType PointeeTy = PT->getPointeeType();
+      convertToUnqualifiedObjCType(PointeeTy);
+      T = Context->getPointerType(PointeeTy);
+    }
+    ArgTypes.push_back(T);
+  }
+  
+  QualType returnType = Exp->getType();
+  // Get the type, we will need to reference it in a couple spots.
+  QualType msgSendType = MsgSendFlavor->getType();
+  
+  // Create a reference to the objc_msgSend() declaration.
+  DeclRefExpr *DRE = new (Context) DeclRefExpr(MsgSendFlavor, false, msgSendType,
+                                               VK_LValue, SourceLocation());
+  
+  CastExpr *cast = NoTypeInfoCStyleCastExpr(Context,
+                                            Context->getPointerType(Context->VoidTy),
+                                            CK_BitCast, DRE);
+  
+  // Now do the "normal" pointer to function cast.
+  QualType castType =
+  getSimpleFunctionType(returnType, &ArgTypes[0], ArgTypes.size(),
+                        DictMethod->isVariadic());
+  castType = Context->getPointerType(castType);
+  cast = NoTypeInfoCStyleCastExpr(Context, castType, CK_BitCast,
+                                  cast);
+  
+  // Don't forget the parens to enforce the proper binding.
+  ParenExpr *PE = new (Context) ParenExpr(StartLoc, EndLoc, cast);
+  
+  const FunctionType *FT = msgSendType->getAs<FunctionType>();
+  CallExpr *CE = new (Context) CallExpr(*Context, PE, &MsgExprs[0],
+                                        MsgExprs.size(),
+                                        FT->getResultType(), VK_RValue,
+                                        EndLoc);
+  ReplaceStmt(Exp, CE);
+  return CE;
+}
+
 // struct objc_super { struct objc_object *receiver; struct objc_class *super; };
 QualType RewriteModernObjC::getSuperStructType() {
   if (!SuperStructDecl) {
@@ -3194,14 +3665,13 @@ void RewriteModernObjC::RewriteIvarOffsetSymbols(ObjCInterfaceDecl *CDecl,
     Result += "\n";
     if (LangOpts.MicrosoftExt)
       Result += "__declspec(allocate(\".objc_ivar$B\")) ";
+    Result += "extern \"C\" ";
     if (LangOpts.MicrosoftExt && 
         IvarDecl->getAccessControl() != ObjCIvarDecl::Private &&
-        IvarDecl->getAccessControl() != ObjCIvarDecl::Package) {
-      const ObjCInterfaceDecl *CDecl = IvarDecl->getContainingInterface();
-      if (CDecl->getImplementation())
-        Result += "__declspec(dllexport) ";
-    }
-    Result += "extern unsigned long ";
+        IvarDecl->getAccessControl() != ObjCIvarDecl::Package)
+        Result += "__declspec(dllimport) ";
+
+    Result += "unsigned long ";
     WriteInternalIvarName(CDecl, IvarDecl, Result);
     Result += ";";
   }
@@ -3263,7 +3733,7 @@ std::string RewriteModernObjC::SynthesizeBlockFunc(BlockExpr *CE, int i,
   QualType RT = AFT->getResultType();
   std::string StructRef = "struct " + Tag;
   std::string S = "static " + RT.getAsString(Context->getPrintingPolicy()) + " __" +
-                  funcName.str() + "_" + "block_func_" + utostr(i);
+                  funcName.str() + "_block_func_" + utostr(i);
 
   BlockDecl *BD = CE->getBlockDecl();
 
@@ -3285,10 +3755,8 @@ std::string RewriteModernObjC::SynthesizeBlockFunc(BlockExpr *CE, int i,
       if (AI != BD->param_begin()) S += ", ";
       ParamStr = (*AI)->getNameAsString();
       QualType QT = (*AI)->getType();
-      if (convertBlockPointerToFunctionPointer(QT))
-        QT.getAsStringInternal(ParamStr, Context->getPrintingPolicy());
-      else
-        QT.getAsStringInternal(ParamStr, Context->getPrintingPolicy());      
+      (void)convertBlockPointerToFunctionPointer(QT);
+      QT.getAsStringInternal(ParamStr, Context->getPrintingPolicy());
       S += ParamStr;
     }
     if (FT->isVariadic()) {
@@ -3626,7 +4094,27 @@ void RewriteModernObjC::SynthesizeBlockLiterals(SourceLocation FunLocStart,
       SC += "restrict ";
     InsertText(FunLocStart, SC);
   }
+  if (GlobalConstructionExp) {
+    // extra fancy dance for global literal expression.
+    
+    // Always the latest block expression on the block stack.
+    std::string Tag = "__";
+    Tag += FunName;
+    Tag += "_block_impl_";
+    Tag += utostr(Blocks.size()-1);
+    std::string globalBuf = "static ";
+    globalBuf += Tag; globalBuf += " ";
+    std::string SStr;
   
+    llvm::raw_string_ostream constructorExprBuf(SStr);
+    GlobalConstructionExp->printPretty(constructorExprBuf, *Context, 0,
+                                         PrintingPolicy(LangOpts));
+    globalBuf += constructorExprBuf.str();
+    globalBuf += ";\n";
+    InsertText(FunLocStart, globalBuf);
+    GlobalConstructionExp = 0;
+  }
+
   Blocks.clear();
   InnerDeclRefsCount.clear();
   InnerDeclRefs.clear();
@@ -4409,7 +4897,9 @@ FunctionDecl *RewriteModernObjC::SynthBlockInitFunctionDecl(StringRef name) {
 
 Stmt *RewriteModernObjC::SynthBlockInitExpr(BlockExpr *Exp,
           const SmallVector<DeclRefExpr *, 8> &InnerBlockDeclRefs) {
+  
   const BlockDecl *block = Exp->getBlockDecl();
+  
   Blocks.push_back(Exp);
 
   CollectBlockDeclRefInfo(Exp);
@@ -4454,9 +4944,16 @@ Stmt *RewriteModernObjC::SynthBlockInitExpr(BlockExpr *Exp,
   else if (GlobalVarDecl)
     FuncName = std::string(GlobalVarDecl->getNameAsString());
 
+  bool GlobalBlockExpr = 
+    block->getDeclContext()->getRedeclContext()->isFileContext();
+  
+  if (GlobalBlockExpr && !GlobalVarDecl) {
+    Diags.Report(block->getLocation(), GlobalBlockRewriteFailedDiag);
+    GlobalBlockExpr = false;
+  }
+  
   std::string BlockNumber = utostr(Blocks.size()-1);
 
-  std::string Tag = "__" + FuncName + "_block_impl_" + BlockNumber;
   std::string Func = "__" + FuncName + "_block_func_" + BlockNumber;
 
   // Get a pointer to the function type so we can cast appropriately.
@@ -4467,6 +4964,14 @@ Stmt *RewriteModernObjC::SynthBlockInitExpr(BlockExpr *Exp,
   Expr *NewRep;
 
   // Simulate a contructor call...
+  std::string Tag;
+  
+  if (GlobalBlockExpr)
+    Tag = "__global_";
+  else
+    Tag = "__";
+  Tag += FuncName + "_block_impl_" + BlockNumber;
+  
   FD = SynthBlockInitFunctionDecl(Tag);
   DeclRefExpr *DRE = new (Context) DeclRefExpr(FD, false, FType, VK_RValue,
                                                SourceLocation());
@@ -4588,6 +5093,14 @@ Stmt *RewriteModernObjC::SynthBlockInitExpr(BlockExpr *Exp,
   }
   NewRep = new (Context) CallExpr(*Context, DRE, &InitExprs[0], InitExprs.size(),
                                   FType, VK_LValue, SourceLocation());
+  
+  if (GlobalBlockExpr) {
+    assert (GlobalConstructionExp == 0 && 
+            "SynthBlockInitExpr - GlobalConstructionExp must be null");
+    GlobalConstructionExp = NewRep;
+    NewRep = DRE;
+  }
+  
   NewRep = new (Context) UnaryOperator(NewRep, UO_AddrOf,
                              Context->getPointerType(NewRep->getType()),
                              VK_RValue, OK_Ordinary, SourceLocation());
@@ -4688,6 +5201,19 @@ Stmt *RewriteModernObjC::RewriteFunctionBodyOrGlobalInitializer(Stmt *S) {
 
   if (ObjCStringLiteral *AtString = dyn_cast<ObjCStringLiteral>(S))
     return RewriteObjCStringLiteral(AtString);
+  
+  if (ObjCBoolLiteralExpr *BoolLitExpr = dyn_cast<ObjCBoolLiteralExpr>(S))
+    return RewriteObjCBoolLiteralExpr(BoolLitExpr);
+  
+  if (ObjCNumericLiteral *NumericLitExpr = dyn_cast<ObjCNumericLiteral>(S))
+    return RewriteObjCNumericLiteralExpr(NumericLitExpr);
+  
+  if (ObjCArrayLiteral *ArrayLitExpr = dyn_cast<ObjCArrayLiteral>(S))
+    return RewriteObjCArrayLiteralExpr(ArrayLitExpr);
+  
+  if (ObjCDictionaryLiteral *DictionaryLitExpr = 
+        dyn_cast<ObjCDictionaryLiteral>(S))
+    return RewriteObjCDictionaryLiteralExpr(DictionaryLitExpr);
 
   if (ObjCMessageExpr *MessExpr = dyn_cast<ObjCMessageExpr>(S)) {
 #if 0
@@ -5089,18 +5615,16 @@ void RewriteModernObjC::Initialize(ASTContext &context) {
   if (LangOpts.MicrosoftExt) {
     Preamble += "#define __OBJC_RW_DLLIMPORT extern \"C\" __declspec(dllimport)\n";
     Preamble += "#define __OBJC_RW_STATICIMPORT extern \"C\"\n";
-  } else
+  } 
+  else
     Preamble += "#define __OBJC_RW_DLLIMPORT extern\n";
-  Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_msgSend";
-  Preamble += "(struct objc_object *, struct objc_selector *, ...);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_msgSendSuper";
-  Preamble += "(struct objc_super *, struct objc_selector *, ...);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT struct objc_object* objc_msgSend_stret";
-  Preamble += "(struct objc_object *, struct objc_selector *, ...);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT struct objc_object* objc_msgSendSuper_stret";
-  Preamble += "(struct objc_super *, struct objc_selector *, ...);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT double objc_msgSend_fpret";
-  Preamble += "(struct objc_object *, struct objc_selector *, ...);\n";
+  
+  Preamble += "__OBJC_RW_DLLIMPORT void objc_msgSend(void);\n";
+  Preamble += "__OBJC_RW_DLLIMPORT void objc_msgSendSuper(void);\n";
+  Preamble += "__OBJC_RW_DLLIMPORT void objc_msgSend_stret(void);\n";
+  Preamble += "__OBJC_RW_DLLIMPORT void objc_msgSendSuper_stret(void);\n";
+  Preamble += "__OBJC_RW_DLLIMPORT void objc_msgSend_fpret(void);\n";
+
   Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_getClass";
   Preamble += "(const char *);\n";
   Preamble += "__OBJC_RW_DLLIMPORT struct objc_class *class_getSuperclass";
@@ -5170,6 +5694,24 @@ void RewriteModernObjC::Initialize(ASTContext &context) {
     Preamble += "#define __block\n";
     Preamble += "#define __weak\n";
   }
+  
+  // Declarations required for modern objective-c array and dictionary literals.
+  Preamble += "\n#include <stdarg.h>\n";
+  Preamble += "struct __NSContainer_literal {\n";
+  Preamble += "  void * *arr;\n";
+  Preamble += "  __NSContainer_literal (unsigned int count, ...) {\n";
+  Preamble += "\tva_list marker;\n";
+  Preamble += "\tva_start(marker, count);\n";
+  Preamble += "\tarr = new void *[count];\n";
+  Preamble += "\tfor (unsigned i = 0; i < count; i++)\n";
+  Preamble += "\t  arr[i] = va_arg(marker, void *);\n";
+  Preamble += "\tva_end( marker );\n";
+  Preamble += "  };\n";
+  Preamble += "  __NSContainer_literal() {\n";
+  Preamble += "\tdelete[] arr;\n";
+  Preamble += "  }\n";
+  Preamble += "};\n";
+  
   // NOTE! Windows uses LLP64 for 64bit mode. So, cast pointer to long long
   // as this avoids warning in any 64bit/32bit compilation model.
   Preamble += "\n#define __OFFSETOFIVAR__(TYPE, MEMBER) ((long long) &((TYPE *)0)->MEMBER)\n";
@@ -5227,10 +5769,10 @@ void RewriteModernObjC::RewriteIvarOffsetComputation(ObjCIvarDecl *ivar,
 
 /// struct _protocol_t {
 ///   id isa;  // NULL
-///   const char * const protocol_name;
+///   const char *protocol_name;
 ///   const struct _protocol_list_t * protocol_list; // super protocols
-///   const struct method_list_t * const instance_methods;
-///   const struct method_list_t * const class_methods;
+///   const struct method_list_t *instance_methods;
+///   const struct method_list_t *class_methods;
 ///   const struct method_list_t *optionalInstanceMethods;
 ///   const struct method_list_t *optionalClassMethods;
 ///   const struct _prop_list_t * properties;
@@ -5254,17 +5796,17 @@ void RewriteModernObjC::RewriteIvarOffsetComputation(ObjCIvarDecl *ivar,
 /// }
 
 /// struct _class_ro_t {
-///   uint32_t const flags;
-///   uint32_t const instanceStart;
-///   uint32_t const instanceSize;
-///   uint32_t const reserved;  // only when building for 64bit targets
-///   const uint8_t * const ivarLayout;
-///   const char *const name;
-///   const struct _method_list_t * const baseMethods;
-///   const struct _protocol_list_t *const baseProtocols;
-///   const struct _ivar_list_t *const ivars;
-///   const uint8_t * const weakIvarLayout;
-///   const struct _prop_list_t * const properties;
+///   uint32_t flags;
+///   uint32_t instanceStart;
+///   uint32_t instanceSize;
+///   uint32_t reserved;  // only when building for 64bit targets
+///   const uint8_t *ivarLayout;
+///   const char *name;
+///   const struct _method_list_t *baseMethods;
+///   const struct _protocol_list_t *baseProtocols;
+///   const struct _ivar_list_t *ivars;
+///   const uint8_t *weakIvarLayout;
+///   const struct _prop_list_t *properties;
 /// }
 
 /// struct _class_t {
@@ -5276,12 +5818,12 @@ void RewriteModernObjC::RewriteIvarOffsetComputation(ObjCIvarDecl *ivar,
 /// }
 
 /// struct _category_t {
-///   const char * const name;
+///   const char *name;
 ///   struct _class_t *cls;
-///   const struct _method_list_t * const instance_methods;
-///   const struct _method_list_t * const class_methods;
-///   const struct _protocol_list_t * const protocols;
-///   const struct _prop_list_t * const properties;
+///   const struct _method_list_t *instance_methods;
+///   const struct _method_list_t *class_methods;
+///   const struct _protocol_list_t *protocols;
+///   const struct _prop_list_t *properties;
 /// }
 
 /// MessageRefTy - LLVM for:
@@ -5316,10 +5858,10 @@ static void WriteModernMetadataDeclarations(ASTContext *Context, std::string &Re
   
   Result += "\nstruct _protocol_t {\n";
   Result += "\tvoid * isa;  // NULL\n";
-  Result += "\tconst char * const protocol_name;\n";
+  Result += "\tconst char *protocol_name;\n";
   Result += "\tconst struct _protocol_list_t * protocol_list; // super protocols\n";
-  Result += "\tconst struct method_list_t * const instance_methods;\n";
-  Result += "\tconst struct method_list_t * const class_methods;\n";
+  Result += "\tconst struct method_list_t *instance_methods;\n";
+  Result += "\tconst struct method_list_t *class_methods;\n";
   Result += "\tconst struct method_list_t *optionalInstanceMethods;\n";
   Result += "\tconst struct method_list_t *optionalClassMethods;\n";
   Result += "\tconst struct _prop_list_t * properties;\n";
@@ -5337,19 +5879,19 @@ static void WriteModernMetadataDeclarations(ASTContext *Context, std::string &Re
   Result += "};\n";
   
   Result += "\nstruct _class_ro_t {\n";
-  Result += "\tunsigned int const flags;\n";
+  Result += "\tunsigned int flags;\n";
   Result += "\tunsigned int instanceStart;\n";
-  Result += "\tunsigned int const instanceSize;\n";
+  Result += "\tunsigned int instanceSize;\n";
   const llvm::Triple &Triple(Context->getTargetInfo().getTriple());
   if (Triple.getArch() == llvm::Triple::x86_64)
-    Result += "\tunsigned int const reserved;\n";
-  Result += "\tconst unsigned char * const ivarLayout;\n";
-  Result += "\tconst char *const name;\n";
-  Result += "\tconst struct _method_list_t * const baseMethods;\n";
-  Result += "\tconst struct _objc_protocol_list *const baseProtocols;\n";
-  Result += "\tconst struct _ivar_list_t *const ivars;\n";
-  Result += "\tconst unsigned char *const weakIvarLayout;\n";
-  Result += "\tconst struct _prop_list_t *const properties;\n";
+    Result += "\tunsigned int reserved;\n";
+  Result += "\tconst unsigned char *ivarLayout;\n";
+  Result += "\tconst char *name;\n";
+  Result += "\tconst struct _method_list_t *baseMethods;\n";
+  Result += "\tconst struct _objc_protocol_list *baseProtocols;\n";
+  Result += "\tconst struct _ivar_list_t *ivars;\n";
+  Result += "\tconst unsigned char *weakIvarLayout;\n";
+  Result += "\tconst struct _prop_list_t *properties;\n";
   Result += "};\n";
   
   Result += "\nstruct _class_t {\n";
@@ -5361,17 +5903,16 @@ static void WriteModernMetadataDeclarations(ASTContext *Context, std::string &Re
   Result += "};\n";
   
   Result += "\nstruct _category_t {\n";
-  Result += "\tconst char * const name;\n";
+  Result += "\tconst char *name;\n";
   Result += "\tstruct _class_t *cls;\n";
-  Result += "\tconst struct _method_list_t *const instance_methods;\n";
-  Result += "\tconst struct _method_list_t *const class_methods;\n";
-  Result += "\tconst struct _protocol_list_t *const protocols;\n";
-  Result += "\tconst struct _prop_list_t *const properties;\n";
+  Result += "\tconst struct _method_list_t *instance_methods;\n";
+  Result += "\tconst struct _method_list_t *class_methods;\n";
+  Result += "\tconst struct _protocol_list_t *protocols;\n";
+  Result += "\tconst struct _prop_list_t *properties;\n";
   Result += "};\n";
   
-  Result += "__declspec(dllimport) extern struct objc_cache _objc_empty_cache;\n";
-  Result += "extern void *_objc_empty_vtable;\n";
-  
+  Result += "extern \"C\" __declspec(dllimport) struct objc_cache _objc_empty_cache;\n";
+  Result += "#pragma warning(disable:4273)\n";
   meta_data_declared = true;
 }
 
@@ -5610,33 +6151,47 @@ static void Write_class_t(ASTContext *Context, std::string &Result,
   if (metaclass && rootClass) {
     // Need to handle a case of use of forward declaration.
     Result += "\n";
+    Result += "extern \"C\" ";
     if (CDecl->getImplementation())
       Result += "__declspec(dllexport) ";
-    Result += "extern struct _class_t OBJC_CLASS_$_";
+    else
+      Result += "__declspec(dllimport) ";
+    
+    Result += "struct _class_t OBJC_CLASS_$_";
     Result += CDecl->getNameAsString();
     Result += ";\n";
   }
   // Also, for possibility of 'super' metadata class not having been defined yet.
   if (!rootClass) {
+    ObjCInterfaceDecl *SuperClass = CDecl->getSuperClass();
     Result += "\n";
-    if (CDecl->getSuperClass()->getImplementation())
+    Result += "extern \"C\" ";
+    if (SuperClass->getImplementation())
       Result += "__declspec(dllexport) ";
-    Result += "extern struct _class_t "; 
+    else
+      Result += "__declspec(dllimport) ";
+
+    Result += "struct _class_t "; 
     Result += VarName;
-    Result += CDecl->getSuperClass()->getNameAsString();
+    Result += SuperClass->getNameAsString();
     Result += ";\n";
     
-    if (metaclass) {
+    if (metaclass && RootClass != SuperClass) {
+      Result += "extern \"C\" ";
       if (RootClass->getImplementation())
         Result += "__declspec(dllexport) ";
-      Result += "extern struct _class_t "; 
+      else
+        Result += "__declspec(dllimport) ";
+
+      Result += "struct _class_t "; 
       Result += VarName;
       Result += RootClass->getNameAsString();
       Result += ";\n";
     }
   }
   
-  Result += "\n__declspec(dllexport) struct _class_t "; Result += VarName; Result += CDecl->getNameAsString();
+  Result += "\nextern \"C\" __declspec(dllexport) struct _class_t "; 
+  Result += VarName; Result += CDecl->getNameAsString();
   Result += " __attribute__ ((used, section (\"__DATA,__objc_data\"))) = {\n";
   Result += "\t";
   if (metaclass) {
@@ -5717,33 +6272,28 @@ static void Write_class_t(ASTContext *Context, std::string &Result,
   Result += "\tOBJC_CLASS_$_"; Result += CDecl->getNameAsString();
   Result += ".cache = "; Result += "&_objc_empty_cache"; Result += ";\n";
   Result += "}\n";
-  
-  Result += "#pragma section(\".objc_inithooks$B\", long, read, write)\n";
-  Result += "__declspec(allocate(\".objc_inithooks$B\")) ";
-  Result += "static void *OBJC_CLASS_SETUP2_$_";
-  Result += CDecl->getNameAsString();
-  Result += " = (void *)&OBJC_CLASS_SETUP_$_"; 
-  Result += CDecl->getNameAsString();
-  Result += ";\n\n";
 }
 
 static void Write_category_t(RewriteModernObjC &RewriteObj, ASTContext *Context, 
                              std::string &Result,
-                             StringRef CatName,
+                             ObjCCategoryDecl *CatDecl,
                              ObjCInterfaceDecl *ClassDecl,
                              ArrayRef<ObjCMethodDecl *> InstanceMethods,
                              ArrayRef<ObjCMethodDecl *> ClassMethods,
                              ArrayRef<ObjCProtocolDecl *> RefedProtocols,
                              ArrayRef<ObjCPropertyDecl *> ClassProperties) {
-  
+  StringRef CatName = CatDecl->getName();
   StringRef ClassName = ClassDecl->getName();
   // must declare an extern class object in case this class is not implemented 
   // in this TU.
   Result += "\n";
+  Result += "extern \"C\" ";
   if (ClassDecl->getImplementation())
     Result += "__declspec(dllexport) ";
+  else
+    Result += "__declspec(dllimport) ";
   
-  Result += "extern struct _class_t ";
+  Result += "struct _class_t ";
   Result += "OBJC_CLASS_$_"; Result += ClassName;
   Result += ";\n";
   
@@ -5804,18 +6354,6 @@ static void Write_category_t(RewriteModernObjC &RewriteObj, ASTContext *Context,
   Result += CatName;
   Result += ".cls = "; Result += "&OBJC_CLASS_$_"; Result += ClassName;
   Result += ";\n}\n";
-  
-  Result += "#pragma section(\".objc_inithooks$B\", long, read, write)\n";
-  Result += "__declspec(allocate(\".objc_inithooks$B\")) ";
-  Result += "static void *OBJC_CATEGORY_SETUP2_$_";
-  Result += ClassDecl->getNameAsString();
-  Result += "_$_";
-  Result += CatName;
-  Result += " = (void *)&OBJC_CATEGORY_SETUP_$_"; 
-  Result += ClassDecl->getNameAsString();
-  Result += "_$_";
-  Result += CatName;
-  Result += ";\n\n";
 }
 
 static void Write__extendedMethodTypes_initializer(RewriteModernObjC &RewriteObj,
@@ -5868,9 +6406,9 @@ static void Write_IvarOffsetVar(ASTContext *Context,
     if (!Context->getLangOpts().MicrosoftExt ||
         IvarDecl->getAccessControl() == ObjCIvarDecl::Private ||
         IvarDecl->getAccessControl() == ObjCIvarDecl::Package)
-      Result += "unsigned long int "; 
+      Result += "extern \"C\" unsigned long int "; 
     else
-      Result += "__declspec(dllexport) unsigned long int ";
+      Result += "extern \"C\" __declspec(dllexport) unsigned long int ";
     WriteInternalIvarName(CDecl, IvarDecl, Result);
     Result += " __attribute__ ((used, section (\"__DATA,__objc_ivar\")))";
     Result += " = ";
@@ -6248,7 +6786,7 @@ void RewriteModernObjC::RewriteObjCClassMetaData(ObjCImplementationDecl *IDecl,
     ClassProperties.push_back(*I);
   
   Write_prop_list_t_initializer(*this, Context, Result, ClassProperties,
-                                 /* Container */0,
+                                 /* Container */IDecl,
                                  "_OBJC_$_PROP_LIST_",
                                  CDecl->getNameAsString());
 
@@ -6334,19 +6872,37 @@ void RewriteModernObjC::RewriteObjCClassMetaData(ObjCImplementationDecl *IDecl,
                 
 }
 
+void RewriteModernObjC::RewriteClassSetupInitHook(std::string &Result) {
+  int ClsDefCount = ClassImplementation.size();
+  if (!ClsDefCount)
+    return;
+  Result += "#pragma section(\".objc_inithooks$B\", long, read, write)\n";
+  Result += "__declspec(allocate(\".objc_inithooks$B\")) ";
+  Result += "static void *OBJC_CLASS_SETUP[] = {\n";
+  for (int i = 0; i < ClsDefCount; i++) {
+    ObjCImplementationDecl *IDecl = ClassImplementation[i];
+    ObjCInterfaceDecl *CDecl = IDecl->getClassInterface();
+    Result += "\t(void *)&OBJC_CLASS_SETUP_$_";
+    Result  += CDecl->getName(); Result += ",\n";
+  }
+  Result += "};\n";
+}
+
 void RewriteModernObjC::RewriteMetaDataIntoBuffer(std::string &Result) {
   int ClsDefCount = ClassImplementation.size();
   int CatDefCount = CategoryImplementation.size();
-  if (LangOpts.MicrosoftExt)
-    Result += "#pragma optimize(\"g\", on)";
   
   // For each implemented class, write out all its meta data.
   for (int i = 0; i < ClsDefCount; i++)
     RewriteObjCClassMetaData(ClassImplementation[i], Result);
   
+  RewriteClassSetupInitHook(Result);
+  
   // For each implemented category, write out all its meta data.
   for (int i = 0; i < CatDefCount; i++)
     RewriteObjCCategoryImplDecl(CategoryImplementation[i], Result);
+  
+  RewriteCategorySetupInitHook(Result);
   
   if (ClsDefCount > 0) {
     if (LangOpts.MicrosoftExt)
@@ -6408,8 +6964,6 @@ void RewriteModernObjC::RewriteMetaDataIntoBuffer(std::string &Result) {
     }
     Result += "};\n";
   }
-  if (LangOpts.MicrosoftExt)
-    Result += "#pragma optimize(\"\", on)\n";
 }
 
 void RewriteModernObjC::WriteImageInfo(std::string &Result) {
@@ -6503,7 +7057,7 @@ void RewriteModernObjC::RewriteObjCCategoryImplDecl(ObjCCategoryImplDecl *IDecl,
                                 FullCategoryName);
   
   Write_category_t(*this, Context, Result,
-                   CDecl->getNameAsString(),
+                   CDecl,
                    ClassDecl,
                    InstanceMethods,
                    ClassMethods,
@@ -6513,7 +7067,27 @@ void RewriteModernObjC::RewriteObjCCategoryImplDecl(ObjCCategoryImplDecl *IDecl,
   // Determine if this category is also "non-lazy".
   if (ImplementationIsNonLazy(IDecl))
     DefinedNonLazyCategories.push_back(CDecl);
-  
+    
+}
+
+void RewriteModernObjC::RewriteCategorySetupInitHook(std::string &Result) {
+  int CatDefCount = CategoryImplementation.size();
+  if (!CatDefCount)
+    return;
+  Result += "#pragma section(\".objc_inithooks$B\", long, read, write)\n";
+  Result += "__declspec(allocate(\".objc_inithooks$B\")) ";
+  Result += "static void *OBJC_CATEGORY_SETUP[] = {\n";
+  for (int i = 0; i < CatDefCount; i++) {
+    ObjCCategoryImplDecl *IDecl = CategoryImplementation[i];
+    ObjCCategoryDecl *CatDecl= IDecl->getCategoryDecl();
+    ObjCInterfaceDecl *ClassDecl = IDecl->getClassInterface();
+    Result += "\t(void *)&OBJC_CATEGORY_SETUP_$_";
+    Result += ClassDecl->getName();
+    Result += "_$_";
+    Result += CatDecl->getName();
+    Result += ",\n";
+  }
+  Result += "};\n";
 }
 
 // RewriteObjCMethodsMetaData - Rewrite methods metadata for instance or

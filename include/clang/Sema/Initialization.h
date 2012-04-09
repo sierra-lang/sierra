@@ -340,7 +340,7 @@ public:
   /// element, sets the element index.
   void setElementIndex(unsigned Index) {
     assert(getKind() == EK_ArrayElement || getKind() == EK_VectorElement ||
-           EK_ComplexElement);
+           getKind() == EK_ComplexElement);
     this->Index = Index;
   }
 
@@ -719,7 +719,9 @@ public:
     FK_PlaceholderType,
     /// \brief Failed to initialize a std::initializer_list because copy
     /// construction of some element failed.
-    FK_InitListElementCopyFailure
+    FK_InitListElementCopyFailure,
+    /// \brief List-copy-initialization chose an explicit constructor.
+    FK_ExplicitConstructor
   };
   
 private:

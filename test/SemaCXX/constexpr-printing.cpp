@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 %s -std=c++11 -fsyntax-only -verify
+// RUN: %clang_cc1 %s -std=c++11 -fsyntax-only -verify -triple x86_64-linux-gnu
 
 struct S;
 constexpr int extract(const S &s);
@@ -85,8 +85,8 @@ constexpr char16_t c16 = get(u"test\0\\\"\t\a\b\234\u1234"); // \
   expected-error {{}} expected-note {{u"test\000\\\"\t\a\b\234\u1234"}}
 constexpr char32_t c32 = get(U"test\0\\\"\t\a\b\234\u1234\U0010ffff"); // \
   expected-error {{}} expected-note {{U"test\000\\\"\t\a\b\234\u1234\U0010FFFF"}}
-constexpr wchar_t wc = get(L"test\0\\\"\t\a\b\234\u1234"); // \
-  expected-error {{}} expected-note {{L"test\000\\\"\t\a\b\234\u1234"}}
+constexpr wchar_t wc = get(L"test\0\\\"\t\a\b\234\u1234\xffffffff"); // \
+  expected-error {{}} expected-note {{L"test\000\\\"\t\a\b\234\x1234\xFFFFFFFF"}}
 
 constexpr char32_t c32_err = get(U"\U00110000"); // expected-error {{invalid universal character}}
 
@@ -96,3 +96,7 @@ void LabelDiffTest() {
   static_assert(mulBy3((LabelDiffTy)&&a-(LabelDiffTy)&&b) == 3, ""); // expected-error {{constant expression}} expected-note {{call to 'mulBy3(&&a - &&b)'}}
   a:b:return;
 }
+
+constexpr bool test_bool_printing(bool b) { return 1 / !(2*b | !(2*b)); } // expected-note 2{{division by zero}}
+constexpr bool test_bool_0 = test_bool_printing(false); // expected-error {{constant expr}} expected-note {{in call to 'test_bool_printing(false)'}}
+constexpr bool test_bool_1 = test_bool_printing(true); // expected-error {{constant expr}} expected-note {{in call to 'test_bool_printing(true)'}}

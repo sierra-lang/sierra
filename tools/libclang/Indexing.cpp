@@ -275,6 +275,9 @@ static void clang_indexSourceFile_Impl(void *UserData) {
 
   CIndexer *CXXIdx = static_cast<CIndexer *>(CIdx);
 
+  if (CXXIdx->isOptEnabled(CXGlobalOpt_ThreadBackgroundPriorityForIndexing))
+    setThreadBackgroundPriority();
+
   CaptureDiagnosticConsumer *CaptureDiag = new CaptureDiagnosticConsumer();
 
   // Configure the diagnostics.
@@ -346,9 +349,12 @@ static void clang_indexSourceFile_Impl(void *UserData) {
   if (!requestedToGetTU)
     CInvok->getPreprocessorOpts().DetailedRecord = false;
 
+  if (index_options & CXIndexOpt_SuppressWarnings)
+    CInvok->getDiagnosticOpts().IgnoreWarnings = true;
+
   ASTUnit *Unit = ASTUnit::create(CInvok.getPtr(), Diags,
                                   /*CaptureDiagnostics=*/true);
-  OwningPtr<CXTUOwner> CXTU(new CXTUOwner(MakeCXTranslationUnit(Unit)));
+  OwningPtr<CXTUOwner> CXTU(new CXTUOwner(MakeCXTranslationUnit(CXXIdx, Unit)));
 
   // Recover resources if we crash before exiting this method.
   llvm::CrashRecoveryContextCleanupRegistrar<CXTUOwner>
@@ -498,6 +504,10 @@ static void clang_indexTranslationUnit_Impl(void *UserData) {
     return;
   if (!client_index_callbacks || index_callbacks_size == 0)
     return;
+
+  CIndexer *CXXIdx = (CIndexer*)TU->CIdx;
+  if (CXXIdx->isOptEnabled(CXGlobalOpt_ThreadBackgroundPriorityForIndexing))
+    setThreadBackgroundPriority();
 
   IndexerCallbacks CB;
   memset(&CB, 0, sizeof(CB));

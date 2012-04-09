@@ -1,8 +1,12 @@
 clang_CXCursorSet_contains
 clang_CXCursorSet_insert
+clang_CXIndex_getGlobalOptions
+clang_CXIndex_setGlobalOptions
 clang_CXXMethod_isStatic
 clang_CXXMethod_isVirtual
+clang_Cursor_getSpellingNameRange
 clang_Cursor_getTranslationUnit
+clang_Cursor_getObjCSelectorIndex
 clang_Cursor_isNull
 clang_IndexAction_create
 clang_IndexAction_dispose
@@ -65,6 +69,7 @@ clang_getCompletionChunkCompletionString
 clang_getCompletionChunkKind
 clang_getCompletionChunkText
 clang_getCompletionNumAnnotations
+clang_getCompletionParent
 clang_getCompletionPriority
 clang_getCursor
 clang_getCursorAvailability

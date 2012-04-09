@@ -1113,15 +1113,21 @@ ExprResult TemplateInstantiator::transformNonTypeTemplateParmRef(
     type = argExpr->getType();
 
   } else if (arg.getKind() == TemplateArgument::Declaration) {
-    ValueDecl *VD = cast<ValueDecl>(arg.getAsDecl());
+    ValueDecl *VD;
+    if (Decl *D = arg.getAsDecl()) {
+      VD = cast<ValueDecl>(D);
 
-    // Find the instantiation of the template argument.  This is
-    // required for nested templates.
-    VD = cast_or_null<ValueDecl>(
-                       getSema().FindInstantiatedDecl(loc, VD, TemplateArgs));
-    if (!VD)
-      return ExprError();
-
+      // Find the instantiation of the template argument.  This is
+      // required for nested templates.
+      VD = cast_or_null<ValueDecl>(
+             getSema().FindInstantiatedDecl(loc, VD, TemplateArgs));
+      if (!VD)
+        return ExprError();
+    } else {
+      // Propagate NULL template argument.
+      VD = 0;
+    }
+    
     // Derive the type we want the substituted decl to have.  This had
     // better be non-dependent, or these checks will have serious problems.
     if (parm->isExpandedParameterPack()) {
@@ -1843,7 +1849,21 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
         if (OldField->getInClassInitializer())
           FieldsWithMemberInitializers.push_back(std::make_pair(OldField,
                                                                 Field));
-      } else if (NewMember->isInvalidDecl())
+      } else if (EnumDecl *Enum = dyn_cast<EnumDecl>(NewMember)) {
+        // C++11 [temp.inst]p1: The implicit instantiation of a class template
+        // specialization causes the implicit instantiation of the definitions
+        // of unscoped member enumerations.
+        // Record a point of instantiation for this implicit instantiation.
+        if (TSK == TSK_ImplicitInstantiation && !Enum->isScoped() &&
+            Enum->isCompleteDefinition()) {
+          MemberSpecializationInfo *MSInfo =Enum->getMemberSpecializationInfo();
+          assert(MSInfo && "no spec info for member enum specialization");
+          MSInfo->setTemplateSpecializationKind(TSK_ImplicitInstantiation);
+          MSInfo->setPointOfInstantiation(PointOfInstantiation);
+        }
+      }
+
+      if (NewMember->isInvalidDecl())
         Invalid = true;
     } else {
       // FIXME: Eventually, a NULL return will mean that one of the

@@ -1586,8 +1586,7 @@ DeduceTemplateArguments(Sema &S,
 
   case TemplateArgument::Declaration:
     if (Arg.getKind() == TemplateArgument::Declaration &&
-        Param.getAsDecl()->getCanonicalDecl() ==
-          Arg.getAsDecl()->getCanonicalDecl())
+        isSameDeclaration(Param.getAsDecl(), Arg.getAsDecl()))
       return Sema::TDK_Success;
 
     Info.FirstArg = Param;
@@ -1858,8 +1857,7 @@ static bool isSameTemplateArg(ASTContext &Context,
              Context.getCanonicalType(Y.getAsType());
 
     case TemplateArgument::Declaration:
-      return X.getAsDecl()->getCanonicalDecl() ==
-             Y.getAsDecl()->getCanonicalDecl();
+      return isSameDeclaration(X.getAsDecl(), Y.getAsDecl());
 
     case TemplateArgument::Template:
     case TemplateArgument::TemplateExpansion:
@@ -1925,7 +1923,7 @@ getTrivialTemplateArgumentLoc(Sema &S,
   case TemplateArgument::Declaration: {
     Expr *E
       = S.BuildExpressionFromDeclTemplateArgument(Arg, NTTPType, Loc)
-    .takeAs<Expr>();
+          .takeAs<Expr>();
     return TemplateArgumentLoc(TemplateArgument(E), E);
   }
 
@@ -2935,8 +2933,12 @@ DeduceTemplateArgumentByListElement(Sema &S,
   }
 
   // For all other cases, just match by type.
+  QualType ArgType = Arg->getType();
+  if (AdjustFunctionParmAndArgTypesForDeduction(S, TemplateParams, ParamType, 
+                                                ArgType, Arg, TDF))
+    return Sema::TDK_FailedOverloadResolution;
   return DeduceTemplateArgumentsByTypeMatch(S, TemplateParams, ParamType,
-                                            Arg->getType(), Info, Deduced, TDF);
+                                            ArgType, Info, Deduced, TDF);
 }
 
 /// \brief Perform template argument deduction from a function call
@@ -3494,22 +3496,24 @@ Sema::DeduceAutoType(TypeSourceInfo *Type, Expr *&Init,
   Deduced.resize(1);
   QualType InitType = Init->getType();
   unsigned TDF = 0;
-  if (AdjustFunctionParmAndArgTypesForDeduction(*this, &TemplateParams,
-                                                FuncParam, InitType, Init,
-                                                TDF))
-    return DAR_Failed;
 
   TemplateDeductionInfo Info(Context, Loc);
 
   InitListExpr * InitList = dyn_cast<InitListExpr>(Init);
   if (InitList) {
     for (unsigned i = 0, e = InitList->getNumInits(); i < e; ++i) {
-      if (DeduceTemplateArgumentsByTypeMatch(*this, &TemplateParams, FuncParam,
-                                             InitList->getInit(i)->getType(),
-                                             Info, Deduced, TDF))
+      if (DeduceTemplateArgumentByListElement(*this, &TemplateParams, 
+                                              TemplArg,
+                                              InitList->getInit(i),
+                                              Info, Deduced, TDF))
         return DAR_Failed;
     }
   } else {
+    if (AdjustFunctionParmAndArgTypesForDeduction(*this, &TemplateParams,
+                                                  FuncParam, InitType, Init,
+                                                  TDF))
+      return DAR_Failed;
+    
     if (DeduceTemplateArgumentsByTypeMatch(*this, &TemplateParams, FuncParam,
                                            InitType, Info, Deduced, TDF))
       return DAR_Failed;
@@ -4404,7 +4408,7 @@ MarkUsedTemplateParameters(ASTContext &Ctx,
   switch (TemplateArg.getKind()) {
   case TemplateArgument::Null:
   case TemplateArgument::Integral:
-    case TemplateArgument::Declaration:
+  case TemplateArgument::Declaration:
     break;
 
   case TemplateArgument::Type:

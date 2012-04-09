@@ -2429,11 +2429,11 @@ public:
                                  llvm::Constant **Decls,
                                  unsigned NumDecls);
 
-  /// GenerateCXXGlobalDtorFunc - Generates code for destroying global
+  /// GenerateCXXGlobalDtorsFunc - Generates code for destroying global
   /// variables.
-  void GenerateCXXGlobalDtorFunc(llvm::Function *Fn,
-                                 const std::vector<std::pair<llvm::WeakVH,
-                                   llvm::Constant*> > &DtorsAndObjects);
+  void GenerateCXXGlobalDtorsFunc(llvm::Function *Fn,
+                                  const std::vector<std::pair<llvm::WeakVH,
+                                  llvm::Constant*> > &DtorsAndObjects);
 
   void GenerateCXXGlobalVarDeclInitFunc(llvm::Function *Fn,
                                         const VarDecl *D,
@@ -2522,6 +2522,7 @@ public:
                      unsigned AccuracyD = 1);
 
 private:
+  llvm::MDNode *getRangeForLoadFromType(QualType Ty);
   void EmitReturnOfRValue(RValue RV, QualType Ty);
 
   /// ExpandTypeFromArgs - Reconstruct a structure of type \arg Ty

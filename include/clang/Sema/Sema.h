@@ -660,7 +660,17 @@ public:
   /// This is used for determining parameter types of other objects and is
   /// utterly meaningless on other types of special members.
   class SpecialMemberOverloadResult : public llvm::FastFoldingSetNode {
+  public:
+    enum Kind {
+      NoMemberOrDeleted,
+      Ambiguous,
+      SuccessNonConst,
+      SuccessConst
+    };
+
+  private:
     llvm::PointerIntPair<CXXMethodDecl*, 2> Pair;
+
   public:
     SpecialMemberOverloadResult(const llvm::FoldingSetNodeID &ID)
       : FastFoldingSetNode(ID)
@@ -669,15 +679,11 @@ public:
     CXXMethodDecl *getMethod() const { return Pair.getPointer(); }
     void setMethod(CXXMethodDecl *MD) { Pair.setPointer(MD); }
 
-    bool hasSuccess() const { return Pair.getInt() & 0x1; }
-    void setSuccess(bool B) {
-      Pair.setInt(unsigned(B) | hasConstParamMatch() << 1);
-    }
+    Kind getKind() const { return static_cast<Kind>(Pair.getInt()); }
+    void setKind(Kind K) { Pair.setInt(K); }
 
-    bool hasConstParamMatch() const { return Pair.getInt() & 0x2; }
-    void setConstParamMatch(bool B) {
-      Pair.setInt(B << 1 | unsigned(hasSuccess()));
-    }
+    bool hasSuccess() const { return getKind() >= SuccessNonConst; }
+    bool hasConstParamMatch() const { return getKind() == SuccessConst; }
   };
 
   /// \brief A cache of special member function overload resolution results
@@ -1091,7 +1097,7 @@ public:
                                         const LookupResult &Previous,
                                         Scope *S);
   bool DiagnoseClassNameShadow(DeclContext *DC, DeclarationNameInfo Info);
-  bool diagnoseQualifiedDeclInClass(CXXScopeSpec &SS, DeclContext *DC,
+  bool diagnoseQualifiedDeclaration(CXXScopeSpec &SS, DeclContext *DC,
                                     DeclarationName Name,
                                     SourceLocation Loc);
   void DiagnoseFunctionSpecifiers(Declarator& D);
@@ -1372,7 +1378,7 @@ public:
 
   /// Push the parameters of D, which must be a function, into scope.
   void ActOnReenterFunctionContext(Scope* S, Decl* D);
-  void ActOnExitFunctionContext() { PopDeclContext(); }
+  void ActOnExitFunctionContext();
 
   DeclContext *getFunctionLevelDeclContext();
 
@@ -2421,6 +2427,7 @@ public:
   bool CanUseDecl(NamedDecl *D);
   bool DiagnoseUseOfDecl(NamedDecl *D, SourceLocation Loc,
                          const ObjCInterfaceDecl *UnknownObjCClass=0);
+  void NoteDeletedFunction(FunctionDecl *FD);
   std::string getDeletedOrUnavailableSuffix(const FunctionDecl *FD);
   bool DiagnosePropertyAccessorMismatch(ObjCPropertyDecl *PD,
                                         ObjCMethodDecl *Getter,
@@ -2795,8 +2802,10 @@ public:
   ExprResult ActOnAddrLabel(SourceLocation OpLoc, SourceLocation LabLoc,
                             LabelDecl *TheDecl);
 
+  void ActOnStartStmtExpr();
   ExprResult ActOnStmtExpr(SourceLocation LPLoc, Stmt *SubStmt,
                            SourceLocation RPLoc); // "({..})"
+  void ActOnStmtExprError();
 
   // __builtin_offsetof(type, identifier(.identifier|[expr])*)
   struct OffsetOfComponent {
@@ -2971,7 +2980,7 @@ public:
                                    bool IsTypeName,
                                    SourceLocation TypenameLoc);
 
-  bool CheckInheritedConstructorUsingDecl(UsingDecl *UD);
+  bool CheckInheritingConstructorUsingDecl(UsingDecl *UD);
 
   Decl *ActOnUsingDeclaration(Scope *CurScope,
                               AccessSpecifier AS,
@@ -3127,7 +3136,8 @@ public:
 
   /// \brief Determine if a special member function should have a deleted
   /// definition when it is defaulted.
-  bool ShouldDeleteSpecialMember(CXXMethodDecl *MD, CXXSpecialMember CSM);
+  bool ShouldDeleteSpecialMember(CXXMethodDecl *MD, CXXSpecialMember CSM,
+                                 bool Diagnose = false);
 
   /// \brief Declare the implicit default constructor for the given class.
   ///
@@ -3690,7 +3700,10 @@ public:
                                        SourceRange IntroducerRange,
                                        TypeSourceInfo *MethodType,
                                        SourceLocation EndLoc,
-                                       llvm::ArrayRef<ParmVarDecl *> Params);
+                                       llvm::ArrayRef<ParmVarDecl *> Params,
+                                       llvm::Optional<unsigned> ManglingNumber 
+                                         = llvm::Optional<unsigned>(),
+                                       Decl *ContextDecl = 0);
   
   /// \brief Introduce the scope for a lambda expression.
   sema::LambdaScopeInfo *enterLambdaScope(CXXMethodDecl *CallOperator,
@@ -3723,9 +3736,6 @@ public:
   /// was successfully completed.
   ExprResult ActOnLambdaExpr(SourceLocation StartLoc, Stmt *Body,
                              Scope *CurScope, 
-                             llvm::Optional<unsigned> ManglingNumber 
-                               = llvm::Optional<unsigned>(),
-                             Decl *ContextDecl = 0,
                              bool IsInstantiation = false);
 
   /// \brief Define the "body" of the conversion from a lambda object to a 
@@ -4095,11 +4105,13 @@ public:
                                       bool IsCopyBindingRefToTemp = false);
   AccessResult CheckConstructorAccess(SourceLocation Loc,
                                       CXXConstructorDecl *D,
+                                      const InitializedEntity &Entity,
                                       AccessSpecifier Access,
-                                      PartialDiagnostic PD);
+                                      const PartialDiagnostic &PDiag);
   AccessResult CheckDestructorAccess(SourceLocation Loc,
                                      CXXDestructorDecl *Dtor,
-                                     const PartialDiagnostic &PDiag);
+                                     const PartialDiagnostic &PDiag,
+                                     QualType objectType = QualType());
   AccessResult CheckDirectMemberAccess(SourceLocation Loc,
                                        NamedDecl *D,
                                        const PartialDiagnostic &PDiag);
@@ -4117,6 +4129,9 @@ public:
                                     bool ForceUnprivileged = false);
   void CheckLookupAccess(const LookupResult &R);
   bool IsSimplyAccessible(NamedDecl *decl, DeclContext *Ctx);
+  bool isSpecialMemberAccessibleForDeletion(CXXMethodDecl *decl,
+                                            AccessSpecifier access,
+                                            QualType objectType);
 
   void HandleDependentAccessCheck(const DependentDiagnostic &DD,
                          const MultiLevelTemplateArgumentList &TemplateArgs);
@@ -4131,6 +4146,26 @@ public:
   /// \brief When true, access checking violations are treated as SFINAE
   /// failures rather than hard errors.
   bool AccessCheckingSFINAE;
+
+  /// \brief RAII object used to temporarily suppress access checking.
+  class SuppressAccessChecksRAII {
+    Sema &S;
+    bool SuppressingAccess;
+
+  public:
+    SuppressAccessChecksRAII(Sema &S, bool Suppress)
+      : S(S), SuppressingAccess(Suppress) {
+      if (Suppress) S.ActOnStartSuppressingAccessChecks();
+    }
+    ~SuppressAccessChecksRAII() {
+      done();
+    }
+    void done() {
+      if (!SuppressingAccess) return;
+      S.ActOnStopSuppressingAccessChecks();
+      SuppressingAccess = false;
+    }
+  };
 
   void ActOnStartSuppressingAccessChecks();
   void ActOnStopSuppressingAccessChecks();

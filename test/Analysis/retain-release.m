@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -triple x86_64-apple-darwin10 -analyze -analyzer-checker=core,osx.coreFoundation.CFRetainRelease,osx.cocoa.ClassRelease,osx.cocoa.RetainCount -analyzer-store=region -fblocks -verify %s
-// RUN: %clang_cc1 -triple x86_64-apple-darwin10 -analyze -analyzer-checker=core,osx.coreFoundation.CFRetainRelease,osx.cocoa.ClassRelease,osx.cocoa.RetainCount -analyzer-store=region -fblocks -verify -x objective-c++ %s
+// RUN: %clang_cc1 -triple x86_64-apple-darwin10 -analyze -analyzer-checker=core,osx.coreFoundation.CFRetainRelease,osx.cocoa.ClassRelease,osx.cocoa.RetainCount -analyzer-store=region -fblocks -verify -Wno-objc-root-class %s
+// RUN: %clang_cc1 -triple x86_64-apple-darwin10 -analyze -analyzer-checker=core,osx.coreFoundation.CFRetainRelease,osx.cocoa.ClassRelease,osx.cocoa.RetainCount -analyzer-store=region -fblocks -verify -x objective-c++ -Wno-objc-root-class %s
 
 #if __has_feature(attribute_ns_returns_retained)
 #define NS_RETURNS_RETAINED __attribute__((ns_returns_retained))
@@ -1665,6 +1665,29 @@ void rdar_10824732() {
     RDar10824732 *foo = [[RDar10824732 alloc] initWithObj:obj]; // no-warning
     [foo release];
   }
+}
+
+//===----------------------------------------------------------------------===//
+// Test returning allocated memory in a struct.
+// 
+// We currently don't have a general way to track pointers that "escape".
+// Here we test that RetainCountChecker doesn't get excited about returning
+// allocated CF objects in struct fields.
+//===----------------------------------------------------------------------===//
+void *malloc(size_t);
+struct rdar11104566 { CFStringRef myStr; };
+struct rdar11104566 test_rdar11104566() {
+  CFStringRef cf = CFStringCreateWithCString( ((CFAllocatorRef)0), "test", kCFStringEncodingUTF8 ); // no-warning
+  struct rdar11104566 V;
+  V.myStr = cf;
+  return V; // no-warning
+}
+
+struct rdar11104566 *test_2_rdar11104566() {
+  CFStringRef cf = CFStringCreateWithCString( ((CFAllocatorRef)0), "test", kCFStringEncodingUTF8 ); // no-warning
+  struct rdar11104566 *V = (struct rdar11104566 *) malloc(sizeof(*V));
+  V->myStr = cf;
+  return V; // no-warning
 }
 
 //===----------------------------------------------------------------------===//

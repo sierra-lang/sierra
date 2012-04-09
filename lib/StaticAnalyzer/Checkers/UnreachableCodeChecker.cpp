@@ -24,7 +24,7 @@
 #include "clang/AST/ParentMap.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/SourceManager.h"
-#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallSet.h"
 
 // The number of CFGBlock pointers we want to reserve memory for. This is used
 // once for each function we analyze.
@@ -162,8 +162,8 @@ void UnreachableCodeChecker::checkEndAnalysis(ExplodedGraph &G,
     if (SM.isInSystemHeader(SL) || SM.isInExternCSystemHeader(SL))
       continue;
 
-    B.EmitBasicReport("Unreachable code", "Dead code", "This statement is never"
-        " executed", DL, SR);
+    B.EmitBasicReport(D, "Unreachable code", "Dead code",
+                      "This statement is never executed", DL, SR);
   }
 }
 

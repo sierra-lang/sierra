@@ -117,7 +117,6 @@ def ext_gnu_case_range : Extension<"use of GNU case range extension">,
   InGroup<GNU>;
 
 // Generic errors.
-def err_parse_error : Error<"parse error">;
 def err_expected_expression : Error<"expected expression">;
 def err_expected_type : Error<"expected a type">;
 def err_expected_external_declaration : Error<"expected external declaration">;
@@ -428,6 +427,9 @@ def err_default_arg_unparsed : Error<
   "unexpected end of default argument expression">;
 def err_parser_impl_limit_overflow : Error<
   "parser recursion limit reached, program too complex">, DefaultFatal;
+def err_misplaced_ellipsis_in_declaration : Error<
+  "'...' must %select{immediately precede declared identifier|"
+  "be innermost component of anonymous pack declaration}0">;
 
 // C++ derived classes
 def err_dup_virtual : Error<"duplicate 'virtual' in base specifier">;
@@ -476,7 +478,8 @@ def err_unknown_template_name : Error<
   "unknown template name %0">;
 def err_expected_comma_greater : Error<
   "expected ',' or '>' in template-parameter-list">;
-def err_expected_class_before : Error<"expected 'class' before '%0'">;
+def err_class_on_template_template_param : Error<
+  "template template parameter requires 'class' after the parameter list">;
 def err_template_spec_syntax_non_template : Error<
   "identifier followed by '<' indicates a class template specialization but "
   "%0 %select{does not refer to a template|refers to a function "
@@ -500,6 +503,9 @@ def err_explicit_instantiation_with_definition : Error<
     "definition is meant to be an explicit specialization, add '<>' after the "
     "'template' keyword">;
 def err_enum_template : Error<"enumeration cannot be a template">;
+def err_explicit_instantiation_enum : Error<
+    "enumerations cannot be explicitly instantiated">;
+def err_expected_template_parameter : Error<"expected template parameter">;
 
 def err_missing_dependent_template_keyword : Error<
   "use 'template' keyword to treat '%0' as a dependent template name">;

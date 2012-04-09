@@ -214,10 +214,8 @@ namespace CopyCtorIssues {
     Ambiguous(const Ambiguous &, int = 0); // expected-note {{candidate}}
     Ambiguous(const Ambiguous &, double = 0); // expected-note {{candidate}}
   };
-  struct Deleted { // expected-note {{here}}
-    // Copy ctor implicitly defined as deleted because Private's copy ctor is
-    // inaccessible.
-    Private p;
+  struct Deleted {
+    Private p; // expected-note {{implicitly deleted}}
   };
 
   const Private &a = Private(); // expected-warning {{copying variable of type 'CopyCtorIssues::Private' when binding a reference to a temporary would invoke an inaccessible constructor in C++98}}
@@ -292,4 +290,12 @@ namespace LiteralUCNs {
   wchar_t c2 = L'\u0041'; // expected-warning {{specifying character 'A' with a universal character name is incompatible with C++98}}
   const char *s1 = "foo\u0031"; // expected-warning {{specifying character '1' with a universal character name is incompatible with C++98}}
   const wchar_t *s2 = L"bar\u0085"; // expected-warning {{universal character name referring to a control character is incompatible with C++98}}
+}
+
+namespace NonTypeTemplateArgs {
+  template<typename T, T v> struct S {};
+  const int k = 5; // expected-note {{here}}
+  static void f() {} // expected-note {{here}}
+  S<const int&, k> s1; // expected-warning {{non-type template argument referring to object 'k' with internal linkage is incompatible with C++98}}
+  S<void(&)(), f> s2; // expected-warning {{non-type template argument referring to function 'f' with internal linkage is incompatible with C++98}}
 }

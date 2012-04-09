@@ -514,14 +514,6 @@ bool ResultBuilder::isInterestingDecl(NamedDecl *ND,
         return false;
     }
   }
-   
-  // Skip out-of-line declarations and definitions.
-  // NOTE: Unless it's an Objective-C property, method, or ivar, where
-  // the contexts can be messy.
-  if (!ND->getDeclContext()->Equals(ND->getLexicalDeclContext()) &&
-      !(isa<ObjCPropertyDecl>(ND) || isa<ObjCIvarDecl>(ND) ||
-        isa<ObjCMethodDecl>(ND)))
-    return false;
 
   if (Filter == &ResultBuilder::IsNestedNameSpecifier ||
       ((isa<NamespaceDecl>(ND) || isa<NamespaceAliasDecl>(ND)) &&
@@ -904,7 +896,7 @@ void ResultBuilder::AddResult(Result R, DeclContext *CurContext,
 
   if (Hiding && CheckHiddenResult(R, CurContext, Hiding))
     return;
-      
+
   // Make sure that any given declaration only shows up in the result set once.
   if (!AllDeclsFound.insert(R.Declaration->getCanonicalDecl()))
     return;
@@ -2180,7 +2172,6 @@ static void AddFunctionParameterChunks(ASTContext &Context,
                                        CodeCompletionBuilder &Result,
                                        unsigned Start = 0,
                                        bool InOptional = false) {
-  typedef CodeCompletionString::Chunk Chunk;
   bool FirstParameter = true;
   
   for (unsigned P = Start, N = Function->getNumParams(); P != N; ++P) {
@@ -2191,7 +2182,7 @@ static void AddFunctionParameterChunks(ASTContext &Context,
       // the remaining default arguments into a new, optional string.
       CodeCompletionBuilder Opt(Result.getAllocator());
       if (!FirstParameter)
-        Opt.AddChunk(Chunk(CodeCompletionString::CK_Comma));        
+        Opt.AddChunk(CodeCompletionString::CK_Comma);
       AddFunctionParameterChunks(Context, Policy, Function, Opt, P, true);
       Result.AddOptionalChunk(Opt.TakeString());
       break;
@@ -2200,7 +2191,7 @@ static void AddFunctionParameterChunks(ASTContext &Context,
     if (FirstParameter)
       FirstParameter = false;
     else
-      Result.AddChunk(Chunk(CodeCompletionString::CK_Comma));
+      Result.AddChunk(CodeCompletionString::CK_Comma);
     
     InOptional = false;
     
@@ -2234,7 +2225,6 @@ static void AddTemplateParameterChunks(ASTContext &Context,
                                        unsigned MaxParameters = 0,
                                        unsigned Start = 0,
                                        bool InDefaultArg = false) {
-  typedef CodeCompletionString::Chunk Chunk;
   bool FirstParameter = true;
   
   TemplateParameterList *Params = Template->getTemplateParameters();
@@ -2283,7 +2273,7 @@ static void AddTemplateParameterChunks(ASTContext &Context,
       // the remaining default arguments into a new, optional string.
       CodeCompletionBuilder Opt(Result.getAllocator());
       if (!FirstParameter)
-        Opt.AddChunk(Chunk(CodeCompletionString::CK_Comma));
+        Opt.AddChunk(CodeCompletionString::CK_Comma);
       AddTemplateParameterChunks(Context, Policy, Template, Opt, MaxParameters,
                                  P - Params->begin(), true);
       Result.AddOptionalChunk(Opt.TakeString());
@@ -2295,7 +2285,7 @@ static void AddTemplateParameterChunks(ASTContext &Context,
     if (FirstParameter)
       FirstParameter = false;
     else
-      Result.AddChunk(Chunk(CodeCompletionString::CK_Comma));
+      Result.AddChunk(CodeCompletionString::CK_Comma);
     
     // Add the placeholder string.
     Result.AddPlaceholderChunk(
@@ -2365,8 +2355,6 @@ AddFunctionTypeQualsToCompletionString(CodeCompletionBuilder &Result,
 /// \brief Add the name of the given declaration 
 static void AddTypedNameChunk(ASTContext &Context, const PrintingPolicy &Policy,
                               NamedDecl *ND, CodeCompletionBuilder &Result) {
-  typedef CodeCompletionString::Chunk Chunk;
-  
   DeclarationName Name = ND->getDeclName();
   if (!Name)
     return;
@@ -2428,9 +2416,9 @@ static void AddTypedNameChunk(ASTContext &Context, const PrintingPolicy &Policy,
     Result.AddTypedTextChunk(
                   Result.getAllocator().CopyString(Record->getNameAsString()));
     if (ClassTemplateDecl *Template = Record->getDescribedClassTemplate()) {
-      Result.AddChunk(Chunk(CodeCompletionString::CK_LeftAngle));
+      Result.AddChunk(CodeCompletionString::CK_LeftAngle);
       AddTemplateParameterChunks(Context, Policy, Template, Result);
-      Result.AddChunk(Chunk(CodeCompletionString::CK_RightAngle));
+      Result.AddChunk(CodeCompletionString::CK_RightAngle);
     }
     break;
   }
@@ -2452,13 +2440,19 @@ CodeCompletionString *
 CodeCompletionResult::CreateCodeCompletionString(ASTContext &Ctx,
                                                  Preprocessor &PP,
                                            CodeCompletionAllocator &Allocator) {
-  typedef CodeCompletionString::Chunk Chunk;
   CodeCompletionBuilder Result(Allocator, Priority, Availability);
   
   PrintingPolicy Policy = getCompletionPrintingPolicy(Ctx, PP);
   if (Kind == RK_Pattern) {
     Pattern->Priority = Priority;
     Pattern->Availability = Availability;
+    
+    if (Declaration) {
+      Result.addParentContext(Declaration->getDeclContext());
+      Pattern->ParentKind = Result.getParentKind();
+      Pattern->ParentName = Result.getParentName();
+    }
+    
     return Pattern;
   }
   
@@ -2478,7 +2472,7 @@ CodeCompletionResult::CreateCodeCompletionString(ASTContext &Ctx,
       return Result.TakeString();
     
     // Format a function-like macro with placeholders for the arguments.
-    Result.AddChunk(Chunk(CodeCompletionString::CK_LeftParen));
+    Result.AddChunk(CodeCompletionString::CK_LeftParen);
     MacroInfo::arg_iterator A = MI->arg_begin(), AEnd = MI->arg_end();
     
     // C99 variadic macros add __VA_ARGS__ at the end. Skip it.
@@ -2492,7 +2486,7 @@ CodeCompletionResult::CreateCodeCompletionString(ASTContext &Ctx,
     
     for (MacroInfo::arg_iterator A = MI->arg_begin(); A != AEnd; ++A) {
       if (A != MI->arg_begin())
-        Result.AddChunk(Chunk(CodeCompletionString::CK_Comma));
+        Result.AddChunk(CodeCompletionString::CK_Comma);
 
       if (MI->isVariadic() && (A+1) == AEnd) {
         SmallString<32> Arg = (*A)->getName();
@@ -2508,13 +2502,14 @@ CodeCompletionResult::CreateCodeCompletionString(ASTContext &Ctx,
       Result.AddPlaceholderChunk(
                           Result.getAllocator().CopyString((*A)->getName()));
     }
-    Result.AddChunk(Chunk(CodeCompletionString::CK_RightParen));
+    Result.AddChunk(CodeCompletionString::CK_RightParen);
     return Result.TakeString();
   }
   
   assert(Kind == RK_Declaration && "Missed a result kind?");
   NamedDecl *ND = Declaration;
-  
+  Result.addParentContext(ND->getDeclContext());
+                          
   if (StartsNestedNameSpecifier) {
     Result.AddTypedTextChunk(
                       Result.getAllocator().CopyString(ND->getNameAsString()));
@@ -2534,9 +2529,9 @@ CodeCompletionResult::CreateCodeCompletionString(ASTContext &Ctx,
     AddQualifierToCompletionString(Result, Qualifier, QualifierIsInformative, 
                                    Ctx, Policy);
     AddTypedNameChunk(Ctx, Policy, ND, Result);
-    Result.AddChunk(Chunk(CodeCompletionString::CK_LeftParen));
+    Result.AddChunk(CodeCompletionString::CK_LeftParen);
     AddFunctionParameterChunks(Ctx, Policy, Function, Result);
-    Result.AddChunk(Chunk(CodeCompletionString::CK_RightParen));
+    Result.AddChunk(CodeCompletionString::CK_RightParen);
     AddFunctionTypeQualsToCompletionString(Result, Function);
     return Result.TakeString();
   }
@@ -2581,16 +2576,16 @@ CodeCompletionResult::CreateCodeCompletionString(ASTContext &Ctx,
       // Some of the function template arguments cannot be deduced from a
       // function call, so we introduce an explicit template argument list
       // containing all of the arguments up to the first deducible argument.
-      Result.AddChunk(Chunk(CodeCompletionString::CK_LeftAngle));
+      Result.AddChunk(CodeCompletionString::CK_LeftAngle);
       AddTemplateParameterChunks(Ctx, Policy, FunTmpl, Result, 
                                  LastDeducibleArgument);
-      Result.AddChunk(Chunk(CodeCompletionString::CK_RightAngle));
+      Result.AddChunk(CodeCompletionString::CK_RightAngle);
     }
     
     // Add the function parameters
-    Result.AddChunk(Chunk(CodeCompletionString::CK_LeftParen));
+    Result.AddChunk(CodeCompletionString::CK_LeftParen);
     AddFunctionParameterChunks(Ctx, Policy, Function, Result);
-    Result.AddChunk(Chunk(CodeCompletionString::CK_RightParen));
+    Result.AddChunk(CodeCompletionString::CK_RightParen);
     AddFunctionTypeQualsToCompletionString(Result, Function);
     return Result.TakeString();
   }
@@ -2600,9 +2595,9 @@ CodeCompletionResult::CreateCodeCompletionString(ASTContext &Ctx,
                                    Ctx, Policy);
     Result.AddTypedTextChunk(
                 Result.getAllocator().CopyString(Template->getNameAsString()));
-    Result.AddChunk(Chunk(CodeCompletionString::CK_LeftAngle));
+    Result.AddChunk(CodeCompletionString::CK_LeftAngle);
     AddTemplateParameterChunks(Ctx, Policy, Template, Result);
-    Result.AddChunk(Chunk(CodeCompletionString::CK_RightAngle));
+    Result.AddChunk(CodeCompletionString::CK_RightAngle);
     return Result.TakeString();
   }
   
@@ -2701,7 +2696,6 @@ CodeCompleteConsumer::OverloadCandidate::CreateSignatureString(
                                                           unsigned CurrentArg,
                                                                Sema &S,
                                      CodeCompletionAllocator &Allocator) const {
-  typedef CodeCompletionString::Chunk Chunk;
   PrintingPolicy Policy = getCompletionPrintingPolicy(S);
 
   // FIXME: Set priority, availability appropriately.
@@ -2717,9 +2711,9 @@ CodeCompleteConsumer::OverloadCandidate::CreateSignatureString(
     Result.AddTextChunk(GetCompletionTypeString(FT->getResultType(),
                                                 S.Context, Policy, 
                                                 Result.getAllocator()));
-    Result.AddChunk(Chunk(CodeCompletionString::CK_LeftParen));
-    Result.AddChunk(Chunk(CodeCompletionString::CK_CurrentParameter, "..."));
-    Result.AddChunk(Chunk(CodeCompletionString::CK_RightParen));
+    Result.AddChunk(CodeCompletionString::CK_LeftParen);
+    Result.AddChunk(CodeCompletionString::CK_CurrentParameter, "...");
+    Result.AddChunk(CodeCompletionString::CK_RightParen);
     return Result.TakeString();
   }
   
@@ -2731,11 +2725,11 @@ CodeCompleteConsumer::OverloadCandidate::CreateSignatureString(
          Result.getAllocator().CopyString(
                                   Proto->getResultType().getAsString(Policy)));
   
-  Result.AddChunk(Chunk(CodeCompletionString::CK_LeftParen));
+  Result.AddChunk(CodeCompletionString::CK_LeftParen);
   unsigned NumParams = FDecl? FDecl->getNumParams() : Proto->getNumArgs();
   for (unsigned I = 0; I != NumParams; ++I) {
     if (I)
-      Result.AddChunk(Chunk(CodeCompletionString::CK_Comma));
+      Result.AddChunk(CodeCompletionString::CK_Comma);
     
     std::string ArgString;
     QualType ArgType;
@@ -2750,20 +2744,20 @@ CodeCompleteConsumer::OverloadCandidate::CreateSignatureString(
     ArgType.getAsStringInternal(ArgString, Policy);
     
     if (I == CurrentArg)
-      Result.AddChunk(Chunk(CodeCompletionString::CK_CurrentParameter, 
-                             Result.getAllocator().CopyString(ArgString)));
+      Result.AddChunk(CodeCompletionString::CK_CurrentParameter,
+                      Result.getAllocator().CopyString(ArgString));
     else
       Result.AddTextChunk(Result.getAllocator().CopyString(ArgString));
   }
   
   if (Proto && Proto->isVariadic()) {
-    Result.AddChunk(Chunk(CodeCompletionString::CK_Comma));
+    Result.AddChunk(CodeCompletionString::CK_Comma);
     if (CurrentArg < NumParams)
       Result.AddTextChunk("...");
     else
-      Result.AddChunk(Chunk(CodeCompletionString::CK_CurrentParameter, "..."));
+      Result.AddChunk(CodeCompletionString::CK_CurrentParameter, "...");
   }
-  Result.AddChunk(Chunk(CodeCompletionString::CK_RightParen));
+  Result.AddChunk(CodeCompletionString::CK_RightParen);
   
   return Result.TakeString();
 }
@@ -3029,7 +3023,9 @@ static void MaybeAddOverrideCalls(Sema &S, DeclContext *InContext,
     Builder.AddChunk(CodeCompletionString::CK_RightParen);
     Results.AddResult(CodeCompletionResult(Builder.TakeString(),
                                            CCP_SuperCompletion,
-                                           CXCursor_CXXMethod));
+                                           CXCursor_CXXMethod,
+                                           CXAvailability_Available,
+                                           Overridden));
     Results.Ignore(Overridden);
   }
 }
@@ -3348,28 +3344,8 @@ static void AddObjCProperties(ObjCContainerDecl *Container,
             Builder.AddTypedTextChunk(
                             Results.getAllocator().CopyString(Name->getName()));
             
-            CXAvailabilityKind Availability = CXAvailability_Available;
-            switch (M->getAvailability()) {
-            case AR_Available:
-            case AR_NotYetIntroduced:
-              Availability = CXAvailability_Available;      
-              break;
-              
-            case AR_Deprecated:
-              Availability = CXAvailability_Deprecated;
-              break;
-              
-            case AR_Unavailable:
-              Availability = CXAvailability_NotAvailable;
-              break;
-            }
-
-            Results.MaybeAddResult(Result(Builder.TakeString(),
-                                  CCP_MemberDeclaration + CCD_MethodAsProperty,
-                                          M->isInstanceMethod()
-                                            ? CXCursor_ObjCInstanceMethodDecl
-                                            : CXCursor_ObjCClassMethodDecl,
-                                          Availability),
+            Results.MaybeAddResult(Result(Builder.TakeString(), *M,
+                                  CCP_MemberDeclaration + CCD_MethodAsProperty),
                                           CurContext);
           }
     }
@@ -4034,7 +4010,8 @@ void Sema::CodeCompleteNamespaceDecl(Scope *S)  {
     // namespace to the list of results.
     Results.EnterNewScope();
     for (std::map<NamespaceDecl *, NamespaceDecl *>::iterator 
-         NS = OrigToLatest.begin(), NSEnd = OrigToLatest.end();
+              NS = OrigToLatest.begin(),
+           NSEnd = OrigToLatest.end();
          NS != NSEnd; ++NS)
       Results.AddResult(CodeCompletionResult(NS->second, 0),
                         CurContext, 0, false);
@@ -4194,7 +4171,9 @@ void Sema::CodeCompleteConstructorInitializer(Decl *ConstructorD,
     Results.AddResult(CodeCompletionResult(Builder.TakeString(), 
                                    SawLastInitializer? CCP_NextInitializer
                                                      : CCP_MemberDeclaration,
-                                           CXCursor_MemberRef));
+                                           CXCursor_MemberRef,
+                                           CXAvailability_Available,
+                                           *Field));
     SawLastInitializer = false;
   }
   Results.ExitScope();
@@ -4845,16 +4824,15 @@ void Sema::CodeCompleteObjCPassingType(Scope *S, ObjCDeclSpec &DS,
   //   IBAction)<#selector#>:(id)sender
   if (DS.getObjCDeclQualifier() == 0 && !IsParameter &&
       Context.Idents.get("IBAction").hasMacroDefinition()) {
-    typedef CodeCompletionString::Chunk Chunk;
     CodeCompletionBuilder Builder(Results.getAllocator(), CCP_CodePattern, 
                                   CXAvailability_Available);
     Builder.AddTypedTextChunk("IBAction");
-    Builder.AddChunk(Chunk(CodeCompletionString::CK_RightParen));
+    Builder.AddChunk(CodeCompletionString::CK_RightParen);
     Builder.AddPlaceholderChunk("selector");
-    Builder.AddChunk(Chunk(CodeCompletionString::CK_Colon));
-    Builder.AddChunk(Chunk(CodeCompletionString::CK_LeftParen));
+    Builder.AddChunk(CodeCompletionString::CK_Colon);
+    Builder.AddChunk(CodeCompletionString::CK_LeftParen);
     Builder.AddTextChunk("id");
-    Builder.AddChunk(Chunk(CodeCompletionString::CK_RightParen));
+    Builder.AddChunk(CodeCompletionString::CK_RightParen);
     Builder.AddTextChunk("sender");
     Results.AddResult(CodeCompletionResult(Builder.TakeString()));
   }
@@ -5064,10 +5042,8 @@ static ObjCMethodDecl *AddSuperSendCompletion(Sema &S, bool NeedSuperKeyword,
     }
   }
   
-  Results.AddResult(CodeCompletionResult(Builder.TakeString(), CCP_SuperCompletion,
-                                         SuperMethod->isInstanceMethod()
-                                           ? CXCursor_ObjCInstanceMethodDecl
-                                           : CXCursor_ObjCClassMethodDecl));
+  Results.AddResult(CodeCompletionResult(Builder.TakeString(), SuperMethod,
+                                         CCP_SuperCompletion));
   return SuperMethod;
 }
                                    
@@ -6754,10 +6730,7 @@ void Sema::CodeCompleteObjCMethodDecl(Scope *S,
     if (!M->second.second)
       Priority += CCD_InBaseClass;
     
-    Results.AddResult(Result(Builder.TakeString(), Priority, 
-                             Method->isInstanceMethod()
-                               ? CXCursor_ObjCInstanceMethodDecl
-                               : CXCursor_ObjCClassMethodDecl));
+    Results.AddResult(Result(Builder.TakeString(), Method, Priority));
   }
 
   // Add Key-Value-Coding and Key-Value-Observing accessor methods for all of 

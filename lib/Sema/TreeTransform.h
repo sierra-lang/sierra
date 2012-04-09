@@ -6736,14 +6736,20 @@ TreeTransform<Derived>::TransformAddrLabelExpr(AddrLabelExpr *E) {
 template<typename Derived>
 ExprResult 
 TreeTransform<Derived>::TransformStmtExpr(StmtExpr *E) {
+  SemaRef.ActOnStartStmtExpr();
   StmtResult SubStmt
     = getDerived().TransformCompoundStmt(E->getSubStmt(), true);
-  if (SubStmt.isInvalid())
+  if (SubStmt.isInvalid()) {
+    SemaRef.ActOnStmtExprError();
     return ExprError();
+  }
 
   if (!getDerived().AlwaysRebuild() &&
-      SubStmt.get() == E->getSubStmt())
+      SubStmt.get() == E->getSubStmt()) {
+    // Calling this an 'error' is unintuitive, but it does the right thing.
+    SemaRef.ActOnStmtExprError();
     return SemaRef.MaybeBindToTemporary(E);
+  }
 
   return getDerived().RebuildStmtExpr(E->getLParenLoc(),
                                       SubStmt.get(),
@@ -7815,7 +7821,8 @@ ExprResult
 TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
   // Create the local class that will describe the lambda.
   CXXRecordDecl *Class
-    = getSema().createLambdaClosureType(E->getIntroducerRange());
+    = getSema().createLambdaClosureType(E->getIntroducerRange(),
+                                        /*KnownDependent=*/false);
   getDerived().transformedLocalDecl(E->getLambdaClass(), Class);
   
   // Transform the type of the lambda parameters and start the definition of
@@ -7836,11 +7843,15 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
     Invalid = true;  
 
   // Build the call operator.
+  // Note: Once a lambda mangling number and context declaration have been
+  // assigned, they never change.
+  unsigned ManglingNumber = E->getLambdaClass()->getLambdaManglingNumber();
+  Decl *ContextDecl = E->getLambdaClass()->getLambdaContextDecl();  
   CXXMethodDecl *CallOperator
     = getSema().startLambdaDefinition(Class, E->getIntroducerRange(),
                                       MethodTy, 
                                       E->getCallOperator()->getLocEnd(),
-                                      Params);
+                                      Params, ManglingNumber, ContextDecl);
   getDerived().transformAttrs(E->getCallOperator(), CallOperator);
   
   // FIXME: Instantiation-specific.
@@ -7953,14 +7964,8 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
     return ExprError();    
   }
 
-  // Note: Once a lambda mangling number and context declaration have been
-  // assigned, they never change.
-  unsigned ManglingNumber = E->getLambdaClass()->getLambdaManglingNumber();
-  Decl *ContextDecl = E->getLambdaClass()->getLambdaContextDecl();
   return getSema().ActOnLambdaExpr(E->getLocStart(), Body.take(), 
-                                   /*CurScope=*/0, ManglingNumber,
-                                   ContextDecl,
-                                   /*IsInstantiation=*/true);
+                                   /*CurScope=*/0, /*IsInstantiation=*/true);
 }
 
 template<typename Derived>

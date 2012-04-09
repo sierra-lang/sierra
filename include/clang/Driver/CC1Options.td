@@ -98,6 +98,9 @@ def analyzer_ipa_EQ : Joined<"-analyzer-ipa=">, Alias<analyzer_ipa>;
 def analyzer_inlining_mode : Separate<"-analyzer-inlining-mode">,
   HelpText<"Specify the function selection heuristic used during inlining">;
 def analyzer_inlining_mode_EQ : Joined<"-analyzer-inlining-mode=">, Alias<analyzer_inlining_mode>;
+
+def analyzer_disable_retry_exhausted : Flag<"-analyzer-disable-retry-exhausted">,
+  HelpText<"Do not re-analyze paths leading to exhausted nodes with a different strategy (may decrease code coverage)">;
   
 def analyzer_max_nodes : Separate<"-analyzer-max-nodes">,
   HelpText<"The maximum number of nodes the analyzer can generate (150000 default, 0 = no limit)">;
@@ -175,6 +178,9 @@ def ffunction_sections : Flag<"-ffunction-sections">,
   HelpText<"Place each function in its own section (ELF Only)">;
 def fdata_sections : Flag<"-fdata-sections">,
   HelpText<"Place each data in its own section (ELF Only)">;
+def fstrict_enums : Flag<"-fstrict-enums">,
+  HelpText<"Enable optimizations based on the strict definition of an enum's "
+           "value range.">;
 def ftrap_function_EQ : Joined<"-ftrap-function=">,
   HelpText<"Issue call to specified function rather than a trap instruction">;
 def funroll_loops : Flag<"-funroll-loops">,
@@ -422,6 +428,9 @@ def ast_view : Flag<"-ast-view">,
   HelpText<"Build ASTs and view them with GraphViz">;
 def print_decl_contexts : Flag<"-print-decl-contexts">,
   HelpText<"Print DeclContexts and their Decls">;
+def pubnames_dump : Flag<"-pubnames-dump">, 
+  HelpText<"Print all of the public (global) names in the source, e.g., the "
+           "names of all global declarations and macros">;
 def emit_module : Flag<"-emit-module">,
   HelpText<"Generate pre-compiled module file from a module map">;
 def emit_pth : Flag<"-emit-pth">,
@@ -623,6 +632,8 @@ def fwrapv : Flag<"-fwrapv">,
   HelpText<"Treat signed integer overflow as two's complement">;
 def pic_level : Separate<"-pic-level">,
   HelpText<"Value for __PIC__">;
+def pie_level : Separate<"-pie-level">,
+  HelpText<"Value for __PIE__">;
 def pthread : Flag<"-pthread">,
   HelpText<"Support POSIX threads in generated code">;
 def fpack_struct : Separate<"-fpack-struct">,

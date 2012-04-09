@@ -3350,7 +3350,6 @@ bool ASTReader::ParseLanguageOptions(
     unsigned Length = Record[Idx++];
     LangOpts.CurrentModule.assign(Record.begin() + Idx, 
                                   Record.begin() + Idx + Length);
-    Idx += Length;
     return Listener->ReadLanguageOptions(LangOpts);
   }
 
@@ -3898,9 +3897,9 @@ QualType ASTReader::readTypeRecord(unsigned Index) {
     ExceptionSpecificationType EST =
         static_cast<ExceptionSpecificationType>(Record[Idx++]);
     EPI.ExceptionSpecType = EST;
+    SmallVector<QualType, 2> Exceptions;
     if (EST == EST_Dynamic) {
       EPI.NumExceptions = Record[Idx++];
-      SmallVector<QualType, 2> Exceptions;
       for (unsigned I = 0; I != EPI.NumExceptions; ++I)
         Exceptions.push_back(readType(*Loc.F, Record, Idx));
       EPI.Exceptions = Exceptions.data();
@@ -4970,6 +4969,51 @@ ASTReader::FindExternalVisibleDeclsByName(const DeclContext *DC,
   ++NumVisibleDeclContextsRead;
   SetExternalVisibleDeclsForName(DC, Name, Decls);
   return const_cast<DeclContext*>(DC)->lookup(Name);
+}
+
+namespace {
+  /// \brief ModuleFile visitor used to complete the visible decls map of a
+  /// declaration context.
+  class DeclContextVisibleDeclMapVisitor {
+    ASTReader &Reader;
+    DeclContext *DC;
+
+  public:
+    DeclContextVisibleDeclMapVisitor(ASTReader &Reader, DeclContext *DC)
+      : Reader(Reader), DC(DC) { }
+
+    static bool visit(ModuleFile &M, void *UserData) {
+      return static_cast<DeclContextVisibleDeclMapVisitor*>(UserData)->visit(M);
+    }
+
+    bool visit(ModuleFile &M) {
+      // Check whether we have any visible declaration information for
+      // this context in this module.
+      ModuleFile::DeclContextInfosMap::iterator
+        Info = M.DeclContextInfos.find(DC);
+      if (Info == M.DeclContextInfos.end() || 
+          !Info->second.NameLookupTableData)
+        return false;
+      
+      // Look for this name within this module.
+      ASTDeclContextNameLookupTable *LookupTable =
+        (ASTDeclContextNameLookupTable*)Info->second.NameLookupTableData;
+      for (ASTDeclContextNameLookupTable::key_iterator
+             I = LookupTable->key_begin(),
+             E = LookupTable->key_end(); I != E; ++I) {
+        DC->lookup(*I); // Force loading of the visible decls for the decl name.
+      }
+
+      return false;
+    }
+  };
+}
+
+void ASTReader::completeVisibleDeclsMap(DeclContext *DC) {
+  if (!DC->hasExternalVisibleStorage())
+    return;
+  DeclContextVisibleDeclMapVisitor Visitor(*this, DC);
+  ModuleMgr.visit(&DeclContextVisibleDeclMapVisitor::visit, &Visitor);
 }
 
 /// \brief Under non-PCH compilation the consumer receives the objc methods

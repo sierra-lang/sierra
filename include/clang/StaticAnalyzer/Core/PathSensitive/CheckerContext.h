@@ -33,15 +33,21 @@ class CheckerContext {
   NodeBuilder &NB;
 
 public:
+  /// If we are post visiting a call, this flag will be set if the
+  /// call was inlined.  In all other cases it will be false.
+  const bool wasInlined;
+  
   CheckerContext(NodeBuilder &builder,
                  ExprEngine &eng,
                  ExplodedNode *pred,
-                 const ProgramPoint &loc)
+                 const ProgramPoint &loc,
+                 bool wasInlined = false)
     : Eng(eng),
       Pred(pred),
       Changed(false),
       Location(loc),
-      NB(builder) {
+      NB(builder),
+      wasInlined(wasInlined) {
     assert(Pred->getState() &&
            "We should not call the checkers on an empty state.");
   }
@@ -112,6 +118,18 @@ public:
 
   AnalysisDeclContext *getCurrentAnalysisDeclContext() const {
     return Pred->getLocationContext()->getAnalysisDeclContext();
+  }
+
+  /// \brief If the given node corresponds to a PostStore program point, retrieve
+  /// the location region as it was uttered in the code.
+  ///
+  /// This utility can be useful for generating extensive diagnostics, for
+  /// example, for finding variables that the given symbol was assigned to.
+  static const MemRegion *getLocationRegionIfPostStore(const ExplodedNode *N) {
+    ProgramPoint L = N->getLocation();
+    if (const PostStore *PSL = dyn_cast<PostStore>(&L))
+      return reinterpret_cast<const MemRegion*>(PSL->getLocationValue());
+    return 0;
   }
 
   /// \brief Generates a new transition in the program state graph

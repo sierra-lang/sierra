@@ -987,6 +987,7 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
   case tok::kw_int:
   case tok::kw_long:
   case tok::kw___int64:
+  case tok::kw___int128:
   case tok::kw_signed:
   case tok::kw_unsigned:
   case tok::kw_half:
@@ -1917,13 +1918,19 @@ Parser::ParseParenExpression(ParenParseOption &ExprType, bool stopIfCastExpr,
   // unless they've already reported an error.
   if (ExprType >= CompoundStmt && Tok.is(tok::l_brace)) {
     Diag(Tok, diag::ext_gnu_statement_expr);
+
+    Actions.ActOnStartStmtExpr();
+
     ParsedAttributes attrs(AttrFactory);
     StmtResult Stmt(ParseCompoundStatement(attrs, true));
     ExprType = CompoundStmt;
 
     // If the substmt parsed correctly, build the AST node.
-    if (!Stmt.isInvalid())
+    if (!Stmt.isInvalid()) {
       Result = Actions.ActOnStmtExpr(OpenLoc, Stmt.take(), Tok.getLocation());
+    } else {
+      Actions.ActOnStmtExprError();
+    }
   } else if (ExprType >= CompoundLiteral && BridgeCast) {
     tok::TokenKind tokenKind = Tok.getKind();
     SourceLocation BridgeKeywordLoc = ConsumeToken();

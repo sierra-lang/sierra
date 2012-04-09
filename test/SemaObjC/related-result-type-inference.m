@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -verify -Wno-objc-root-class %s
 
 @interface Unrelated
 @end
@@ -169,3 +169,12 @@ void test_inference() {
 }
 @end
 
+// PR12384
+@interface Fail @end
+@protocol X @end
+@implementation Fail
+- (id<X>) initWithX
+{
+  return (id)self; // expected-warning {{returning 'Fail *' from a function with incompatible result type 'id<X>'}}
+}
+@end
