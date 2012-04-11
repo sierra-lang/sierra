@@ -343,6 +343,7 @@ private:
   unsigned TypeAltiVecBool : 1;
   unsigned TypeSpecOwned : 1;
   unsigned TypeSpecPipe : 1;
+  unsigned VectorLength;
 
   // type-qualifiers
   unsigned TypeQualifiers : 5;  // Bitwise OR of TQ.
@@ -430,6 +431,7 @@ public:
       TypeAltiVecBool(false),
       TypeSpecOwned(false),
       TypeSpecPipe(false),
+      VectorLength(1),
       TypeQualifiers(TQ_unspecified),
       FS_inline_specified(false),
       FS_forceinline_specified(false),
@@ -484,6 +486,8 @@ public:
   bool isTypeSpecOwned() const { return TypeSpecOwned; }
   bool isTypeRep() const { return isTypeRep((TST) TypeSpecType); }
   bool isTypeSpecPipe() const { return TypeSpecPipe; }
+
+  unsigned getVectorLength() const { return VectorLength; }
 
   ParsedType getRepAsType() const {
     assert(isTypeRep((TST) TypeSpecType) && "DeclSpec does not store a type");
@@ -650,6 +654,8 @@ public:
   bool SetTypeSpecType(TST T, SourceLocation Loc, const char *&PrevSpec,
                        unsigned &DiagID, Expr *Rep,
                        const PrintingPolicy &policy);
+  bool SetTypeSpecVectorLength(unsigned L, SourceLocation Loc,
+                               const char *&PrevSpec, unsigned &DiagID);
   bool SetTypeAltiVecVector(bool isAltiVecVector, SourceLocation Loc,
                        const char *&PrevSpec, unsigned &DiagID,
                        const PrintingPolicy &Policy);
