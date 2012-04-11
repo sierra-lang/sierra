@@ -300,6 +300,7 @@ private:
   unsigned TypeAltiVecPixel : 1;
   unsigned TypeAltiVecBool : 1;
   unsigned TypeSpecOwned : 1;
+  unsigned VectorLength;
 
   // type-qualifiers
   unsigned TypeQualifiers : 3;  // Bitwise OR of TQ.
@@ -387,6 +388,7 @@ public:
       TypeAltiVecPixel(false),
       TypeAltiVecBool(false),
       TypeSpecOwned(false),
+      VectorLength(1),
       TypeQualifiers(TQ_unspecified),
       FS_inline_specified(false),
       FS_virtual_specified(false),
@@ -433,6 +435,7 @@ public:
   bool isTypeAltiVecPixel() const { return TypeAltiVecPixel; }
   bool isTypeAltiVecBool() const { return TypeAltiVecBool; }
   bool isTypeSpecOwned() const { return TypeSpecOwned; }
+  unsigned getVectorLength() const { return VectorLength; }
   ParsedType getRepAsType() const {
     assert(isTypeRep((TST) TypeSpecType) && "DeclSpec does not store a type");
     return TypeRep;
@@ -571,10 +574,13 @@ public:
 
   bool SetTypeSpecType(TST T, SourceLocation Loc, const char *&PrevSpec,
                        unsigned &DiagID, Expr *Rep);
+  bool SetTypeSpecVectorLength(unsigned L, SourceLocation Loc, const char *&PrevSpec,
+                       unsigned &DiagID);
   bool SetTypeAltiVecVector(bool isAltiVecVector, SourceLocation Loc,
                        const char *&PrevSpec, unsigned &DiagID);
   bool SetTypeAltiVecPixel(bool isAltiVecPixel, SourceLocation Loc,
                        const char *&PrevSpec, unsigned &DiagID);
+
   bool SetTypeSpecError();
   void UpdateDeclRep(Decl *Rep) {
     assert(isDeclRep((TST) TypeSpecType));
