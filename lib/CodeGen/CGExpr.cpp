@@ -2786,10 +2786,21 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E, llvm::Value *Dest) {
 
   if (E->getOp() == AtomicExpr::Init) {
     assert(!Dest && "Init does not return a value");
-    Val1 = EmitScalarExpr(E->getVal1());
-    llvm::StoreInst *Store = Builder.CreateStore(Val1, Ptr);
-    Store->setAlignment(Size);
-    Store->setVolatile(E->isVolatile());
+    if (!hasAggregateLLVMType(E->getVal1()->getType())) {
+      llvm::StoreInst *Store =
+        Builder.CreateStore(EmitScalarExpr(E->getVal1()), Ptr);
+      Store->setAlignment(Size);
+      Store->setVolatile(E->isVolatile());
+    } else if (E->getType()->isAnyComplexType()) {
+      EmitComplexExprIntoAddr(E->getVal1(), Ptr, E->isVolatile());
+    } else {
+      AggValueSlot Slot = AggValueSlot::forAddr(Ptr, alignChars,
+                                        AtomicTy.getQualifiers(),
+                                        AggValueSlot::IsNotDestructed,
+                                        AggValueSlot::DoesNotNeedGCBarriers,
+                                        AggValueSlot::IsNotAliased);
+      EmitAggExpr(E->getVal1(), Slot);
+    }
     return RValue::get(0);
   }
 
@@ -3001,16 +3012,13 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E, llvm::Value *Dest) {
   return ConvertTempToRValue(*this, E->getType(), OrigDest);
 }
 
-void CodeGenFunction::SetFPAccuracy(llvm::Value *Val, unsigned AccuracyN,
-                                    unsigned AccuracyD) {
+void CodeGenFunction::SetFPAccuracy(llvm::Value *Val, float Accuracy) {
   assert(Val->getType()->isFPOrFPVectorTy());
-  if (!AccuracyN || !isa<llvm::Instruction>(Val))
+  if (Accuracy == 0.0 || !isa<llvm::Instruction>(Val))
     return;
 
-  llvm::Value *Vals[2];
-  Vals[0] = llvm::ConstantInt::get(Int32Ty, AccuracyN);
-  Vals[1] = llvm::ConstantInt::get(Int32Ty, AccuracyD);
-  llvm::MDNode *Node = llvm::MDNode::get(getLLVMContext(), Vals);
+  llvm::Value *ULPs = llvm::ConstantFP::get(Builder.getFloatTy(), Accuracy);
+  llvm::MDNode *Node = llvm::MDNode::get(getLLVMContext(), ULPs);
 
   cast<llvm::Instruction>(Val)->setMetadata(llvm::LLVMContext::MD_fpaccuracy,
                                             Node);

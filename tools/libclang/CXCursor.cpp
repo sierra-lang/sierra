@@ -786,14 +786,11 @@ CXTranslationUnit cxcursor::getCursorTU(CXCursor Cursor) {
   return static_cast<CXTranslationUnit>(Cursor.data[2]);
 }
 
-static void CollectOverriddenMethods(CXTranslationUnit TU,
-                                     DeclContext *Ctx, 
+static void CollectOverriddenMethodsRecurse(CXTranslationUnit TU,
+                                     ObjCContainerDecl *Container, 
                                      ObjCMethodDecl *Method,
-                                     SmallVectorImpl<CXCursor> &Methods) {
-  if (!Ctx)
-    return;
-
-  ObjCContainerDecl *Container = dyn_cast<ObjCContainerDecl>(Ctx);
+                                     SmallVectorImpl<CXCursor> &Methods,
+                                     bool MovedToSuper) {
   if (!Container)
     return;
 
@@ -801,10 +798,23 @@ static void CollectOverriddenMethods(CXTranslationUnit TU,
   // category is not "overriden" since it is considered as the "same" method
   // (same USR) as the one from the interface.
   if (ObjCCategoryDecl *Category = dyn_cast<ObjCCategoryDecl>(Container)) {
+    // Check whether we have a matching method at this category but only if we
+    // are at the super class level.
+    if (MovedToSuper)
+      if (ObjCMethodDecl *
+            Overridden = Container->getMethod(Method->getSelector(),
+                                              Method->isInstanceMethod()))
+        if (Method != Overridden) {
+          // We found an override at this category; there is no need to look
+          // into its protocols.
+          Methods.push_back(MakeCXCursor(Overridden, TU));
+          return;
+        }
+
     for (ObjCCategoryDecl::protocol_iterator P = Category->protocol_begin(),
                                           PEnd = Category->protocol_end();
          P != PEnd; ++P)
-      CollectOverriddenMethods(TU, *P, Method, Methods);
+      CollectOverriddenMethodsRecurse(TU, *P, Method, Methods, MovedToSuper);
     return;
   }
 
@@ -822,29 +832,37 @@ static void CollectOverriddenMethods(CXTranslationUnit TU,
     for (ObjCProtocolDecl::protocol_iterator P = Protocol->protocol_begin(),
                                           PEnd = Protocol->protocol_end();
          P != PEnd; ++P)
-      CollectOverriddenMethods(TU, *P, Method, Methods);
+      CollectOverriddenMethodsRecurse(TU, *P, Method, Methods, MovedToSuper);
   }
 
   if (ObjCInterfaceDecl *Interface = dyn_cast<ObjCInterfaceDecl>(Container)) {
     for (ObjCInterfaceDecl::protocol_iterator P = Interface->protocol_begin(),
                                            PEnd = Interface->protocol_end();
          P != PEnd; ++P)
-      CollectOverriddenMethods(TU, *P, Method, Methods);
+      CollectOverriddenMethodsRecurse(TU, *P, Method, Methods, MovedToSuper);
 
     for (ObjCCategoryDecl *Category = Interface->getCategoryList();
          Category; Category = Category->getNextClassCategory())
-      CollectOverriddenMethods(TU, Category, Method, Methods);
+      CollectOverriddenMethodsRecurse(TU, Category, Method, Methods,
+                                      MovedToSuper);
 
     if (ObjCInterfaceDecl *Super = Interface->getSuperClass())
-      return CollectOverriddenMethods(TU, Super, Method, Methods);
+      return CollectOverriddenMethodsRecurse(TU, Super, Method, Methods,
+                                             /*MovedToSuper=*/true);
   }
+}
+
+static inline void CollectOverriddenMethods(CXTranslationUnit TU,
+                                           ObjCContainerDecl *Container, 
+                                           ObjCMethodDecl *Method,
+                                           SmallVectorImpl<CXCursor> &Methods) {
+  CollectOverriddenMethodsRecurse(TU, Container, Method, Methods,
+                                  /*MovedToSuper=*/false);
 }
 
 void cxcursor::getOverriddenCursors(CXCursor cursor,
                                     SmallVectorImpl<CXCursor> &overridden) { 
-  if (!clang_isDeclaration(cursor.kind))
-    return;
-
+  assert(clang_isDeclaration(cursor.kind));
   Decl *D = getCursorDecl(cursor);
   if (!D)
     return;
@@ -893,7 +911,9 @@ void cxcursor::getOverriddenCursors(CXCursor cursor,
     CollectOverriddenMethods(TU, ID, Method, overridden);
 
   } else {
-    CollectOverriddenMethods(TU, Method->getDeclContext(), Method, overridden);
+    CollectOverriddenMethods(TU,
+                  dyn_cast_or_null<ObjCContainerDecl>(Method->getDeclContext()),
+                  Method, overridden);
   }
 }
 
@@ -1004,6 +1024,35 @@ CXTranslationUnit clang_Cursor_getTranslationUnit(CXCursor cursor) {
   return getCursorTU(cursor);
 }
 
+int clang_Cursor_getNumArguments(CXCursor C) {
+  if (clang_isDeclaration(C.kind)) {
+    Decl *D = cxcursor::getCursorDecl(C);
+    if (const ObjCMethodDecl *MD = dyn_cast_or_null<ObjCMethodDecl>(D))
+      return MD->param_size();
+    if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D))
+      return FD->param_size();
+  }
+
+  return -1;
+}
+
+CXCursor clang_Cursor_getArgument(CXCursor C, unsigned i) {
+  if (clang_isDeclaration(C.kind)) {
+    Decl *D = cxcursor::getCursorDecl(C);
+    if (ObjCMethodDecl *MD = dyn_cast_or_null<ObjCMethodDecl>(D)) {
+      if (i < MD->param_size())
+        return cxcursor::MakeCXCursor(MD->param_begin()[i],
+                                      cxcursor::getCursorTU(C));
+    } else if (FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D)) {
+      if (i < FD->param_size())
+        return cxcursor::MakeCXCursor(FD->param_begin()[i],
+                                      cxcursor::getCursorTU(C));
+    }
+  }
+
+  return clang_getNullCursor();
+}
+
 } // end: extern "C"
 
 //===----------------------------------------------------------------------===//
@@ -1076,13 +1125,12 @@ CXCompletionString clang_getCursorCompletionString(CXCursor cursor) {
     Decl *decl = getCursorDecl(cursor);
     if (NamedDecl *namedDecl = dyn_cast_or_null<NamedDecl>(decl)) {
       ASTUnit *unit = getCursorASTUnit(cursor);
-      CodeCompletionAllocator *Allocator
-        = unit->getCursorCompletionAllocator().getPtr();
       CodeCompletionResult Result(namedDecl);
       CodeCompletionString *String
         = Result.CreateCodeCompletionString(unit->getASTContext(),
                                             unit->getPreprocessor(),
-                                            *Allocator);
+                                 unit->getCodeCompletionTUInfo().getAllocator(),
+                                 unit->getCodeCompletionTUInfo());
       return String;
     }
   }
@@ -1090,13 +1138,12 @@ CXCompletionString clang_getCursorCompletionString(CXCursor cursor) {
     MacroDefinition *definition = getCursorMacroDefinition(cursor);
     const IdentifierInfo *MacroInfo = definition->getName();
     ASTUnit *unit = getCursorASTUnit(cursor);
-    CodeCompletionAllocator *Allocator
-      = unit->getCursorCompletionAllocator().getPtr();
     CodeCompletionResult Result(const_cast<IdentifierInfo *>(MacroInfo));
     CodeCompletionString *String
       = Result.CreateCodeCompletionString(unit->getASTContext(),
                                           unit->getPreprocessor(),
-                                          *Allocator);
+                                 unit->getCodeCompletionTUInfo().getAllocator(),
+                                 unit->getCodeCompletionTUInfo());
     return String;
   }
   return NULL;

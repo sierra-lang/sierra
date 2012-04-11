@@ -330,6 +330,7 @@ namespace {
     Stmt *RewriteBreakStmt(BreakStmt *S);
     Stmt *RewriteContinueStmt(ContinueStmt *S);
     void RewriteCastExpr(CStyleCastExpr *CE);
+    void RewriteImplicitCastObjCExpr(CastExpr *IE);
     void RewriteLinkageSpec(LinkageSpecDecl *LSD);
     
     // Block rewriting.
@@ -1324,7 +1325,8 @@ Stmt *RewriteModernObjC::RewritePropertyOrImplicitSetter(PseudoObjectExpr *Pseud
 
   // Because the rewriter doesn't allow us to rewrite rewritten code,
   // we need to suppress rewriting the sub-statements.
-  Expr *Base, *RHS;
+  Expr *Base;
+  SmallVector<Expr*, 2> Args;
   {
     DisableReplaceStmtScope S(*this);
 
@@ -1335,11 +1337,15 @@ Stmt *RewriteModernObjC::RewritePropertyOrImplicitSetter(PseudoObjectExpr *Pseud
       Base = cast<OpaqueValueExpr>(Base)->getSourceExpr();
       Base = cast<Expr>(RewriteFunctionBodyOrGlobalInitializer(Base));
     }
-
-    // Rebuild the RHS.
-    RHS = cast<BinaryOperator>(PseudoOp->getSyntacticForm())->getRHS();
-    RHS = cast<OpaqueValueExpr>(RHS)->getSourceExpr();
-    RHS = cast<Expr>(RewriteFunctionBodyOrGlobalInitializer(RHS));
+  
+    unsigned numArgs = OldMsg->getNumArgs();
+    for (unsigned i = 0; i < numArgs; i++) {
+      Expr *Arg = OldMsg->getArg(i);
+      if (isa<OpaqueValueExpr>(Arg))
+        Arg = cast<OpaqueValueExpr>(Arg)->getSourceExpr();
+      Arg = cast<Expr>(RewriteFunctionBodyOrGlobalInitializer(Arg));
+      Args.push_back(Arg);
+    }
   }
 
   // TODO: avoid this copy.
@@ -1356,7 +1362,7 @@ Stmt *RewriteModernObjC::RewritePropertyOrImplicitSetter(PseudoObjectExpr *Pseud
                                      OldMsg->getSelector(),
                                      SelLocs,
                                      OldMsg->getMethodDecl(),
-                                     RHS,
+                                     Args,
                                      OldMsg->getRightLoc(),
                                      OldMsg->isImplicit());
     break;
@@ -1369,7 +1375,7 @@ Stmt *RewriteModernObjC::RewritePropertyOrImplicitSetter(PseudoObjectExpr *Pseud
                                      OldMsg->getSelector(),
                                      SelLocs,
                                      OldMsg->getMethodDecl(),
-                                     RHS,
+                                     Args,
                                      OldMsg->getRightLoc(),
                                      OldMsg->isImplicit());
     break;
@@ -1385,7 +1391,7 @@ Stmt *RewriteModernObjC::RewritePropertyOrImplicitSetter(PseudoObjectExpr *Pseud
                                      OldMsg->getSelector(),
                                      SelLocs,
                                      OldMsg->getMethodDecl(),
-                                     RHS,
+                                     Args,
                                      OldMsg->getRightLoc(),
                                      OldMsg->isImplicit());
     break;
@@ -1407,20 +1413,27 @@ Stmt *RewriteModernObjC::RewritePropertyOrImplicitGetter(PseudoObjectExpr *Pseud
   // Because the rewriter doesn't allow us to rewrite rewritten code,
   // we need to suppress rewriting the sub-statements.
   Expr *Base = 0;
+  SmallVector<Expr*, 1> Args;
   {
     DisableReplaceStmtScope S(*this);
-
     // Rebuild the base expression if we have one.
     if (OldMsg->getReceiverKind() == ObjCMessageExpr::Instance) {
       Base = OldMsg->getInstanceReceiver();
       Base = cast<OpaqueValueExpr>(Base)->getSourceExpr();
       Base = cast<Expr>(RewriteFunctionBodyOrGlobalInitializer(Base));
     }
+    unsigned numArgs = OldMsg->getNumArgs();
+    for (unsigned i = 0; i < numArgs; i++) {
+      Expr *Arg = OldMsg->getArg(i);
+      if (isa<OpaqueValueExpr>(Arg))
+        Arg = cast<OpaqueValueExpr>(Arg)->getSourceExpr();
+      Arg = cast<Expr>(RewriteFunctionBodyOrGlobalInitializer(Arg));
+      Args.push_back(Arg);
+    }
   }
 
   // Intentionally empty.
   SmallVector<SourceLocation, 1> SelLocs;
-  SmallVector<Expr*, 1> Args;
 
   ObjCMessageExpr *NewMsg = 0;
   switch (OldMsg->getReceiverKind()) {
@@ -4459,6 +4472,24 @@ void RewriteModernObjC::RewriteCastExpr(CStyleCastExpr *CE) {
   return;
 }
 
+void RewriteModernObjC::RewriteImplicitCastObjCExpr(CastExpr *IC) {
+  CastKind CastKind = IC->getCastKind();
+  
+  if (CastKind == CK_BlockPointerToObjCPointerCast) {
+    CStyleCastExpr * CastExpr = 
+      NoTypeInfoCStyleCastExpr(Context, IC->getType(), CK_BitCast, IC);
+    ReplaceStmt(IC, CastExpr);
+  }
+  else if (CastKind == CK_AnyPointerToBlockPointerCast) {
+    QualType BlockT = IC->getType();
+    (void)convertBlockPointerToFunctionPointer(BlockT);
+    CStyleCastExpr * CastExpr = 
+      NoTypeInfoCStyleCastExpr(Context, BlockT, CK_BitCast, IC);
+    ReplaceStmt(IC, CastExpr);
+  }
+  return;
+}
+
 void RewriteModernObjC::RewriteBlockPointerFunctionArgs(FunctionDecl *FD) {
   SourceLocation DeclLoc = FD->getLocation();
   unsigned parenCount = 0;
@@ -5335,6 +5366,9 @@ Stmt *RewriteModernObjC::RewriteFunctionBodyOrGlobalInitializer(Stmt *S) {
   }
   if (CStyleCastExpr *CE = dyn_cast<CStyleCastExpr>(S)) {
     RewriteCastExpr(CE);
+  }
+  if (ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(S)) {
+    RewriteImplicitCastObjCExpr(ICE);
   }
 #if 0
   if (ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(S)) {
@@ -6382,7 +6416,8 @@ static void Write__extendedMethodTypes_initializer(RewriteModernObjC &RewriteObj
   }
 }
 
-static void Write_IvarOffsetVar(ASTContext *Context,
+static void Write_IvarOffsetVar(RewriteModernObjC &RewriteObj,
+                                ASTContext *Context,
                                 std::string &Result, 
                                 ArrayRef<ObjCIvarDecl *> Ivars, 
                                 ObjCInterfaceDecl *CDecl) {
@@ -6412,17 +6447,8 @@ static void Write_IvarOffsetVar(ASTContext *Context,
     WriteInternalIvarName(CDecl, IvarDecl, Result);
     Result += " __attribute__ ((used, section (\"__DATA,__objc_ivar\")))";
     Result += " = ";
-    if (IvarDecl->isBitField()) {
-      // FIXME: The hack below doesn't work for bitfields. For now, we simply
-      // place all bitfields at offset 0.
-      Result += "0;\n";
-    }
-    else {
-      Result += "__OFFSETOFIVAR__(struct ";
-      Result += CDecl->getNameAsString();
-      Result += "_IMPL, "; 
-      Result += IvarDecl->getName(); Result += ");\n";
-    }
+    RewriteObj.RewriteIvarOffsetComputation(IvarDecl, Result);
+    Result += ";\n";
   }
 }
 
@@ -6432,7 +6458,7 @@ static void Write__ivar_list_t_initializer(RewriteModernObjC &RewriteObj,
                                            StringRef VarName,
                                            ObjCInterfaceDecl *CDecl) {
   if (Ivars.size() > 0) {
-    Write_IvarOffsetVar(Context, Result, Ivars, CDecl);
+    Write_IvarOffsetVar(RewriteObj, Context, Result, Ivars, CDecl);
     
     Result += "\nstatic ";
     Write__ivar_list_t_TypeDecl(Result, Ivars.size());
@@ -6841,11 +6867,7 @@ void RewriteModernObjC::RewriteObjCClassMetaData(ObjCImplementationDecl *IDecl,
     
     ObjCIvarDecl *IVD = CDecl->all_declared_ivar_begin();
     if (IVD) {
-      InstanceStart += "__OFFSETOFIVAR__(struct ";
-      InstanceStart += CDecl->getNameAsString();
-      InstanceStart += "_IMPL, ";
-      InstanceStart += IVD->getNameAsString();
-      InstanceStart += ")";
+      RewriteIvarOffsetComputation(IVD, InstanceStart);
     }
     else 
       InstanceStart = InstanceSize;
