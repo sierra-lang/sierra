@@ -655,7 +655,8 @@ public:
                        unsigned &DiagID, Expr *Rep,
                        const PrintingPolicy &policy);
   bool SetTypeSpecVectorLength(unsigned L, SourceLocation Loc,
-                               const char *&PrevSpec, unsigned &DiagID);
+                               const char *&PrevSpec, unsigned &DiagID,
+                               const PrintingPolicy &policy);
   bool SetTypeAltiVecVector(bool isAltiVecVector, SourceLocation Loc,
                        const char *&PrevSpec, unsigned &DiagID,
                        const PrintingPolicy &Policy);

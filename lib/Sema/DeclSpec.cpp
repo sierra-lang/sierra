@@ -759,28 +759,6 @@ bool DeclSpec::SetTypeSpecType(TST T, SourceLocation Loc,
   return false;
 }
 
-namespace {
-
-  bool isPowerOfTwo(unsigned int x)
-  {
-      return ((x != 0) && !(x & (x - 1)));
-  }
-
-}
-
-bool DeclSpec::SetTypeSpecVectorLength(unsigned L, SourceLocation Loc,
-                               const char *&PrevSpec,
-                               unsigned &DiagID) {
-  if (isPowerOfTwo(L)) {
-    VectorLength = L;
-    return true;
-  }
-
-  PrevSpec = "varying[TODO]";
-  DiagID = diag::err_invalid_vector_decl_spec; // TODO more precise diag
-  return false;
-}
-
 bool DeclSpec::SetTypeAltiVecVector(bool isAltiVecVector, SourceLocation Loc,
                           const char *&PrevSpec, unsigned &DiagID,
                           const PrintingPolicy &Policy) {
