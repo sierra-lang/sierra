@@ -10750,31 +10750,35 @@ ExprResult Sema::CheckBooleanCondition(Expr *E, SourceLocation Loc) {
   E = result.take();
 
   if (!E->isTypeDependent()) {
-    if (getLangOpts().CPlusPlus)
-      return CheckCXXBooleanCondition(E); // C++ 6.4p4
+    QualType T = E->getType();
+    const VectorType* V = dyn_cast<VectorType>(T.getTypePtr());
+    unsigned oldL = getCurScope()->getCurrentVectorLength();
+
+    if (getLangOpts().CPlusPlus) {
+      unsigned allowed = 1;
+
+      if (getLangOpts().SIERRA) allowed = oldL == 1 ? 0 : oldL;
+
+      return CheckCXXBooleanCondition(E, allowed); // C++ 6.4p4
+    }
 
     ExprResult ERes = DefaultFunctionArrayLvalueConversion(E);
     if (ERes.isInvalid())
       return ExprError();
     E = ERes.take();
 
-    QualType T = E->getType();
+    if (getLangOpts().SIERRA && V) {
+      Scope* scope = getCurScope();
+      unsigned newL = V->getNumElements();
 
-    if (getLangOpts().SIERRA) {
-      if (const VectorType* V = dyn_cast<VectorType>(T.getTypePtr())) {
-          Scope* scope = getCurScope();
-          unsigned oldL = scope->getCurrentVectorLength();
-          unsigned newL = V->getNumElements();
-
-          if (oldL == 1 || newL == 1 || oldL == newL) {
-            scope->setCurrentVectorLength(newL);
-            return Owned(E);
-          }
-
-        Diag(Loc, diag::err_incompatible_vector_lengths)
-          << oldL << newL;
-        return ExprError();
+      if (oldL == 1 || newL == 1 || oldL == newL) {
+        scope->setCurrentVectorLength(newL);
+        return Owned(E);
       }
+
+      Diag(Loc, diag::err_incompatible_vector_lengths)
+        << oldL << newL;
+      return ExprError();
     }
 
     if (!T->isScalarType()) { // C99 6.8.4.1p1
