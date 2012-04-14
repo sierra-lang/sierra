@@ -2270,7 +2270,7 @@ void RewriteModernObjC::RewriteBlockLiteralFunctionDecl(FunctionDecl *FD) {
   CurFunctionDeclToDeclareForBlock = 0;
 }
 
-// SynthSuperContructorFunctionDecl - id objc_super(id obj, id super);
+// SynthSuperContructorFunctionDecl - id __rw_objc_super(id obj, id super);
 void RewriteModernObjC::SynthSuperContructorFunctionDecl() {
   if (SuperContructorFunctionDecl)
     return;
@@ -2311,21 +2311,13 @@ void RewriteModernObjC::SynthMsgSendFunctionDecl() {
                                          SC_None, false);
 }
 
-// SynthMsgSendSuperFunctionDecl - id objc_msgSendSuper(struct objc_super *, SEL op, ...);
+// SynthMsgSendSuperFunctionDecl - id objc_msgSendSuper(void);
 void RewriteModernObjC::SynthMsgSendSuperFunctionDecl() {
   IdentifierInfo *msgSendIdent = &Context->Idents.get("objc_msgSendSuper");
-  SmallVector<QualType, 16> ArgTys;
-  RecordDecl *RD = RecordDecl::Create(*Context, TTK_Struct, TUDecl,
-                                      SourceLocation(), SourceLocation(),
-                                      &Context->Idents.get("objc_super"));
-  QualType argT = Context->getPointerType(Context->getTagDeclType(RD));
-  assert(!argT.isNull() && "Can't build 'struct objc_super *' type");
-  ArgTys.push_back(argT);
-  argT = Context->getObjCSelType();
-  assert(!argT.isNull() && "Can't find 'SEL' type");
-  ArgTys.push_back(argT);
+  SmallVector<QualType, 2> ArgTys;
+  ArgTys.push_back(Context->VoidTy);
   QualType msgSendType = getSimpleFunctionType(Context->getObjCIdType(),
-                                               &ArgTys[0], ArgTys.size(),
+                                               &ArgTys[0], 1,
                                                true /*isVariadic*/);
   MsgSendSuperFunctionDecl = FunctionDecl::Create(*Context, TUDecl,
                                               SourceLocation(),
@@ -2357,22 +2349,14 @@ void RewriteModernObjC::SynthMsgSendStretFunctionDecl() {
 }
 
 // SynthMsgSendSuperStretFunctionDecl -
-// id objc_msgSendSuper_stret(struct objc_super *, SEL op, ...);
+// id objc_msgSendSuper_stret(void);
 void RewriteModernObjC::SynthMsgSendSuperStretFunctionDecl() {
   IdentifierInfo *msgSendIdent =
     &Context->Idents.get("objc_msgSendSuper_stret");
-  SmallVector<QualType, 16> ArgTys;
-  RecordDecl *RD = RecordDecl::Create(*Context, TTK_Struct, TUDecl,
-                                      SourceLocation(), SourceLocation(),
-                                      &Context->Idents.get("objc_super"));
-  QualType argT = Context->getPointerType(Context->getTagDeclType(RD));
-  assert(!argT.isNull() && "Can't build 'struct objc_super *' type");
-  ArgTys.push_back(argT);
-  argT = Context->getObjCSelType();
-  assert(!argT.isNull() && "Can't find 'SEL' type");
-  ArgTys.push_back(argT);
+  SmallVector<QualType, 2> ArgTys;
+  ArgTys.push_back(Context->VoidTy);
   QualType msgSendType = getSimpleFunctionType(Context->getObjCIdType(),
-                                               &ArgTys[0], ArgTys.size(),
+                                               &ArgTys[0], 1,
                                                true /*isVariadic*/);
   MsgSendSuperStretFunctionDecl = FunctionDecl::Create(*Context, TUDecl,
                                                        SourceLocation(),
@@ -2925,18 +2909,20 @@ Stmt *RewriteModernObjC::RewriteObjCDictionaryLiteralExpr(ObjCDictionaryLiteral 
   return CE;
 }
 
-// struct objc_super { struct objc_object *receiver; struct objc_class *super; };
+// struct __rw_objc_super { 
+//   struct objc_object *object; struct objc_object *superClass; 
+// };
 QualType RewriteModernObjC::getSuperStructType() {
   if (!SuperStructDecl) {
     SuperStructDecl = RecordDecl::Create(*Context, TTK_Struct, TUDecl,
                                          SourceLocation(), SourceLocation(),
-                                         &Context->Idents.get("objc_super"));
+                                         &Context->Idents.get("__rw_objc_super"));
     QualType FieldTypes[2];
 
-    // struct objc_object *receiver;
+    // struct objc_object *object;
     FieldTypes[0] = Context->getObjCIdType();
-    // struct objc_class *super;
-    FieldTypes[1] = Context->getObjCClassType();
+    // struct objc_object *superClass;
+    FieldTypes[1] = Context->getObjCIdType();
 
     // Create fields
     for (unsigned i = 0; i < 2; ++i) {
@@ -3073,7 +3059,7 @@ Stmt *RewriteModernObjC::SynthMessageExpr(ObjCMessageExpr *Exp,
                         NoTypeInfoCStyleCastExpr(Context,
                                                  Context->getObjCIdType(),
                                                  CK_BitCast, Cls));
-    // struct objc_super
+    // struct __rw_objc_super
     QualType superType = getSuperStructType();
     Expr *SuperRep;
 
@@ -3091,7 +3077,7 @@ Stmt *RewriteModernObjC::SynthMessageExpr(ObjCMessageExpr *Exp,
       // the structure definition in the header. The rewriter has it's own
       // internal definition (__rw_objc_super) that is uses. This is why
       // we need the cast below. For example:
-      // (struct objc_super *)&__rw_objc_super((id)self, (id)objc_getClass("SUPER"))
+      // (struct __rw_objc_super *)&__rw_objc_super((id)self, (id)objc_getClass("SUPER"))
       //
       SuperRep = new (Context) UnaryOperator(SuperRep, UO_AddrOf,
                                Context->getPointerType(SuperRep->getType()),
@@ -3101,7 +3087,7 @@ Stmt *RewriteModernObjC::SynthMessageExpr(ObjCMessageExpr *Exp,
                                           Context->getPointerType(superType),
                                           CK_BitCast, SuperRep);
     } else {
-      // (struct objc_super) { <exprs from above> }
+      // (struct __rw_objc_super) { <exprs from above> }
       InitListExpr *ILE =
         new (Context) InitListExpr(*Context, SourceLocation(),
                                    &InitExprs[0], InitExprs.size(),
@@ -3111,7 +3097,7 @@ Stmt *RewriteModernObjC::SynthMessageExpr(ObjCMessageExpr *Exp,
       SuperRep = new (Context) CompoundLiteralExpr(SourceLocation(), superTInfo,
                                                    superType, VK_LValue,
                                                    ILE, false);
-      // struct objc_super *
+      // struct __rw_objc_super *
       SuperRep = new (Context) UnaryOperator(SuperRep, UO_AddrOf,
                                Context->getPointerType(SuperRep->getType()),
                                              VK_RValue, OK_Ordinary,
@@ -3183,7 +3169,7 @@ Stmt *RewriteModernObjC::SynthMessageExpr(ObjCMessageExpr *Exp,
       // set 'super class', using class_getSuperclass().
       NoTypeInfoCStyleCastExpr(Context, Context->getObjCIdType(),
                                CK_BitCast, Cls));
-    // struct objc_super
+    // struct __rw_objc_super
     QualType superType = getSuperStructType();
     Expr *SuperRep;
 
@@ -3200,7 +3186,7 @@ Stmt *RewriteModernObjC::SynthMessageExpr(ObjCMessageExpr *Exp,
       // the structure definition in the header. The rewriter has it's own
       // internal definition (__rw_objc_super) that is uses. This is why
       // we need the cast below. For example:
-      // (struct objc_super *)&__rw_objc_super((id)self, (id)objc_getClass("SUPER"))
+      // (struct __rw_objc_super *)&__rw_objc_super((id)self, (id)objc_getClass("SUPER"))
       //
       SuperRep = new (Context) UnaryOperator(SuperRep, UO_AddrOf,
                                Context->getPointerType(SuperRep->getType()),
@@ -3210,7 +3196,7 @@ Stmt *RewriteModernObjC::SynthMessageExpr(ObjCMessageExpr *Exp,
                                Context->getPointerType(superType),
                                CK_BitCast, SuperRep);
     } else {
-      // (struct objc_super) { <exprs from above> }
+      // (struct __rw_objc_super) { <exprs from above> }
       InitListExpr *ILE =
         new (Context) InitListExpr(*Context, SourceLocation(),
                                    &InitExprs[0], InitExprs.size(),
@@ -4812,6 +4798,10 @@ void RewriteModernObjC::RewriteByRefVar(VarDecl *ND) {
   // {0, &ND, some_flag, __size=sizeof(struct __Block_byref_ND), 
   //  initializer-if-any};
   bool hasInit = (ND->getInit() != 0);
+  // FIXME. rewriter does not support __block c++ objects which
+  // require construction.
+  if (hasInit && dyn_cast<CXXConstructExpr>(ND->getInit()))
+    hasInit = false;
   unsigned flags = 0;
   if (HasCopyAndDispose)
     flags |= BLOCK_HAS_COPY_DISPOSE;
@@ -5367,10 +5357,13 @@ Stmt *RewriteModernObjC::RewriteFunctionBodyOrGlobalInitializer(Stmt *S) {
   if (CStyleCastExpr *CE = dyn_cast<CStyleCastExpr>(S)) {
     RewriteCastExpr(CE);
   }
+#if 0
+  // FIXME. Cannot safely rewrite ImplicitCasts. This is the 2nd failed
+  // attempt: (id)((__typeof(z))_Block_copy((const void *)(z)));
   if (ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(S)) {
     RewriteImplicitCastObjCExpr(ICE);
   }
-#if 0
+
   if (ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(S)) {
     CastExpr *Replacement = new (Context) CastExpr(ICE->getType(),
                                                    ICE->getSubExpr(),
@@ -5611,8 +5604,13 @@ void RewriteModernObjC::Initialize(ASTContext &context) {
   if (IsHeader)
     Preamble = "#pragma once\n";
   Preamble += "struct objc_selector; struct objc_class;\n";
-  Preamble += "struct __rw_objc_super { struct objc_object *object; ";
-  Preamble += "struct objc_object *superClass; ";
+  Preamble += "struct __rw_objc_super { \n\tstruct objc_object *object; ";
+  Preamble += "\n\tstruct objc_object *superClass; ";
+  // Add a constructor for creating temporary objects.
+  Preamble += "\n\t__rw_objc_super(struct objc_object *o, struct objc_object *s) ";
+  Preamble += ": object(o), superClass(s) {} ";
+  Preamble += "\n};\n";
+  
   if (LangOpts.MicrosoftExt) {
     // Define all sections using syntax that makes sense.
     // These are currently generated.
@@ -5636,12 +5634,7 @@ void RewriteModernObjC::Initialize(ASTContext &context) {
     Preamble += "#pragma section(\".objc_classrefs$B\", long, read, write)\n";
     Preamble += "#pragma section(\".objc_superrefs$B\", long, read, write)\n";
     
-    // Add a constructor for creating temporary objects.
-    Preamble += "__rw_objc_super(struct objc_object *o, struct objc_object *s) "
-    ": ";
-    Preamble += "object(o), superClass(s) {} ";
   }
-  Preamble += "};\n";
   Preamble += "#ifndef _REWRITER_typedef_Protocol\n";
   Preamble += "typedef struct objc_object Protocol;\n";
   Preamble += "#define _REWRITER_typedef_Protocol\n";
@@ -5722,7 +5715,12 @@ void RewriteModernObjC::Initialize(ASTContext &context) {
     Preamble += "#ifndef KEEP_ATTRIBUTES\n";  // We use this for clang tests.
     Preamble += "#define __attribute__(X)\n";
     Preamble += "#endif\n";
+    Preamble += "#ifndef __weak\n";
     Preamble += "#define __weak\n";
+    Preamble += "#endif\n";
+    Preamble += "#ifndef __block\n";
+    Preamble += "#define __block\n";
+    Preamble += "#endif\n";
   }
   else {
     Preamble += "#define __block\n";
