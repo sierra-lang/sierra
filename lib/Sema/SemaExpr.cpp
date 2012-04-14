@@ -14657,8 +14657,7 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
 
     QualType T = E->getType();
 
-    // TODO SIERRA this basically works for plain C
-    if (getLangOpts().SIMD) {
+    if (getLangOpts().SIERRA) {
       if (const VectorType* V = dyn_cast<VectorType>(T.getTypePtr())) {
           Scope* scope = getCurScope();
           unsigned oldL = scope->getCurrentVectorLength();
