@@ -5443,6 +5443,10 @@ def err_filter_expression_integral : Error<
 def err_invalid_astype_of_different_size : Error<
   "invalid reinterpretation: sizes of %0 and %1 must match">;
 
+// Sierra warnings and errors.
+def err_incompatible_vector_lengths : Error<
+  "incompatible vector lengths; old length %0, new length %1">;
+
 } // end of sema category
 
 let CategoryName = "Related Result Type Issue" in {

@@ -33,6 +33,7 @@ void Scope::Init(Scope *parent, unsigned flags) {
     Depth = parent->Depth + 1;
     PrototypeDepth = parent->PrototypeDepth;
     PrototypeIndex = 0;
+    CurrentVectorLength = parent->CurrentVectorLength;
     FnParent       = parent->FnParent;
     BlockParent    = parent->BlockParent;
     TemplateParamParent = parent->TemplateParamParent;
@@ -40,6 +41,7 @@ void Scope::Init(Scope *parent, unsigned flags) {
     Depth = 0;
     PrototypeDepth = 0;
     PrototypeIndex = 0;
+    CurrentVectorLength = 1;
     FnParent = BlockParent = 0;
     TemplateParamParent = 0;
   }
