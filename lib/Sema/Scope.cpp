@@ -35,6 +35,7 @@ void Scope::setFlags(Scope *parent, unsigned flags) {
     Depth = parent->Depth + 1;
     PrototypeDepth = parent->PrototypeDepth;
     PrototypeIndex = 0;
+    CurrentVectorLength = parent->CurrentVectorLength;
     FnParent       = parent->FnParent;
     BlockParent    = parent->BlockParent;
     TemplateParamParent = parent->TemplateParamParent;
@@ -52,6 +53,7 @@ void Scope::setFlags(Scope *parent, unsigned flags) {
     TemplateParamParent = nullptr;
     MSLastManglingNumber = 1;
     MSCurManglingNumber = 1;
+    CurrentVectorLength = 1;
   }
 
   // If this scope is a function or contains breaks/continues, remember it.

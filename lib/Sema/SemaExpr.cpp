@@ -14656,6 +14656,25 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
     E = ERes.get();
 
     QualType T = E->getType();
+
+    // TODO SIERRA this basically works for plain C
+    if (getLangOpts().SIMD) {
+      if (const VectorType* V = dyn_cast<VectorType>(T.getTypePtr())) {
+          Scope* scope = getCurScope();
+          unsigned oldL = scope->getCurrentVectorLength();
+          unsigned newL = V->getNumElements();
+
+          if (oldL == 1 || newL == 1 || oldL == newL) {
+            scope->setCurrentVectorLength(newL);
+            return Owned(E);
+          }
+
+        Diag(Loc, diag::err_incompatible_vector_lengths)
+          << oldL << newL;
+        return ExprError();
+      }
+    }
+
     if (!T->isScalarType()) { // C99 6.8.4.1p1
       Diag(Loc, diag::err_typecheck_statement_requires_scalar)
         << T << E->getSourceRange();

@@ -152,6 +152,9 @@ private:
   /// declared in this scope.
   unsigned short PrototypeIndex;
 
+  /// This is the current vector length when in SPMD mode (Sierra extension)
+  unsigned CurrentVectorLength;
+
   /// FnParent - If this scope has a parent scope that is a function body, this
   /// pointer is non-null and points to it.  This is used for label processing.
   Scope *FnParent;
@@ -212,6 +215,12 @@ public:
 
   /// isBlockScope - Return true if this scope correspond to a closure.
   bool isBlockScope() const { return Flags & BlockScope; }
+
+  unsigned getCurrentVectorLength() const { return CurrentVectorLength; }
+  void setCurrentVectorLength(unsigned L) { 
+    assert((CurrentVectorLength == 1 || L == 1) && "vector length mismatch");
+    CurrentVectorLength = L; 
+  }
 
   /// getParent - Return the scope that this is nested in.
   ///
