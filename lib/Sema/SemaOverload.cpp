@@ -1314,7 +1314,8 @@ TryImplicitConversion(Sema &S, Expr *From, QualType ToType,
                       bool InOverloadResolution,
                       bool CStyle,
                       bool AllowObjCWritebackConversion,
-                      bool AllowObjCConversionOnExplicit) {
+                      bool AllowObjCConversionOnExplicit,
+                      unsigned AllowedVectorLength = 1) {
   ImplicitConversionSequence ICS;
   if (IsStandardConversion(S, From, ToType, InOverloadResolution,
                            ICS.Standard, CStyle, AllowObjCWritebackConversion)){
@@ -1368,12 +1369,14 @@ Sema::TryImplicitConversion(Expr *From, QualType ToType,
                             bool AllowExplicit,
                             bool InOverloadResolution,
                             bool CStyle,
-                            bool AllowObjCWritebackConversion) {
+                            bool AllowObjCWritebackConversion,
+                            unsigned AllowedVectorLength /*= 1*/) {
   return ::TryImplicitConversion(*this, From, ToType, 
                                  SuppressUserConversions, AllowExplicit,
                                  InOverloadResolution, CStyle, 
                                  AllowObjCWritebackConversion,
-                                 /*AllowObjCConversionOnExplicit=*/false);
+                                 /*AllowObjCConversionOnExplicit=*/false,
+                                 AllowedVectorLength);
 }
 
 /// PerformImplicitConversion - Perform an implicit conversion of the
@@ -5143,23 +5146,24 @@ Sema::PerformObjectArgumentInitialization(Expr *From,
 /// TryContextuallyConvertToBool - Attempt to contextually convert the
 /// expression From to bool (C++0x [conv]p3).
 static ImplicitConversionSequence
-TryContextuallyConvertToBool(Sema &S, Expr *From) {
+TryContextuallyConvertToBool(Sema &S, Expr *From, unsigned AllowedVectorLength = 1) {
   return TryImplicitConversion(S, From, S.Context.BoolTy,
                                /*SuppressUserConversions=*/false,
                                /*AllowExplicit=*/true,
                                /*InOverloadResolution=*/false,
                                /*CStyle=*/false,
                                /*AllowObjCWritebackConversion=*/false,
-                               /*AllowObjCConversionOnExplicit=*/false);
+                               /*AllowObjCConversionOnExplicit=*/false,
+                               /*AllowedVectorLength*/AllowedVectorLength);
 }
 
 /// PerformContextuallyConvertToBool - Perform a contextual conversion
 /// of the expression From to bool (C++0x [conv]p3).
-ExprResult Sema::PerformContextuallyConvertToBool(Expr *From) {
+ExprResult Sema::PerformContextuallyConvertToBool(Expr *From, unsigned AllowedVectorLength /*= 1*/) {
   if (checkPlaceholderForOverload(*this, From))
     return ExprError();
 
-  ImplicitConversionSequence ICS = TryContextuallyConvertToBool(*this, From);
+  ImplicitConversionSequence ICS = TryContextuallyConvertToBool(*this, From, AllowedVectorLength);
   if (!ICS.isBad())
     return PerformImplicitConversion(From, Context.BoolTy, ICS, AA_Converting);
 

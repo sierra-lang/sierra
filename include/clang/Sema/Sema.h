@@ -2326,13 +2326,20 @@ public:
   /// an available function, false otherwise.
   bool isFunctionConsideredUnavailable(FunctionDecl *FD);
 
+  /// @brief Tries to convert \p From to \p ToType
+  /// 
+  /// @param AllowedVectorLength 
+  /// - 0: any conversion to a vector with element type \p ToType is allowed
+  /// - 1: both \p From's and \p ToType must be scalar (the "normal case")
+  /// - other:  \p From's and \p ToType's vector length must match.
   ImplicitConversionSequence
   TryImplicitConversion(Expr *From, QualType ToType,
                         bool SuppressUserConversions,
                         bool AllowExplicit,
                         bool InOverloadResolution,
                         bool CStyle,
-                        bool AllowObjCWritebackConversion);
+                        bool AllowObjCWritebackConversion,
+                        unsigned AllowedVectorLength = 1);
 
   bool IsIntegralPromotion(Expr *From, QualType FromType, QualType ToType);
   bool IsFloatingPointPromotion(QualType FromType, QualType ToType);
@@ -2391,7 +2398,7 @@ public:
                                                  NamedDecl *FoundDecl,
                                                  CXXMethodDecl *Method);
 
-  ExprResult PerformContextuallyConvertToBool(Expr *From);
+  ExprResult PerformContextuallyConvertToBool(Expr *From, unsigned AllowedVectorLength = 1);
   ExprResult PerformContextuallyConvertToObjCPointer(Expr *From);
 
   /// Contexts in which a converted constant expression is required.
@@ -9397,7 +9404,7 @@ public:
   void DiagnoseEqualityWithExtraParens(ParenExpr *ParenE);
 
   /// CheckCXXBooleanCondition - Returns true if conversion to bool is invalid.
-  ExprResult CheckCXXBooleanCondition(Expr *CondExpr, bool IsConstexpr = false);
+  ExprResult CheckCXXBooleanCondition(Expr *CondExpr, bool IsConstexpr = false, unsigned AllowedVectorLength = 1);
 
   /// ConvertIntegerToTypeWarnOnOverflow - Convert the specified APInt to have
   /// the specified width and sign.  If an overflow occurs, detect it and emit

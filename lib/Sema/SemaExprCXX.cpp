@@ -3290,7 +3290,7 @@ ExprResult Sema::CheckConditionVariable(VarDecl *ConditionVar,
 }
 
 /// CheckCXXBooleanCondition - Returns true if a conversion to bool is invalid.
-ExprResult Sema::CheckCXXBooleanCondition(Expr *CondExpr, bool IsConstexpr) {
+ExprResult Sema::CheckCXXBooleanCondition(Expr *CondExpr, bool IsConstexpr, unsigned AllowedVectorLength /*= 1*/) {
   // C++ 6.4p4:
   // The value of a condition that is an initialized declaration in a statement
   // other than a switch statement is the value of the declared variable
@@ -3304,7 +3304,7 @@ ExprResult Sema::CheckCXXBooleanCondition(Expr *CondExpr, bool IsConstexpr) {
   return (IsConstexpr && !CondExpr->isValueDependent())
              ? CheckConvertedConstantExpression(CondExpr, Context.BoolTy, Value,
                                                 CCEK_ConstexprIf)
-             : PerformContextuallyConvertToBool(CondExpr);
+             : PerformContextuallyConvertToBool(CondExpr, AllowedVectorLength);
 }
 
 /// Helper function to determine whether this is the (deprecated) C++
