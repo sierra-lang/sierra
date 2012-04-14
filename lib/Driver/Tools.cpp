@@ -2234,8 +2234,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    llvm::Triple::hexagon))
     CmdArgs.push_back("-fshort-enums");
 
-  if (Args.hasArg(options::OPT_fsimd))
-    CmdArgs.push_back("-fsimd");
+  if (Args.hasArg(options::OPT_fsierra))
+    CmdArgs.push_back("-fsierra");
 
   // -fsigned-char is default.
   if (!Args.hasFlag(options::OPT_fsigned_char, options::OPT_funsigned_char,

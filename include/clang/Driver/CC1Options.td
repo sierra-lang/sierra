@@ -651,8 +651,8 @@ def fshort_wchar : Flag<"-fshort-wchar">,
   HelpText<"Force wchar_t to be a short unsigned int">;
 def fshort_enums : Flag<"-fshort-enums">,
   HelpText<"Allocate to an enum type only as many bytes as it needs for the declared range of possible values">;
-def fsimd : Flag<"-fsimd">,
-  HelpText<"Enables SIMD extension for C/C++">;
+def fsierra : Flag<"-fsierra">,
+  HelpText<"Enables Sierra SIMD extension for C/C++">;
 def static_define : Flag<"-static-define">,
   HelpText<"Should __STATIC__ be defined">;
 def stack_protector : Separate<"-stack-protector">,

@@ -215,7 +215,7 @@ PUNCTUATOR(greatergreatergreater, ">>>")
 //   KEYALTIVEC - This is a keyword in AltiVec
 //   KEYBORLAND - This is a keyword if Borland extensions are enabled
 //   BOOLSUPPORT - This is a keyword if 'bool' is a built-in type
-//   KEYSIMD  - This is a keyword introduced to C/C++'s SIMD extension
+//   KEYSIERRA - This is a keyword if Sierra exntesion is enabled
 //
 KEYWORD(auto                        , KEYALL)
 KEYWORD(break                       , KEYALL)
@@ -247,11 +247,11 @@ KEYWORD(struct                      , KEYALL)
 KEYWORD(switch                      , KEYALL)
 KEYWORD(typedef                     , KEYALL)
 KEYWORD(union                       , KEYALL)
-KEYWORD(uniform                     , KEYSIMD)
+KEYWORD(uniform                     , KEYSIERRA)
 KEYWORD(unsigned                    , KEYALL)
 KEYWORD(void                        , KEYALL)
 KEYWORD(volatile                    , KEYALL)
-KEYWORD(varying                     , KEYSIMD)
+KEYWORD(varying                     , KEYSIERRA)
 KEYWORD(while                       , KEYALL)
 KEYWORD(_Alignas                    , KEYALL)
 KEYWORD(_Atomic                     , KEYALL)
