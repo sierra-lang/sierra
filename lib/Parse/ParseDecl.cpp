@@ -756,6 +756,7 @@ void Parser::ParseLexedAttributeList(LateParsedAttrList &LAs, Decl *D,
   for (unsigned i = 0, ni = LAs.size(); i < ni; ++i) {
     LAs[i]->addDecl(D);
     ParseLexedAttribute(*LAs[i], EnterScope, OnDefinition);
+    delete LAs[i];
   }
   LAs.clear();
 }
@@ -958,7 +959,7 @@ void Parser::DiagnoseProhibitedAttributes(ParsedAttributesWithRange &attrs) {
 /// [C++]   namespace-definition
 /// [C++]   using-directive
 /// [C++]   using-declaration
-/// [C++0x/C11] static_assert-declaration
+/// [C++11/C11] static_assert-declaration
 ///         others... [FIXME]
 ///
 Parser::DeclGroupPtrTy Parser::ParseDeclaration(StmtVector &Stmts,
