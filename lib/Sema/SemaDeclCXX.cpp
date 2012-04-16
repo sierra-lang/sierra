@@ -25,6 +25,7 @@
 #include "clang/AST/DeclVisitor.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/RecordLayout.h"
+#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/AST/TypeOrdering.h"
@@ -11051,6 +11052,264 @@ void Sema::CheckDelegatingCtorCycles() {
 
   for (CI = Invalid.begin(), CE = Invalid.end(); CI != CE; ++CI)
     (*CI)->setInvalidDecl();
+}
+
+namespace {
+  /// \brief AST visitor that finds references to the 'this' expression.
+  class FindCXXThisExpr : public RecursiveASTVisitor<FindCXXThisExpr> {
+    Sema &S;
+    
+  public:
+    explicit FindCXXThisExpr(Sema &S) : S(S) { }
+    
+    bool VisitCXXThisExpr(CXXThisExpr *E) {
+      S.Diag(E->getLocation(), diag::err_this_static_member_func)
+        << E->isImplicit();
+      return false;
+    }
+  };
+}
+
+bool Sema::checkThisInStaticMemberFunctionType(CXXMethodDecl *Method) {
+  TypeSourceInfo *TSInfo = Method->getTypeSourceInfo();
+  if (!TSInfo)
+    return false;
+  
+  TypeLoc TL = TSInfo->getTypeLoc();
+  FunctionProtoTypeLoc *ProtoTL = dyn_cast<FunctionProtoTypeLoc>(&TL);
+  if (!ProtoTL)
+    return false;
+  
+  // C++11 [expr.prim.general]p3:
+  //   [The expression this] shall not appear before the optional 
+  //   cv-qualifier-seq and it shall not appear within the declaration of a 
+  //   static member function (although its type and value category are defined
+  //   within a static member function as they are within a non-static member
+  //   function). [ Note: this is because declaration matching does not occur
+  //  until the complete declarator is known. — end note ] 
+  const FunctionProtoType *Proto = ProtoTL->getTypePtr();
+  FindCXXThisExpr Finder(*this);
+  
+  // If the return type came after the cv-qualifier-seq, check it now.
+  if (Proto->hasTrailingReturn() &&
+      !Finder.TraverseTypeLoc(ProtoTL->getResultLoc()))
+    return true;
+
+  // Check the exception specification.
+  if (checkThisInStaticMemberFunctionExceptionSpec(Method))
+    return true;
+  
+  return checkThisInStaticMemberFunctionAttributes(Method);
+}
+
+bool Sema::checkThisInStaticMemberFunctionExceptionSpec(CXXMethodDecl *Method) {
+  TypeSourceInfo *TSInfo = Method->getTypeSourceInfo();
+  if (!TSInfo)
+    return false;
+  
+  TypeLoc TL = TSInfo->getTypeLoc();
+  FunctionProtoTypeLoc *ProtoTL = dyn_cast<FunctionProtoTypeLoc>(&TL);
+  if (!ProtoTL)
+    return false;
+  
+  const FunctionProtoType *Proto = ProtoTL->getTypePtr();
+  FindCXXThisExpr Finder(*this);
+
+  switch (Proto->getExceptionSpecType()) {
+  case EST_BasicNoexcept:
+  case EST_Delayed:
+  case EST_DynamicNone:
+  case EST_MSAny:
+  case EST_None:
+    break;
+    
+  case EST_ComputedNoexcept:
+    if (!Finder.TraverseStmt(Proto->getNoexceptExpr()))
+      return true;
+    
+  case EST_Dynamic:
+    for (FunctionProtoType::exception_iterator E = Proto->exception_begin(),
+         EEnd = Proto->exception_end();
+         E != EEnd; ++E) {
+      if (!Finder.TraverseType(*E))
+        return true;
+    }
+    break;
+  }
+
+  return false;
+}
+
+bool Sema::checkThisInStaticMemberFunctionAttributes(CXXMethodDecl *Method) {
+  FindCXXThisExpr Finder(*this);
+
+  // Check attributes.
+  for (Decl::attr_iterator A = Method->attr_begin(), AEnd = Method->attr_end();
+       A != AEnd; ++A) {
+    // FIXME: This should be emitted by tblgen.
+    Expr *Arg = 0;
+    ArrayRef<Expr *> Args;
+    if (GuardedByAttr *G = dyn_cast<GuardedByAttr>(*A))
+      Arg = G->getArg();
+    else if (PtGuardedByAttr *G = dyn_cast<PtGuardedByAttr>(*A))
+      Arg = G->getArg();
+    else if (AcquiredAfterAttr *AA = dyn_cast<AcquiredAfterAttr>(*A))
+      Args = ArrayRef<Expr *>(AA->args_begin(), AA->args_size());
+    else if (AcquiredBeforeAttr *AB = dyn_cast<AcquiredBeforeAttr>(*A))
+      Args = ArrayRef<Expr *>(AB->args_begin(), AB->args_size());
+    else if (ExclusiveLockFunctionAttr *ELF 
+               = dyn_cast<ExclusiveLockFunctionAttr>(*A))
+      Args = ArrayRef<Expr *>(ELF->args_begin(), ELF->args_size());
+    else if (SharedLockFunctionAttr *SLF 
+               = dyn_cast<SharedLockFunctionAttr>(*A))
+      Args = ArrayRef<Expr *>(SLF->args_begin(), SLF->args_size());
+    else if (ExclusiveTrylockFunctionAttr *ETLF
+               = dyn_cast<ExclusiveTrylockFunctionAttr>(*A)) {
+      Arg = ETLF->getSuccessValue();
+      Args = ArrayRef<Expr *>(ETLF->args_begin(), ETLF->args_size());
+    } else if (SharedTrylockFunctionAttr *STLF
+                 = dyn_cast<SharedTrylockFunctionAttr>(*A)) {
+      Arg = STLF->getSuccessValue();
+      Args = ArrayRef<Expr *>(STLF->args_begin(), STLF->args_size());
+    } else if (UnlockFunctionAttr *UF = dyn_cast<UnlockFunctionAttr>(*A))
+      Args = ArrayRef<Expr *>(UF->args_begin(), UF->args_size());
+    else if (LockReturnedAttr *LR = dyn_cast<LockReturnedAttr>(*A))
+      Arg = LR->getArg();
+    else if (LocksExcludedAttr *LE = dyn_cast<LocksExcludedAttr>(*A))
+      Args = ArrayRef<Expr *>(LE->args_begin(), LE->args_size());
+    else if (ExclusiveLocksRequiredAttr *ELR 
+               = dyn_cast<ExclusiveLocksRequiredAttr>(*A))
+      Args = ArrayRef<Expr *>(ELR->args_begin(), ELR->args_size());
+    else if (SharedLocksRequiredAttr *SLR 
+               = dyn_cast<SharedLocksRequiredAttr>(*A))
+      Args = ArrayRef<Expr *>(SLR->args_begin(), SLR->args_size());
+
+    if (Arg && !Finder.TraverseStmt(Arg))
+      return true;
+    
+    for (unsigned I = 0, N = Args.size(); I != N; ++I) {
+      if (!Finder.TraverseStmt(Args[I]))
+        return true;
+    }
+  }
+  
+  return false;
+}
+
+void
+Sema::checkExceptionSpecification(ExceptionSpecificationType EST,
+                                  ArrayRef<ParsedType> DynamicExceptions,
+                                  ArrayRef<SourceRange> DynamicExceptionRanges,
+                                  Expr *NoexceptExpr,
+                                  llvm::SmallVectorImpl<QualType> &Exceptions,
+                                  FunctionProtoType::ExtProtoInfo &EPI) {
+  Exceptions.clear();
+  EPI.ExceptionSpecType = EST;
+  if (EST == EST_Dynamic) {
+    Exceptions.reserve(DynamicExceptions.size());
+    for (unsigned ei = 0, ee = DynamicExceptions.size(); ei != ee; ++ei) {
+      // FIXME: Preserve type source info.
+      QualType ET = GetTypeFromParser(DynamicExceptions[ei]);
+
+      SmallVector<UnexpandedParameterPack, 2> Unexpanded;
+      collectUnexpandedParameterPacks(ET, Unexpanded);
+      if (!Unexpanded.empty()) {
+        DiagnoseUnexpandedParameterPacks(DynamicExceptionRanges[ei].getBegin(),
+                                         UPPC_ExceptionType,
+                                         Unexpanded);
+        continue;
+      }
+
+      // Check that the type is valid for an exception spec, and
+      // drop it if not.
+      if (!CheckSpecifiedExceptionType(ET, DynamicExceptionRanges[ei]))
+        Exceptions.push_back(ET);
+    }
+    EPI.NumExceptions = Exceptions.size();
+    EPI.Exceptions = Exceptions.data();
+    return;
+  }
+  
+  if (EST == EST_ComputedNoexcept) {
+    // If an error occurred, there's no expression here.
+    if (NoexceptExpr) {
+      assert((NoexceptExpr->isTypeDependent() ||
+              NoexceptExpr->getType()->getCanonicalTypeUnqualified() ==
+              Context.BoolTy) &&
+             "Parser should have made sure that the expression is boolean");
+      if (NoexceptExpr && DiagnoseUnexpandedParameterPack(NoexceptExpr)) {
+        EPI.ExceptionSpecType = EST_BasicNoexcept;
+        return;
+      }
+      
+      if (!NoexceptExpr->isValueDependent())
+        NoexceptExpr = VerifyIntegerConstantExpression(NoexceptExpr, 0,
+                         PDiag(diag::err_noexcept_needs_constant_expression),
+                         /*AllowFold*/ false).take();
+      EPI.NoexceptExpr = NoexceptExpr;
+    }
+    return;
+  }
+}
+
+void Sema::actOnDelayedExceptionSpecification(Decl *MethodD,
+             ExceptionSpecificationType EST,
+             SourceRange SpecificationRange,
+             ArrayRef<ParsedType> DynamicExceptions,
+             ArrayRef<SourceRange> DynamicExceptionRanges,
+             Expr *NoexceptExpr) {
+  if (!MethodD)
+    return;
+  
+  // Dig out the method we're referring to.
+  CXXMethodDecl *Method = 0;
+  if (FunctionTemplateDecl *FunTmpl = dyn_cast<FunctionTemplateDecl>(MethodD))
+    Method = dyn_cast<CXXMethodDecl>(FunTmpl->getTemplatedDecl());
+  else
+    Method = dyn_cast<CXXMethodDecl>(MethodD);
+  
+  if (!Method)
+    return;
+  
+  // Dig out the prototype. This should never fail.
+  const FunctionProtoType *Proto
+    = dyn_cast<FunctionProtoType>(Method->getType());
+  if (!Proto)
+    return;
+  
+  // Check the exception specification.
+  llvm::SmallVector<QualType, 4> Exceptions;
+  FunctionProtoType::ExtProtoInfo EPI = Proto->getExtProtoInfo();
+  checkExceptionSpecification(EST, DynamicExceptions, DynamicExceptionRanges,
+                              NoexceptExpr, Exceptions, EPI);
+  
+  // Rebuild the function type.
+  QualType T = Context.getFunctionType(Proto->getResultType(),
+                                       Proto->arg_type_begin(),
+                                       Proto->getNumArgs(),
+                                       EPI);
+  if (TypeSourceInfo *TSInfo = Method->getTypeSourceInfo()) {
+    // FIXME: When we get proper type location information for exceptions,
+    // we'll also have to rebuild the TypeSourceInfo. For now, we just patch
+    // up the TypeSourceInfo;
+    assert(TypeLoc::getFullDataSizeForType(T)
+             == TypeLoc::getFullDataSizeForType(Method->getType()) &&
+           "TypeLoc size mismatch with delayed exception specification");
+    TSInfo->overrideType(T);
+  }
+
+  Method->setType(T);
+  
+  if (Method->isStatic())
+    checkThisInStaticMemberFunctionExceptionSpec(Method);
+  
+  if (Method->isVirtual()) {
+    // Check overrides, which we previously had to delay.
+    for (CXXMethodDecl::method_iterator O = Method->begin_overridden_methods(),
+                                     OEnd = Method->end_overridden_methods();
+         O != OEnd; ++O)
+      CheckOverridingFunctionExceptionSpec(Method, *O);
+  }
 }
 
 /// IdentifyCUDATarget - Determine the CUDA compilation target for this function

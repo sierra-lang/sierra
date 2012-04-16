@@ -22,8 +22,9 @@
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/Frontend/CodeGenOptions.h"
-#include "llvm/Target/TargetData.h"
 #include "llvm/Intrinsics.h"
+#include "llvm/Support/MDBuilder.h"
+#include "llvm/Target/TargetData.h"
 using namespace clang;
 using namespace CodeGen;
 
@@ -41,6 +42,10 @@ CodeGenFunction::CodeGenFunction(CodeGenModule &cgm)
     TerminateHandler(0), TrapBB(0) {
 
   CatchUndefined = getContext().getLangOpts().CatchUndefined;
+  if (getContext().getLangOpts().FastMath) {
+    llvm::MDBuilder MDHelper(Builder.getContext());
+    Builder.SetDefaultFPMathTag(MDHelper.createFastFPMath());
+  }
   CGM.getCXXABI().getMangleContext().startNewFunction();
 }
 
@@ -362,8 +367,12 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
                                         LambdaThisCaptureField);
       if (LambdaThisCaptureField) {
         // If this lambda captures this, load it.
-        LValue ThisLValue = EmitLValueForField(CXXABIThisValue,
-                                               LambdaThisCaptureField, 0);
+        QualType LambdaTagType =
+            getContext().getTagDeclType(LambdaThisCaptureField->getParent());
+        LValue LambdaLV = MakeNaturalAlignAddrLValue(CXXABIThisValue,
+                                                     LambdaTagType);
+        LValue ThisLValue = EmitLValueForField(LambdaLV,
+                                               LambdaThisCaptureField);
         CXXThisValue = EmitLoadOfLValue(ThisLValue).getScalarVal();
       }
     } else {
