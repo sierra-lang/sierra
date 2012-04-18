@@ -106,7 +106,7 @@ namespace clang {
   typedef CanQual<Type> CanQualType;
 
   // Provide forward declarations for all of the *Type classes
-#define TYPE(Class, Base) class Class##Type;
+#define TYPE(Class, bAse) class Class##Type;
 #include "clang/AST/TypeNodes.def"
 
 /// The collection of all-type qualifiers we support.
@@ -2748,6 +2748,47 @@ public:
 };
 
 
+/// DependentSizedSierraVectorType - This type represent an extended vector type
+/// where either the type or size is dependent. For example:
+/// @code
+/// template<typename T, int Size>
+/// class vector {
+///   typedef T __attribute__((sierra_vector_type(Size))) type;
+/// }
+/// @endcode
+class DependentSizedSierraVectorType : public Type, public llvm::FoldingSetNode {
+  const ASTContext &Context;
+  Expr *SizeExpr;
+  /// ElementType - The element type of the array.
+  QualType ElementType;
+  SourceLocation loc;
+
+  DependentSizedSierraVectorType(const ASTContext &Context, QualType ElementType,
+                              QualType can, Expr *SizeExpr, SourceLocation loc);
+
+  friend class ASTContext;
+
+public:
+  Expr *getSizeExpr() const { return SizeExpr; }
+  QualType getElementType() const { return ElementType; }
+  SourceLocation getAttributeLoc() const { return loc; }
+
+  bool isSugared() const { return false; }
+  QualType desugar() const { return QualType(this, 0); }
+
+  static bool classof(const Type *T) {
+    return T->getTypeClass() == DependentSizedSierraVector;
+  }
+  static bool classof(const DependentSizedSierraVectorType *) { return true; }
+
+  void Profile(llvm::FoldingSetNodeID &ID) {
+    Profile(ID, Context, getElementType(), getSizeExpr());
+  }
+
+  static void Profile(llvm::FoldingSetNodeID &ID, const ASTContext &Context,
+                      QualType ElementType, Expr *SizeExpr);
+};
+
 /// Represents a GCC generic vector type. This type is created using
 /// __attribute__((vector_size(n)), where "n" specifies the vector size in
 /// bytes; or from an Altivec __vector or vector declaration.
@@ -2761,7 +2802,8 @@ public:
     AltiVecPixel,   ///< is AltiVec 'vector Pixel'
     AltiVecBool,    ///< is AltiVec 'vector bool ...'
     NeonVector,     ///< is ARM Neon vector
-    NeonPolyVector  ///< is ARM Neon polynomial vector
+    NeonPolyVector, ///< is ARM Neon polynomial vector
+    SierraVector    ///< is SIMD vector for Sierra extension
   };
 protected:
   /// The element type of the vector.
@@ -3780,6 +3822,7 @@ public:
     attr_address_space,
     attr_regparm,
     attr_vector_size,
+    attr_sierra_vector,
     attr_neon_vector_type,
     attr_neon_polyvector_type,
 

@@ -1680,6 +1680,13 @@ class DependentSizedExtVectorTypeLoc :
                                      DependentSizedExtVectorType> {
 };
 
+// FIXME: copy & paste from DependentSizedExtVectorTypeLoc
+class DependentSizedSierraVectorTypeLoc :
+    public InheritingConcreteTypeLoc<TypeSpecTypeLoc,
+                                     DependentSizedSierraVectorTypeLoc,
+                                     DependentSizedSierraVectorType> {
+};
+
 // FIXME: location of the '_Complex' keyword.
 class ComplexTypeLoc : public InheritingConcreteTypeLoc<TypeSpecTypeLoc,
                                                         ComplexTypeLoc,

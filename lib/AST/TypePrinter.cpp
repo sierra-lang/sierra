@@ -525,6 +525,22 @@ void TypePrinter::printDependentSizedArrayAfter(
   printAfter(T->getElementType(), OS);
 }
 
+void TypePrinter::printDependentSizedSierraVectorBefore(
+                                          const DependentSizedSierraVectorType *T, 
+                                          raw_ostream &OS) {
+  printBefore(T->getElementType(), OS);
+}
+void TypePrinter::printDependentSizedSierraVectorBefore(
+                                          const DependentSizedSierraVectorType *T, 
+                                          raw_ostream &OS) {
+  OS << " __attribute__((sierra_vector(";
+  if (T->getSizeExpr()) {
+    T->getSizeExpr()->printPretty(OS, nullptr, Policy);
+  }
+  OS << ")))";
+  printAfter(T->getElementType(), OS);
+}
+
 void TypePrinter::printDependentSizedExtVectorBefore(
                                           const DependentSizedExtVectorType *T, 
                                           raw_ostream &OS) { 
@@ -571,6 +587,12 @@ void TypePrinter::printVectorBefore(const VectorType *T, raw_ostream &OS) {
        << " * sizeof(";
     print(T->getElementType(), OS, StringRef());
     OS << ")))) "; 
+    printBefore(T->getElementType(), OS);
+    break;
+  }
+  case VectorType::SierraVector: {
+    OS << "__attribute__((sierra_vector(" + 
+          T->getNumElements() + "))) ";
     printBefore(T->getElementType(), OS);
     break;
   }

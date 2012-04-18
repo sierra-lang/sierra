@@ -2957,6 +2957,14 @@ void CXXNameMangler::mangleType(const VectorType *T) {
 void CXXNameMangler::mangleType(const ExtVectorType *T) {
   mangleType(static_cast<const VectorType*>(T));
 }
+
+void CXXNameMangler::mangleType(const DependentSizedSierraVectorType *T) {
+  Out << "Dv";
+  mangleExpression(T->getSizeExpr());
+  Out << '_';
+  mangleType(T->getElementType());
+}
+
 void CXXNameMangler::mangleType(const DependentSizedExtVectorType *T) {
   Out << "Dv";
   mangleExpression(T->getSizeExpr());

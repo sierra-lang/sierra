@@ -5972,13 +5972,20 @@ void TypeLocReader::VisitDependentSizedArrayTypeLoc(
                                             DependentSizedArrayTypeLoc TL) {
   VisitArrayTypeLoc(TL);
 }
-
+void TypeLocReader::VisitDependentSizedSierraVectorTypeLoc(
+                                        DependentSizedSierraVectorTypeLoc TL) {
+  TL.setNameLoc(ReadSourceLocation());
+}
 void TypeLocReader::VisitDependentSizedExtVectorTypeLoc(
                                         DependentSizedExtVectorTypeLoc TL) {
   TL.setNameLoc(ReadSourceLocation());
 }
 
 void TypeLocReader::VisitVectorTypeLoc(VectorTypeLoc TL) {
+  TL.setNameLoc(ReadSourceLocation());
+}
+
+void TypeLocReader::VisitSierraVectorTypeLoc(SierraVectorTypeLoc TL) {
   TL.setNameLoc(ReadSourceLocation());
 }
 

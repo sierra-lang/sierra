@@ -1314,8 +1314,7 @@ TryImplicitConversion(Sema &S, Expr *From, QualType ToType,
                       bool InOverloadResolution,
                       bool CStyle,
                       bool AllowObjCWritebackConversion,
-                      bool AllowObjCConversionOnExplicit,
-                      unsigned AllowedVectorLength = 1) {
+                      bool AllowObjCConversionOnExplicit) {
   ImplicitConversionSequence ICS;
   if (IsStandardConversion(S, From, ToType, InOverloadResolution,
                            ICS.Standard, CStyle, AllowObjCWritebackConversion)){
@@ -1369,14 +1368,12 @@ Sema::TryImplicitConversion(Expr *From, QualType ToType,
                             bool AllowExplicit,
                             bool InOverloadResolution,
                             bool CStyle,
-                            bool AllowObjCWritebackConversion,
-                            unsigned AllowedVectorLength /*= 1*/) {
+                            bool AllowObjCWritebackConversion) {
   return ::TryImplicitConversion(*this, From, ToType, 
                                  SuppressUserConversions, AllowExplicit,
                                  InOverloadResolution, CStyle, 
                                  AllowObjCWritebackConversion,
-                                 /*AllowObjCConversionOnExplicit=*/false,
-                                 AllowedVectorLength);
+                                 /*AllowObjCConversionOnExplicit=*/false);
 }
 
 /// PerformImplicitConversion - Perform an implicit conversion of the
@@ -5143,18 +5140,35 @@ Sema::PerformObjectArgumentInitialization(Expr *From,
   return From;
 }
 
+static QualType BoolToVecBool(Sema &S, Expr* From, unsigned AllowedVectorLength) {
+  if (AllowedVectorLength == 1)
+    return S.Context.BoolTy;
+  else if (AllowedVectorLength > 0) 
+    return S.Context.getVectorType(S.Context.BoolTy, AllowedVectorLength, VectorType::GenericVector);
+  else /* AllowedVectorLength == 0 */ {
+    if (const VectorType* V = dyn_cast<VectorType>(From->getType().getTypePtr()))
+      return S.Context.getVectorType(S.Context.BoolTy, V->getNumElements(), VectorType::GenericVector);
+    else
+      return S.Context.BoolTy;
+  }
+}
+
 /// TryContextuallyConvertToBool - Attempt to contextually convert the
 /// expression From to bool (C++0x [conv]p3).
+/// 
+/// @param AllowedVectorLength 
+/// - 0: any conversion to a vector with element type \p ToType is allowed
+/// - 1: both \p From's and \p ToType must be scalar (the "normal case")
+/// - other:  \p From's and \p ToType's vector length must match.
 static ImplicitConversionSequence
 TryContextuallyConvertToBool(Sema &S, Expr *From, unsigned AllowedVectorLength = 1) {
-  return TryImplicitConversion(S, From, S.Context.BoolTy,
+  return TryImplicitConversion(S, From, BoolToVecBool(S, From, AllowedVectorLength),
                                /*SuppressUserConversions=*/false,
                                /*AllowExplicit=*/true,
                                /*InOverloadResolution=*/false,
                                /*CStyle=*/false,
                                /*AllowObjCWritebackConversion=*/false,
-                               /*AllowObjCConversionOnExplicit=*/false,
-                               /*AllowedVectorLength*/AllowedVectorLength);
+                               /*AllowObjCConversionOnExplicit=*/false);
 }
 
 /// PerformContextuallyConvertToBool - Perform a contextual conversion

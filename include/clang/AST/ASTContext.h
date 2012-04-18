@@ -139,6 +139,8 @@ class ASTContext : public RefCountedBase<ASTContext> {
   mutable llvm::FoldingSet<IncompleteArrayType> IncompleteArrayTypes;
   mutable std::vector<VariableArrayType*> VariableArrayTypes;
   mutable llvm::FoldingSet<DependentSizedArrayType> DependentSizedArrayTypes;
+  mutable llvm::FoldingSet<DependentSizedSierraVectorType>
+    DependentSizedSierraVectorTypes;
   mutable llvm::FoldingSet<DependentSizedExtVectorType>
     DependentSizedExtVectorTypes;
   mutable llvm::FoldingSet<VectorType> VectorTypes;
@@ -1247,6 +1249,14 @@ public:
   ///
   /// \pre \p VectorType must be a built-in type.
   QualType getExtVectorType(QualType VectorType, unsigned NumElts) const;
+
+  /// getDependentSizedSierraVectorType - Returns a non-unique reference to
+  /// the type for a dependently-sized vector of the specified element
+  /// type. FIXME: We will need these to be uniqued, or at least
+  /// comparable, at some point.
+  QualType getDependentSizedSierraVectorType(QualType VectorType,
+                                             Expr *SizeExpr,
+                                             SourceLocation AttrLoc) const;
 
   /// \pre Return a non-unique reference to the type for a dependently-sized
   /// vector of the specified element type.

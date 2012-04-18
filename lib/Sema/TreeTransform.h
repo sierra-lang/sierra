@@ -14,6 +14,7 @@
 #ifndef LLVM_CLANG_LIB_SEMA_TREETRANSFORM_H
 #define LLVM_CLANG_LIB_SEMA_TREETRANSFORM_H
 
+#include "clang/Sema/SemaSierra.h"
 #include "TypeLocBuilder.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclObjC.h"
@@ -800,8 +801,25 @@ public:
   ///
   /// By default, performs semantic analysis when building the vector type.
   /// Subclasses may override this routine to provide different behavior.
+  QualType RebuildSierraVectorType(QualType ElementType, unsigned NumElements,
+                                   SourceLocation AttributeLoc);
+
+  /// \brief Build a new extended vector type given the element type and
+  /// number of elements.
+  ///
+  /// By default, performs semantic analysis when building the vector type.
+  /// Subclasses may override this routine to provide different behavior.
   QualType RebuildExtVectorType(QualType ElementType, unsigned NumElements,
                                 SourceLocation AttributeLoc);
+
+  /// \brief Build a new potentially dependently-sized sierra vector type
+  /// given the element type and number of elements.
+  ///
+  /// By default, performs semantic analysis when building the vector type.
+  /// Subclasses may override this routine to provide different behavior.
+  QualType RebuildDependentSizedSierraVectorType(QualType ElementType,
+                                                 Expr *SizeExpr,
+                                                 SourceLocation AttributeLoc);
 
   /// \brief Build a new potentially dependently-sized extended vector type
   /// given the element type and number of elements.
@@ -11879,6 +11897,38 @@ QualType TreeTransform<Derived>::RebuildExtVectorType(QualType ElementType,
     = IntegerLiteral::Create(SemaRef.Context, numElements, SemaRef.Context.IntTy,
                              AttributeLoc);
   return SemaRef.BuildExtVectorType(ElementType, VectorSize, AttributeLoc);
+}
+
+template<typename Derived>
+Qualtype TreeTransform<Derived>::RebuildSierraVectorType(QualType ElementType,
+                                                         unsigned NumElements,
+                                                 SourceLocation AttributeLoc) {
+  llvm::APInt numElements(SemaRef.Context.getIntWidth(SemaRef.Context.IntTy),
+                          NumElements, true);
+  IntegerLiteral *VectorSize
+    = IntegerLiteral::Create(SemaRef.Context, numElements, SemaRef.Context.IntTy,
+                             AttributeLoc);
+  return BuildSierraVectorType(SemaRef, ElementType, VectorSize, AttributeLoc);
+}
+
+template<typename Derived>
+QualType TreeTransform<Derived>::RebuildExtVectorType(QualType ElementType,
+                                                      unsigned NumElements,
+                                                 SourceLocation AttributeLoc) {
+  llvm::APInt numElements(SemaRef.Context.getIntWidth(SemaRef.Context.IntTy),
+                          NumElements, true);
+  IntegerLiteral *VectorSize
+    = IntegerLiteral::Create(SemaRef.Context, numElements, SemaRef.Context.IntTy,
+                             AttributeLoc);
+  return SemaRef.BuildExtVectorType(ElementType, VectorSize, AttributeLoc);
+}
+
+template<typename Derived>
+QualType
+TreeTransform<Derived>::RebuildDependentSizedSierraVectorType(QualType ElementType,
+                                                              Expr *SizeExpr,
+                                                     SourceLocation AttributeLoc) {
+  return BuildSierraVectorType(SemaRef, ElementType, SizeExpr, AttributeLoc);
 }
 
 template<typename Derived>

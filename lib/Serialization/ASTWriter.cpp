@@ -238,6 +238,11 @@ void ASTTypeWriter::VisitVectorType(const VectorType *T) {
   Code = TYPE_VECTOR;
 }
 
+void ASTTypeWriter::VisitSierraVectorType(const SierraVectorType *T) {
+  VisitVectorType(T);
+  Code = TYPE_EXT_VECTOR;
+}
+
 void ASTTypeWriter::VisitExtVectorType(const ExtVectorType *T) {
   VisitVectorType(T);
   Code = TYPE_EXT_VECTOR;
@@ -409,6 +414,13 @@ ASTTypeWriter::VisitDependentSizedArrayType(const DependentSizedArrayType *T) {
   Record.AddStmt(T->getSizeExpr());
   Record.AddSourceRange(T->getBracketsRange());
   Code = TYPE_DEPENDENT_SIZED_ARRAY;
+}
+
+void
+ASTTypeWriter::VisitDependentSizedSierraVectorType(
+                                        const DependentSizedSierraVectorType *T) {
+  // FIXME: Serialize this type (C++ only)
+  llvm_unreachable("Cannot serialize dependent sized sierra vector types");
 }
 
 void
@@ -611,6 +623,10 @@ void TypeLocWriter::VisitDependentSizedArrayTypeLoc(
                                             DependentSizedArrayTypeLoc TL) {
   VisitArrayTypeLoc(TL);
 }
+void TypeLocWriter::VisitDependentSizedSierraVectorTypeLoc(
+                                        DependentSizedSierraVectorTypeLoc TL) {
+  Record.AddSourceLocation(TL.getNameLoc());
+}
 
 void TypeLocWriter::VisitDependentSizedExtVectorTypeLoc(
                                         DependentSizedExtVectorTypeLoc TL) {
@@ -618,6 +634,10 @@ void TypeLocWriter::VisitDependentSizedExtVectorTypeLoc(
 }
 
 void TypeLocWriter::VisitVectorTypeLoc(VectorTypeLoc TL) {
+  Record.AddSourceLocation(TL.getNameLoc());
+}
+
+void TypeLocWriter::VisitSierraVectorTypeLoc(SierraVectorTypeLoc TL) {
   Record.AddSourceLocation(TL.getNameLoc());
 }
 

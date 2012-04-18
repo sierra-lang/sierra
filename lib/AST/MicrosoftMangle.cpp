@@ -2351,6 +2351,11 @@ void MicrosoftCXXNameMangler::mangleType(const ExtVectorType *T,
                                          Qualifiers Quals, SourceRange Range) {
   mangleType(static_cast<const VectorType *>(T), Quals, Range);
 }
+
+void MicrosoftCXXNameMangler::mangleType(const DependentSizedSierraVectorType *T) {
+  llvm_unreachable("Sierra extension not available for Microsoft Compiler!");
+}
+
 void MicrosoftCXXNameMangler::mangleType(const DependentSizedExtVectorType *T,
                                          Qualifiers, SourceRange Range) {
   DiagnosticsEngine &Diags = Context.getDiags();
