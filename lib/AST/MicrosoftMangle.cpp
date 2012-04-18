@@ -1053,6 +1053,9 @@ void MicrosoftCXXNameMangler::mangleType(const VectorType *T) {
 void MicrosoftCXXNameMangler::mangleType(const ExtVectorType *T) {
   llvm_unreachable("Don't know how to mangle ExtVectorTypes yet!");
 }
+void MicrosoftCXXNameMangler::mangleType(const DependentSizedSierraVectorType *T) {
+  llvm_unreachable("Sierra extension not available for Microsoft Compiler!");
+}
 void MicrosoftCXXNameMangler::mangleType(const DependentSizedExtVectorType *T) {
   llvm_unreachable(
                   "Don't know how to mangle DependentSizedExtVectorTypes yet!");

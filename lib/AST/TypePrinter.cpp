@@ -338,6 +338,20 @@ void TypePrinter::printDependentSizedArray(const DependentSizedArrayType *T,
   print(T->getElementType(), S);
 }
 
+void TypePrinter::printDependentSizedSierraVector(
+                                          const DependentSizedSierraVectorType *T, 
+                                               std::string &S) { 
+  print(T->getElementType(), S);
+  
+  S += " __attribute__((sierra_vector(";
+  if (T->getSizeExpr()) {
+    std::string SStr;
+    llvm::raw_string_ostream s(SStr);
+    T->getSizeExpr()->printPretty(s, 0, Policy);
+    S += s.str();
+  }
+  S += ")))";  
+}
 void TypePrinter::printDependentSizedExtVector(
                                           const DependentSizedExtVectorType *T, 
                                                std::string &S) { 
@@ -386,6 +400,12 @@ void TypePrinter::printVector(const VectorType *T, std::string &S) {
     print(T->getElementType(), ET);
     V += " * sizeof(" + ET + ")))) ";
     S = V + S;
+    break;
+  }
+  case VectorType::SierraVector: {
+    print(T->getElementType(), S);
+    S = ("__attribute__((sierra_vector(" + 
+         llvm::utostr_32(T->getNumElements()) + "))) " + S);
     break;
   }
   }

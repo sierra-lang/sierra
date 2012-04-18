@@ -173,6 +173,7 @@ public:
     PARSED_ATTR(objc_ownership)
     PARSED_ATTR(opencl_image_access)
     PARSED_ATTR(vector_size)
+    PARSED_ATTR(sierra_vector)
     #undef PARSED_ATTR
     IgnoredAttribute,
     UnknownAttribute

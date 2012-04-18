@@ -3580,6 +3580,7 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
   case AttributeList::AT_vector_size:
   case AttributeList::AT_neon_vector_type:
   case AttributeList::AT_neon_polyvector_type:
+  case AttributeList::AT_sierra_vector:
     // Ignore these, these are type attributes, handled by
     // ProcessTypeAttributes.
     break;

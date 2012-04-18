@@ -881,6 +881,8 @@ public:
   QualType BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
                           Expr *ArraySize, unsigned Quals,
                           SourceRange Brackets, DeclarationName Entity);
+  QualType BuildSierraVectorType(QualType T, Expr *ArraySize,
+                                 SourceLocation AttrLoc);
   QualType BuildExtVectorType(QualType T, Expr *ArraySize,
                               SourceLocation AttrLoc);
   QualType BuildFunctionType(QualType T,
@@ -1482,20 +1484,13 @@ public:
   /// an available function, false otherwise.
   bool isFunctionConsideredUnavailable(FunctionDecl *FD);
 
-  /// @brief Tries to convert \p From to \p ToType
-  /// 
-  /// @param AllowedVectorLength 
-  /// - 0: any conversion to a vector with element type \p ToType is allowed
-  /// - 1: both \p From's and \p ToType must be scalar (the "normal case")
-  /// - other:  \p From's and \p ToType's vector length must match.
   ImplicitConversionSequence
   TryImplicitConversion(Expr *From, QualType ToType,
                         bool SuppressUserConversions,
                         bool AllowExplicit,
                         bool InOverloadResolution,
                         bool CStyle,
-                        bool AllowObjCWritebackConversion,
-                        unsigned AllowedVectorLength = 1);
+                        bool AllowObjCWritebackConversion);
 
   bool IsIntegralPromotion(Expr *From, QualType FromType, QualType ToType);
   bool IsFloatingPointPromotion(QualType FromType, QualType ToType);

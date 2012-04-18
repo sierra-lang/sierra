@@ -123,6 +123,30 @@ void DependentSizedArrayType::Profile(llvm::FoldingSetNodeID &ID,
   E->Profile(ID, Context, true);
 }
 
+DependentSizedSierraVectorType::DependentSizedSierraVectorType(const
+                                                         ASTContext &Context,
+                                                         QualType ElementType,
+                                                         QualType can, 
+                                                         Expr *SizeExpr, 
+                                                         SourceLocation loc)
+    : Type(DependentSizedSierraVector, can, /*Dependent=*/true,
+           /*InstantiationDependent=*/true,
+           ElementType->isVariablyModifiedType(), 
+           (ElementType->containsUnexpandedParameterPack() ||
+            (SizeExpr && SizeExpr->containsUnexpandedParameterPack()))),
+      Context(Context), SizeExpr(SizeExpr), ElementType(ElementType),
+      loc(loc) 
+{
+}
+
+void
+DependentSizedSierraVectorType::Profile(llvm::FoldingSetNodeID &ID,
+                                     const ASTContext &Context,
+                                     QualType ElementType, Expr *SizeExpr) {
+  ID.AddPointer(ElementType.getAsOpaquePtr());
+  SizeExpr->Profile(ID, Context, true);
+}
+
 DependentSizedExtVectorType::DependentSizedExtVectorType(const
                                                          ASTContext &Context,
                                                          QualType ElementType,
@@ -524,6 +548,10 @@ namespace {
       return Visit(T->getPointeeType());
     }
     AutoType *VisitArrayType(const ArrayType *T) {
+      return Visit(T->getElementType());
+    }
+    AutoType *VisitDependentSizedSierraVectorType(
+      const DependentSizedSierraVectorType *T) {
       return Visit(T->getElementType());
     }
     AutoType *VisitDependentSizedExtVectorType(

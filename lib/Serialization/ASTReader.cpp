@@ -4205,6 +4205,10 @@ void TypeLocReader::VisitDependentSizedArrayTypeLoc(
                                             DependentSizedArrayTypeLoc TL) {
   VisitArrayTypeLoc(TL);
 }
+void TypeLocReader::VisitDependentSizedSierraVectorTypeLoc(
+                                        DependentSizedSierraVectorTypeLoc TL) {
+  TL.setNameLoc(ReadSourceLocation(Record, Idx));
+}
 void TypeLocReader::VisitDependentSizedExtVectorTypeLoc(
                                         DependentSizedExtVectorTypeLoc TL) {
   TL.setNameLoc(ReadSourceLocation(Record, Idx));

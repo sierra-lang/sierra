@@ -686,6 +686,15 @@ public:
   QualType RebuildExtVectorType(QualType ElementType, unsigned NumElements,
                                 SourceLocation AttributeLoc);
 
+  /// \brief Build a new potentially dependently-sized sierra vector type
+  /// given the element type and number of elements.
+  ///
+  /// By default, performs semantic analysis when building the vector type.
+  /// Subclasses may override this routine to provide different behavior.
+  QualType RebuildDependentSizedSierraVectorType(QualType ElementType,
+                                                 Expr *SizeExpr,
+                                                 SourceLocation AttributeLoc);
+
   /// \brief Build a new potentially dependently-sized extended vector type
   /// given the element type and number of elements.
   ///
@@ -3815,6 +3824,51 @@ TreeTransform<Derived>::TransformDependentSizedArrayType(TypeLocBuilder &TLB,
   NewTL.setLBracketLoc(TL.getLBracketLoc());
   NewTL.setRBracketLoc(TL.getRBracketLoc());
   NewTL.setSizeExpr(size);
+
+  return Result;
+}
+
+// FIXME copy & paste
+template<typename Derived>
+QualType TreeTransform<Derived>::TransformDependentSizedSierraVectorType(
+                                      TypeLocBuilder &TLB,
+                                      DependentSizedSierraVectorTypeLoc TL) {
+  const DependentSizedSierraVectorType *T = TL.getTypePtr();
+
+  // FIXME: sierra vector locs should be nested
+  QualType ElementType = getDerived().TransformType(T->getElementType());
+  if (ElementType.isNull())
+    return QualType();
+
+  // Vector sizes are constant expressions.
+  EnterExpressionEvaluationContext Unevaluated(SemaRef,
+                                               Sema::ConstantEvaluated);
+
+  ExprResult Size = getDerived().TransformExpr(T->getSizeExpr());
+  Size = SemaRef.ActOnConstantExpression(Size);
+  if (Size.isInvalid())
+    return QualType();
+
+  QualType Result = TL.getType();
+  if (getDerived().AlwaysRebuild() ||
+      ElementType != T->getElementType() ||
+      Size.get() != T->getSizeExpr()) {
+    Result = getDerived().RebuildDependentSizedSierraVectorType(ElementType,
+                                                             Size.take(),
+                                                         T->getAttributeLoc());
+    if (Result.isNull())
+      return QualType();
+  }
+
+  // Result might be dependent or not.
+  if (isa<DependentSizedSierraVectorType>(Result)) {
+    DependentSizedSierraVectorTypeLoc NewTL
+      = TLB.push<DependentSizedSierraVectorTypeLoc>(Result);
+    NewTL.setNameLoc(TL.getNameLoc());
+  } else {
+    VectorTypeLoc NewTL = TLB.push<VectorTypeLoc>(Result);
+    NewTL.setNameLoc(TL.getNameLoc());
+  }
 
   return Result;
 }
@@ -8983,6 +9037,14 @@ QualType TreeTransform<Derived>::RebuildExtVectorType(QualType ElementType,
     = IntegerLiteral::Create(SemaRef.Context, numElements, SemaRef.Context.IntTy,
                              AttributeLoc);
   return SemaRef.BuildExtVectorType(ElementType, VectorSize, AttributeLoc);
+}
+
+template<typename Derived>
+QualType
+TreeTransform<Derived>::RebuildDependentSizedSierraVectorType(QualType ElementType,
+                                                              Expr *SizeExpr,
+                                                     SourceLocation AttributeLoc) {
+  return SemaRef.BuildSierraVectorType(ElementType, SizeExpr, AttributeLoc);
 }
 
 template<typename Derived>
