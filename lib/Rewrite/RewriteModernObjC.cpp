@@ -304,7 +304,6 @@ namespace {
     void RewriteFunctionDecl(FunctionDecl *FD);
     void RewriteBlockPointerType(std::string& Str, QualType Type);
     void RewriteBlockPointerTypeVariable(std::string& Str, ValueDecl *VD);
-    void RewriteBlockLiteralFunctionDecl(FunctionDecl *FD);
     void RewriteObjCQualifiedInterfaceTypes(Decl *Dcl);
     void RewriteTypeOfDecl(VarDecl *VD);
     void RewriteObjCQualifiedInterfaceTypes(Expr *E);
@@ -2246,30 +2245,6 @@ void RewriteModernObjC::RewriteBlockPointerTypeVariable(std::string& Str,
   }
 }
 
-
-void RewriteModernObjC::RewriteBlockLiteralFunctionDecl(FunctionDecl *FD) {
-  SourceLocation FunLocStart = FD->getTypeSpecStartLoc();
-  const FunctionType *funcType = FD->getType()->getAs<FunctionType>();
-  const FunctionProtoType *proto = dyn_cast<FunctionProtoType>(funcType);
-  if (!proto)
-    return;
-  QualType Type = proto->getResultType();
-  std::string FdStr = Type.getAsString(Context->getPrintingPolicy());
-  FdStr += " ";
-  FdStr += FD->getName();
-  FdStr +=  "(";
-  unsigned numArgs = proto->getNumArgs();
-  for (unsigned i = 0; i < numArgs; i++) {
-    QualType ArgType = proto->getArgType(i);
-    RewriteBlockPointerType(FdStr, ArgType);
-    if (i+1 < numArgs)
-      FdStr += ", ";
-  }
-  FdStr +=  ");\n";
-  InsertText(FunLocStart, FdStr);
-  CurFunctionDeclToDeclareForBlock = 0;
-}
-
 // SynthSuperContructorFunctionDecl - id __rw_objc_super(id obj, id super);
 void RewriteModernObjC::SynthSuperContructorFunctionDecl() {
   if (SuperContructorFunctionDecl)
@@ -4008,11 +3983,25 @@ std::string RewriteModernObjC::SynthesizeBlockDescriptor(std::string DescTag,
   return S;
 }
 
+/// getFunctionSourceLocation - returns start location of a function
+/// definition. Complication arises when function has declared as
+/// extern "C" or extern "C" {...}
+static SourceLocation getFunctionSourceLocation (FunctionDecl *FD) {
+  if (!FD->isExternC() || FD->isMain())
+    return FD->getTypeSpecStartLoc();
+  const DeclContext *DC = FD->getDeclContext();
+  if (const LinkageSpecDecl *LSD = dyn_cast<LinkageSpecDecl>(DC)) {
+    SourceLocation BodyRBrace = LSD->getRBraceLoc();
+    // if it is extern "C" {...}, return function decl's own location.
+    if (BodyRBrace.isValid())
+      return FD->getTypeSpecStartLoc();
+    return LSD->getExternLoc();
+  }
+  return FD->getTypeSpecStartLoc();
+}
+
 void RewriteModernObjC::SynthesizeBlockLiterals(SourceLocation FunLocStart,
                                           StringRef FunName) {
-  // Insert declaration for the function in which block literal is used.
-  if (CurFunctionDeclToDeclareForBlock && !Blocks.empty())
-    RewriteBlockLiteralFunctionDecl(CurFunctionDeclToDeclareForBlock);
   bool RewriteSC = (GlobalVarDecl &&
                     !Blocks.empty() &&
                     GlobalVarDecl->getStorageClass() == SC_Static &&
@@ -4121,7 +4110,7 @@ void RewriteModernObjC::SynthesizeBlockLiterals(SourceLocation FunLocStart,
 }
 
 void RewriteModernObjC::InsertBlockLiteralsWithinFunction(FunctionDecl *FD) {
-  SourceLocation FunLocStart = FD->getTypeSpecStartLoc();
+  SourceLocation FunLocStart = getFunctionSourceLocation(FD);
   StringRef FuncName = FD->getName();
 
   SynthesizeBlockLiterals(FunLocStart, FuncName);
@@ -4156,11 +4145,15 @@ void RewriteModernObjC::GetBlockDeclRefExprs(Stmt *S) {
         GetBlockDeclRefExprs(*CI);
     }
   // Handle specific things.
-  if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(S))
-    if (DRE->refersToEnclosingLocal() &&
-        HasLocalVariableExternalStorage(DRE->getDecl())) {
-      BlockDeclRefs.push_back(DRE);
+  if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(S)) {
+    if (DRE->refersToEnclosingLocal()) {
+      // FIXME: Handle enums.
+      if (!isa<FunctionDecl>(DRE->getDecl()))
+        BlockDeclRefs.push_back(DRE);
+      if (HasLocalVariableExternalStorage(DRE->getDecl()))
+        BlockDeclRefs.push_back(DRE);
     }
+  }
   
   return;
 }
@@ -4460,19 +4453,18 @@ void RewriteModernObjC::RewriteCastExpr(CStyleCastExpr *CE) {
 
 void RewriteModernObjC::RewriteImplicitCastObjCExpr(CastExpr *IC) {
   CastKind CastKind = IC->getCastKind();
+  if (CastKind != CK_BlockPointerToObjCPointerCast &&
+      CastKind != CK_AnyPointerToBlockPointerCast)
+    return;
   
-  if (CastKind == CK_BlockPointerToObjCPointerCast) {
-    CStyleCastExpr * CastExpr = 
-      NoTypeInfoCStyleCastExpr(Context, IC->getType(), CK_BitCast, IC);
-    ReplaceStmt(IC, CastExpr);
-  }
-  else if (CastKind == CK_AnyPointerToBlockPointerCast) {
-    QualType BlockT = IC->getType();
-    (void)convertBlockPointerToFunctionPointer(BlockT);
-    CStyleCastExpr * CastExpr = 
-      NoTypeInfoCStyleCastExpr(Context, BlockT, CK_BitCast, IC);
-    ReplaceStmt(IC, CastExpr);
-  }
+  QualType QT = IC->getType();
+  (void)convertBlockPointerToFunctionPointer(QT);
+  std::string TypeString(QT.getAsString(Context->getPrintingPolicy()));
+  std::string Str = "(";
+  Str += TypeString;
+  Str += ")";
+  InsertText(IC->getSubExpr()->getLocStart(), &Str[0], Str.size());
+
   return;
 }
 
@@ -4728,10 +4720,6 @@ std::string RewriteModernObjC::SynthesizeByrefCopyDestroyHelper(VarDecl *VD,
 ///
 ///
 void RewriteModernObjC::RewriteByRefVar(VarDecl *ND) {
-  // Insert declaration for the function in which block literal is
-  // used.
-  if (CurFunctionDeclToDeclareForBlock)
-    RewriteBlockLiteralFunctionDecl(CurFunctionDeclToDeclareForBlock);
   int flag = 0;
   int isa = 0;
   SourceLocation DeclLoc = ND->getTypeSpecStartLoc();
@@ -4770,7 +4758,7 @@ void RewriteModernObjC::RewriteByRefVar(VarDecl *ND) {
   // Insert this type in global scope. It is needed by helper function.
   SourceLocation FunLocStart;
   if (CurFunctionDef)
-     FunLocStart = CurFunctionDef->getTypeSpecStartLoc();
+     FunLocStart = getFunctionSourceLocation(CurFunctionDef);
   else {
     assert(CurMethodDef && "RewriteByRefVar - CurMethodDef is null");
     FunLocStart = CurMethodDef->getLocStart();
@@ -5357,12 +5345,10 @@ Stmt *RewriteModernObjC::RewriteFunctionBodyOrGlobalInitializer(Stmt *S) {
   if (CStyleCastExpr *CE = dyn_cast<CStyleCastExpr>(S)) {
     RewriteCastExpr(CE);
   }
-#if 0
-  // FIXME. Cannot safely rewrite ImplicitCasts. This is the 2nd failed
-  // attempt: (id)((__typeof(z))_Block_copy((const void *)(z)));
   if (ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(S)) {
     RewriteImplicitCastObjCExpr(ICE);
   }
+#if 0
 
   if (ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(S)) {
     CastExpr *Replacement = new (Context) CastExpr(ICE->getType(),

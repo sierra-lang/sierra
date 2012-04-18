@@ -79,6 +79,7 @@ namespace clang {
   class CXXRecordDecl;
   class EnumDecl;
   class FieldDecl;
+  class FunctionDecl;
   class ObjCInterfaceDecl;
   class ObjCProtocolDecl;
   class ObjCMethodDecl;
@@ -2742,7 +2743,8 @@ public:
     ExtProtoInfo() :
       Variadic(false), HasTrailingReturn(false), TypeQuals(0),
       ExceptionSpecType(EST_None), RefQualifier(RQ_None),
-      NumExceptions(0), Exceptions(0), NoexceptExpr(0), ConsumedArguments(0) {}
+      NumExceptions(0), Exceptions(0), NoexceptExpr(0), ExceptionSpecDecl(0),
+      ConsumedArguments(0) {}
 
     FunctionType::ExtInfo ExtInfo;
     bool Variadic : 1;
@@ -2753,6 +2755,7 @@ public:
     unsigned NumExceptions;
     const QualType *Exceptions;
     Expr *NoexceptExpr;
+    FunctionDecl *ExceptionSpecDecl;
     const bool *ConsumedArguments;
   };
 
@@ -2798,6 +2801,10 @@ private:
   // NoexceptExpr - Instead of Exceptions, there may be a single Expr* pointing
   // to the expression in the noexcept() specifier.
 
+  // ExceptionSpecDecl - Instead of Exceptions, there may be a single
+  // FunctionDecl* pointing to the function which should be used to resolve
+  // this function type's exception specification.
+
   // ConsumedArgs - A variable size array, following Exceptions
   // and of length NumArgs, holding flags indicating which arguments
   // are consumed.  This only appears if HasAnyConsumedArgs is true.
@@ -2837,6 +2844,8 @@ public:
       EPI.Exceptions = exception_begin();
     } else if (EPI.ExceptionSpecType == EST_ComputedNoexcept) {
       EPI.NoexceptExpr = getNoexceptExpr();
+    } else if (EPI.ExceptionSpecType == EST_Uninstantiated) {
+      EPI.ExceptionSpecDecl = getExceptionSpecDecl();
     }
     if (hasAnyConsumedArgs())
       EPI.ConsumedArguments = getConsumedArgsBuffer();
@@ -2880,9 +2889,14 @@ public:
     // NoexceptExpr sits where the arguments end.
     return *reinterpret_cast<Expr *const *>(arg_type_end());
   }
+  FunctionDecl *getExceptionSpecDecl() const {
+    if (getExceptionSpecType() != EST_Uninstantiated)
+      return 0;
+    return *reinterpret_cast<FunctionDecl * const *>(arg_type_end());
+  }
   bool isNothrow(ASTContext &Ctx) const {
     ExceptionSpecificationType EST = getExceptionSpecType();
-    assert(EST != EST_Delayed);
+    assert(EST != EST_Delayed && EST != EST_Uninstantiated);
     if (EST == EST_DynamicNone || EST == EST_BasicNoexcept)
       return true;
     if (EST != EST_ComputedNoexcept)
