@@ -1710,6 +1710,10 @@ public:
   CanQualType getCanonicalTypeUnqualified() const; // in CanonicalType.h
   LLVM_ATTRIBUTE_USED void dump() const;
 
+  /// If this type is a Sierra vector, return its vector length; 
+  /// return 1 otherwise.
+  unsigned getSierraVectorLength() const;
+
   static bool classof(const Type *) { return true; }
 
   friend class ASTReader;
@@ -4989,6 +4993,14 @@ inline const Type *Type::getBaseElementTypeUnsafe() const {
   while (const ArrayType *arrayType = type->getAsArrayTypeUnsafe())
     type = arrayType->getElementType().getTypePtr();
   return type;
+}
+
+inline unsigned Type::getSierraVectorLength() const {
+  if (isSierraVectorType()) {
+    const VectorType* V = cast<VectorType>(this);
+    return V->getNumElements();
+  }
+  return 1;
 }
 
 /// Insertion operator for diagnostics.  This allows sending QualType's into a
