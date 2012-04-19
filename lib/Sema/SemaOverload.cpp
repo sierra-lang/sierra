@@ -1524,6 +1524,29 @@ static bool IsVectorConversion(Sema &S, QualType FromType,
     }
   }
 
+  if (Context.getLangOpts().SIERRA) {
+    const VectorType* VFrom = FromType->isSierraVectorType() 
+                            ? FromType->getAs<VectorType>() 
+                            : 0;
+    const VectorType* VTo   =   ToType->isSierraVectorType() 
+                            ?   ToType->getAs<VectorType>() 
+                            : 0;
+    // broadcast aka splat
+    if (!FromType->isVectorType() && VTo) {
+      ICK = ICK_Vector_Splat;
+      return true;
+    }
+
+    if (VFrom && VTo) {
+      if (VFrom->getNumElements() == VTo->getNumElements()) {
+        ICK = ICK_Vector_Conversion;
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   // We can perform the conversion between vector types in the following cases:
   // 1)vector types are equivalent AltiVec and GCC vector types
   // 2)lax vector conversions are permitted and the vector types are of the
@@ -5144,12 +5167,15 @@ static QualType BoolToVecBool(Sema &S, Expr* From, unsigned AllowedVectorLength)
   if (AllowedVectorLength == 1)
     return S.Context.BoolTy;
   else if (AllowedVectorLength > 0) 
-    return S.Context.getVectorType(S.Context.BoolTy, AllowedVectorLength, VectorType::GenericVector);
+    return S.Context.getVectorType(S.Context.BoolTy, AllowedVectorLength, VectorType::SierraVector);
   else /* AllowedVectorLength == 0 */ {
-    if (const VectorType* V = dyn_cast<VectorType>(From->getType().getTypePtr()))
-      return S.Context.getVectorType(S.Context.BoolTy, V->getNumElements(), VectorType::GenericVector);
-    else
-      return S.Context.BoolTy;
+    QualType FromType = From->getType();
+    if (FromType->isSierraVectorType()) {
+      if (const VectorType* V = FromType->getAs<VectorType>())
+        return S.Context.getVectorType(S.Context.BoolTy, V->getNumElements(), VectorType::SierraVector);
+    }
+
+    return S.Context.BoolTy;
   }
 }
 
@@ -5177,14 +5203,17 @@ ExprResult Sema::PerformContextuallyConvertToBool(Expr *From, unsigned AllowedVe
   if (checkPlaceholderForOverload(*this, From))
     return ExprError();
 
+  QualType boolty = BoolToVecBool(*this, From, AllowedVectorLength);
+
   ImplicitConversionSequence ICS = TryContextuallyConvertToBool(*this, From, AllowedVectorLength);
   if (!ICS.isBad())
-    return PerformImplicitConversion(From, Context.BoolTy, ICS, AA_Converting);
+    //return PerformImplicitConversion(From, Context.BoolTy, ICS, AA_Converting);
+    return PerformImplicitConversion(From, boolty, ICS, AA_Converting);
 
-  if (!DiagnoseMultipleUserDefinedConversion(From, Context.BoolTy))
+  if (!DiagnoseMultipleUserDefinedConversion(From, boolty))
     return Diag(From->getLocStart(),
-                diag::err_typecheck_bool_condition)
-                  << From->getType() << From->getSourceRange();
+                diag::err_typecheck_vector_condition)
+                  << From->getType() << boolty << From->getSourceRange();
   return ExprError();
 }
 

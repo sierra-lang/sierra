@@ -6363,6 +6363,8 @@ def err_invalid_use_of_function_type : Error<
 def err_invalid_use_of_array_type : Error<"an array type is not allowed here">;
 def err_typecheck_bool_condition : Error<
   "value of type %0 is not contextually convertible to 'bool'">;
+def err_typecheck_vector_condition : Error<
+  "value of type %0 is not contextually convertible to %1">;
 def err_typecheck_ambiguous_condition : Error<
   "conversion %diff{from $ to $|between types}0,1 is ambiguous">;
 def err_typecheck_nonviable_condition : Error<

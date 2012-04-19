@@ -1687,6 +1687,7 @@ public:
   bool isUnionType() const;
   bool isComplexIntegerType() const;            // GCC _Complex integer type.
   bool isVectorType() const;                    // GCC vector type.
+  bool isSierraVectorType() const;              // Sierra vector type.
   bool isExtVectorType() const;                 // Extended vector type.
   bool isObjCObjectPointerType() const;         // pointer to ObjC object
   bool isObjCRetainableType() const;            // ObjC object or block pointer
@@ -5692,6 +5693,11 @@ inline bool Type::isAnyComplexType() const {
 }
 inline bool Type::isVectorType() const {
   return isa<VectorType>(CanonicalType);
+}
+inline bool Type::isSierraVectorType() const {
+  if (const VectorType* V = dyn_cast<VectorType>(CanonicalType)) 
+    return V->getVectorKind() == VectorType::SierraVector;
+  return false;
 }
 inline bool Type::isExtVectorType() const {
   return isa<ExtVectorType>(CanonicalType);
