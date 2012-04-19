@@ -221,6 +221,7 @@ public:
     Visibility visibility_;
     bool explicit_;
 
+    void setVisibility(Visibility V, bool E) { visibility_ = V; explicit_ = E; }
   public:
     LinkageInfo() : linkage_(ExternalLinkage), visibility_(DefaultVisibility),
                     explicit_(false) {}
@@ -245,8 +246,6 @@ public:
     bool visibilityExplicit() const { return explicit_; }
 
     void setLinkage(Linkage L) { linkage_ = L; }
-    void setVisibility(Visibility V, bool E) { visibility_ = V; explicit_ = E; }
-
     void mergeLinkage(Linkage L) {
       setLinkage(minLinkage(linkage(), L));
     }
@@ -259,6 +258,10 @@ public:
     // down to one of its members. If the member has no explicit visibility,
     // the class visibility wins.
     void mergeVisibility(Visibility V, bool E = false) {
+      // Never increase the visibility
+      if (visibility() < V)
+        return;
+
       // If one has explicit visibility and the other doesn't, keep the
       // explicit one.
       if (visibilityExplicit() && !E)
@@ -278,9 +281,10 @@ public:
       if (visibility() < V)
         return;
 
-      // If this visibility is explicit, keep it.
-      if (visibilityExplicit() && !E)
+      // Don't lose the explicit bit for nothing
+      if (visibility() == V && visibilityExplicit())
         return;
+
       setVisibility(V, E);
     }
     void mergeVisibility(LinkageInfo Other) {
