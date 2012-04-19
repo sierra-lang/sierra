@@ -14647,15 +14647,14 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
   E = result.get();
 
   if (!E->isTypeDependent()) {
-    QualType T = E->getType();
-    const VectorType* V = dyn_cast<VectorType>(T.getTypePtr());
     Scope* scope = getCurScope();
     unsigned oldL = scope->getCurrentVectorLength();
 
     if (getLangOpts().CPlusPlus) {
       unsigned allowed = 1;
 
-      if (getLangOpts().SIERRA) allowed = oldL == 1 ? 0 : oldL;
+      if (getLangOpts().SIERRA) 
+        allowed = oldL == 1 ? 0 : oldL;
 
       ExprResult ERes = CheckCXXBooleanCondition(E, IsConstexpr, allowed); // C++ 6.4p4
 
@@ -14663,12 +14662,10 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
         return ERes;
 
       E = ERes.take();
-
-      const VectorType* V = E->getType()->getAs<VectorType>();
-      if (E->getType()->isSierraVectorType() && V)
-          scope->setCurrentVectorLength(V->getNumElements());
-      else
-        assert(scope->getCurrentVectorLength() == 1 && !E->getType()->isVectorType());
+      QualType T = E->getType();
+      unsigned newL = T->getSierraVectorLength();
+      scope->setCurrentVectorLength(newL);
+      assert(oldL == 1 || newL == 1 || oldL == newL);
 
       return Owned(E);
     }
@@ -14677,11 +14674,12 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
     if (ERes.isInvalid())
       return ExprError();
     E = ERes.get();
+    QualType T = E->getType();
+    unsigned newL = T->getSierraVectorLength();
 
     // Allow vectors as conditions in Sierra
-    if (getLangOpts().SIERRA && V) {
+    if (getLangOpts().SIERRA && newL > 1) {
       Scope* scope = getCurScope();
-      unsigned newL = V->getNumElements();
 
       if (oldL == 1 || newL == 1 || oldL == newL) {
         scope->setCurrentVectorLength(newL);

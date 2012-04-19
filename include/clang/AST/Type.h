@@ -2009,6 +2009,10 @@ public:
   void dump() const;
   void dump(llvm::raw_ostream &OS) const;
 
+  /// If this type is a Sierra vector, return its vector length; 
+  /// return 1 otherwise.
+  unsigned getSierraVectorLength() const;
+
   friend class ASTReader;
   friend class ASTWriter;
 };
@@ -5936,6 +5940,14 @@ inline const Type *Type::getPointeeOrArrayElementType() const {
   else if (type->isArrayType())
     return type->getBaseElementTypeUnsafe();
   return type;
+}
+
+inline unsigned Type::getSierraVectorLength() const {
+  if (isSierraVectorType()) {
+    const VectorType* V = cast<VectorType>(this);
+    return V->getNumElements();
+  }
+  return 1;
 }
 
 /// Insertion operator for diagnostics.  This allows sending QualType's into a
