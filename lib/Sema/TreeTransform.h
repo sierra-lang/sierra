@@ -2234,6 +2234,14 @@ public:
                                                 RParenLoc);
   }
 
+  /// \brief Build a new Objective-C boxed expression.
+  ///
+  /// By default, performs semantic analysis to build the new expression.
+  /// Subclasses may override this routine to provide different behavior.
+  ExprResult RebuildObjCBoxedExpr(SourceRange SR, Expr *ValueExpr) {
+    return getSema().BuildObjCBoxedExpr(SR, ValueExpr);
+  }
+  
   /// \brief Build a new Objective-C array literal.
   ///
   /// By default, performs semantic analysis to build the new expression.
@@ -8406,8 +8414,16 @@ TreeTransform<Derived>::TransformObjCBoolLiteralExpr(ObjCBoolLiteralExpr *E) {
 
 template<typename Derived>
 ExprResult
-TreeTransform<Derived>::TransformObjCNumericLiteral(ObjCNumericLiteral *E) {
-  return SemaRef.MaybeBindToTemporary(E);
+TreeTransform<Derived>::TransformObjCBoxedExpr(ObjCBoxedExpr *E) {
+  ExprResult SubExpr = getDerived().TransformExpr(E->getSubExpr());
+  if (SubExpr.isInvalid())
+    return ExprError();
+
+  if (!getDerived().AlwaysRebuild() &&
+      SubExpr.get() == E->getSubExpr())
+    return SemaRef.Owned(E);
+
+  return getDerived().RebuildObjCBoxedExpr(E->getSourceRange(), SubExpr.get());
 }
 
 template<typename Derived>
