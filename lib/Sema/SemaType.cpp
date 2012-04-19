@@ -1421,7 +1421,7 @@ QualType Sema::BuildSierraVectorType(QualType T, Expr *ArraySize,
     llvm::APSInt vecSize(32);
     if (!ArraySize->isIntegerConstantExpr(vecSize, Context)) {
       Diag(AttrLoc, diag::err_attribute_argument_not_int)
-        << "sierra_vector_type" << ArraySize->getSourceRange();
+        << "sierra_vector" << ArraySize->getSourceRange();
       return QualType();
     }
 

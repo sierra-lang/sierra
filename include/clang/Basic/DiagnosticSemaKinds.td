@@ -4291,6 +4291,8 @@ def err_type_defined_in_condition : Error<
   "types may not be defined in conditions">;
 def err_typecheck_bool_condition : Error<
   "value of type %0 is not contextually convertible to 'bool'">;
+def err_typecheck_vector_condition : Error<
+  "value of type %0 is not contextually convertible to %1">;
 def err_typecheck_ambiguous_condition : Error<
   "conversion from %0 to %1 is ambiguous">;
 def err_typecheck_nonviable_condition : Error<
