@@ -9696,8 +9696,9 @@ QualType Sema::CheckVectorCompareOperands(ExprResult &LHS, ExprResult &RHS,
 
   // If AltiVec, the comparison results in a numeric type, i.e.
   // bool for C++, int for C
-  if (getLangOpts().AltiVec &&
-      vType->getAs<VectorType>()->getVectorKind() == VectorType::AltiVecVector)
+  // Same is true for Sierra vectors
+  if (vType->getAs<VectorType>()->getVectorKind() == VectorType::AltiVecVector
+      || vType->isSierraVectorType())
     return Context.getLogicalOperationType();
 
   // For non-floating point types, check for self-comparisons of the form
