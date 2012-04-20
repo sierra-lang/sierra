@@ -867,7 +867,7 @@ Sema::CheckClassTemplate(Scope *S, unsigned TagSpec, TagUseKind TUK,
 
   // Find any previous declaration with this name.
   DeclContext *SemanticContext;
-  LookupResult Previous(*this, Name, NameLoc, LookupOrdinaryName,
+  LookupResult Previous(*this, Name, NameLoc, LookupTagName,
                         ForRedeclaration);
   if (SS.isNotEmpty() && !SS.isInvalid()) {
     SemanticContext = computeDeclContext(SS, true);
@@ -951,7 +951,7 @@ Sema::CheckClassTemplate(Scope *S, unsigned TagSpec, TagUseKind TUK,
       }
     }
 
-    if (CurContext->isDependentContext()) {
+    if (CurContext->isDependentContext() && PrevClassTemplate) {
       // If this is a dependent context, we don't want to link the friend
       // class template to the template in scope, because that would perform
       // checking of the template parameter lists that can't be performed
