@@ -861,6 +861,10 @@ DEF_TRAVERSE_TYPE(VectorType, {
     TRY_TO(TraverseType(T->getElementType()));
   })
 
+DEF_TRAVERSE_TYPE(SierraVectorType, {
+    TRY_TO(TraverseType(T->getElementType()));
+  })
+
 DEF_TRAVERSE_TYPE(ExtVectorType, {
     TRY_TO(TraverseType(T->getElementType()));
   })
@@ -1083,6 +1087,12 @@ DEF_TRAVERSE_TYPELOC(DependentSizedExtVectorType, {
 
 // FIXME: VectorTypeLoc is unfinished
 DEF_TRAVERSE_TYPELOC(VectorType, {
+    TRY_TO(TraverseType(TL.getTypePtr()->getElementType()));
+  })
+
+// FIXME: size and attributes
+// FIXME: base VectorTypeLoc is unfinished
+DEF_TRAVERSE_TYPELOC(SierraVectorType, {
     TRY_TO(TraverseType(TL.getTypePtr()->getElementType()));
   })
 

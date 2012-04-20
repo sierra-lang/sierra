@@ -79,6 +79,7 @@ bool CodeGenFunction::hasAggregateLLVMType(QualType type) {
   case Type::RValueReference:
   case Type::MemberPointer:
   case Type::Vector:
+  case Type::SierraVector:
   case Type::ExtVector:
   case Type::FunctionProto:
   case Type::FunctionNoProto:
@@ -975,6 +976,7 @@ void CodeGenFunction::EmitVariablyModifiedType(QualType type) {
     case Type::Builtin:
     case Type::Complex:
     case Type::Vector:
+    case Type::SierraVector:
     case Type::ExtVector:
     case Type::Record:
     case Type::Enum:

@@ -1445,6 +1445,43 @@ DeduceTemplateArgumentsByTypeMatch(Sema &S,
                                                 Info, Deduced, 0);
     }
 
+    /*
+     * FIXME SierraVector and DependentSizedSierraVectorType is copy&paste
+     */
+
+    //     (clang extension - Sierra)
+    //
+    //     T __attribute__(((sierra_vector(<integral constant>))))
+    case Type::SierraVector: {
+      const SierraVectorType *VectorParam = cast<SierraVectorType>(Param);
+      if (const SierraVectorType *VectorArg = dyn_cast<SierraVectorType>(Arg)) {
+        // Make sure that the vectors have the same number of elements.
+        if (VectorParam->getNumElements() != VectorArg->getNumElements())
+          return Sema::TDK_NonDeducedMismatch;
+        
+        // Perform deduction on the element types.
+        return DeduceTemplateArgumentsByTypeMatch(S, TemplateParams,
+                                                  VectorParam->getElementType(),
+                                                  VectorArg->getElementType(),
+                                                  Info, Deduced, TDF);
+      }
+      
+      if (const DependentSizedSierraVectorType *VectorArg 
+                                = dyn_cast<DependentSizedSierraVectorType>(Arg)) {
+        // We can't check the number of elements, since the argument has a
+        // dependent number of elements. This can only occur during partial
+        // ordering.
+
+        // Perform deduction on the element types.
+        return DeduceTemplateArgumentsByTypeMatch(S, TemplateParams,
+                                                  VectorParam->getElementType(),
+                                                  VectorArg->getElementType(),
+                                                  Info, Deduced, TDF);
+      }
+      
+      return Sema::TDK_NonDeducedMismatch;
+    }
+
     //     (clang extension)
     //
     //     T __attribute__(((ext_vector_type(<integral constant>))))
@@ -1478,6 +1515,57 @@ DeduceTemplateArgumentsByTypeMatch(Sema &S,
       return Sema::TDK_NonDeducedMismatch;
     }
       
+    //     (clang extension - Sierra)
+    //
+    //     T __attribute__(((sierra_vector(N))))
+    case Type::DependentSizedSierraVector: {
+      const DependentSizedSierraVectorType *VectorParam
+        = cast<DependentSizedSierraVectorType>(Param);
+
+      if (const SierraVectorType *VectorArg = dyn_cast<SierraVectorType>(Arg)) {
+        // Perform deduction on the element types.
+        if (Sema::TemplateDeductionResult Result
+              = DeduceTemplateArgumentsByTypeMatch(S, TemplateParams,
+                                                  VectorParam->getElementType(),
+                                                   VectorArg->getElementType(),
+                                                   Info, Deduced, TDF))
+          return Result;
+        
+        // Perform deduction on the vector size, if we can.
+        NonTypeTemplateParmDecl *NTTP
+          = getDeducedParameterFromExpr(VectorParam->getSizeExpr());
+        if (!NTTP)
+          return Sema::TDK_Success;
+
+        llvm::APSInt ArgSize(S.Context.getTypeSize(S.Context.IntTy), false);
+        ArgSize = VectorArg->getNumElements();
+        return DeduceNonTypeTemplateArgument(S, NTTP, ArgSize, S.Context.IntTy,
+                                             false, Info, Deduced);
+      }
+      
+      if (const DependentSizedSierraVectorType *VectorArg 
+                                = dyn_cast<DependentSizedSierraVectorType>(Arg)) {
+        // Perform deduction on the element types.
+        if (Sema::TemplateDeductionResult Result
+            = DeduceTemplateArgumentsByTypeMatch(S, TemplateParams,
+                                                 VectorParam->getElementType(),
+                                                 VectorArg->getElementType(),
+                                                 Info, Deduced, TDF))
+          return Result;
+        
+        // Perform deduction on the vector size, if we can.
+        NonTypeTemplateParmDecl *NTTP
+          = getDeducedParameterFromExpr(VectorParam->getSizeExpr());
+        if (!NTTP)
+          return Sema::TDK_Success;
+        
+        return DeduceNonTypeTemplateArgument(S, NTTP, VectorArg->getSizeExpr(),
+                                             Info, Deduced);
+      }
+      
+      return Sema::TDK_NonDeducedMismatch;
+    }
+
     //     (clang extension)
     //
     //     T __attribute__(((ext_vector_type(N))))
@@ -4248,11 +4336,22 @@ MarkUsedTemplateParameters(ASTContext &Ctx, QualType T,
     break;
 
   case Type::Vector:
+  case Type::SierraVector:
   case Type::ExtVector:
     MarkUsedTemplateParameters(Ctx,
                                cast<VectorType>(T)->getElementType(),
                                OnlyDeduced, Depth, Used);
     break;
+
+  case Type::DependentSizedSierraVector: {
+    const DependentSizedSierraVectorType *VecType
+      = cast<DependentSizedSierraVectorType>(T);
+    MarkUsedTemplateParameters(Ctx, VecType->getElementType(), OnlyDeduced,
+                               Depth, Used);
+    MarkUsedTemplateParameters(Ctx, VecType->getSizeExpr(), OnlyDeduced,
+                               Depth, Used);
+    break;
+  }
 
   case Type::DependentSizedExtVector: {
     const DependentSizedExtVectorType *VecType

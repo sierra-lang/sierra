@@ -2047,6 +2047,7 @@ addAssociatedClassesAndNamespaces(AssociatedLookup &Result, QualType Ty) {
 
     // These are fundamental types.
     case Type::Vector:
+    case Type::SierraVector:
     case Type::ExtVector:
     case Type::Complex:
       break;

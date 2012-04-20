@@ -144,8 +144,10 @@ void TypePrinter::print(const Type *T, Qualifiers Quals, std::string &buffer) {
     case Type::LValueReference:
     case Type::RValueReference:
     case Type::MemberPointer:
+    case Type::DependentSizedSierraVector:
     case Type::DependentSizedExtVector:
     case Type::Vector:
+    case Type::SierraVector:
     case Type::ExtVector:
     case Type::FunctionProto:
     case Type::FunctionNoProto:
@@ -402,13 +404,13 @@ void TypePrinter::printVector(const VectorType *T, std::string &S) {
     S = V + S;
     break;
   }
-  case VectorType::SierraVector: {
-    print(T->getElementType(), S);
-    S = ("__attribute__((sierra_vector(" + 
-         llvm::utostr_32(T->getNumElements()) + "))) " + S);
-    break;
   }
-  }
+}
+
+void TypePrinter::printSierraVector(const SierraVectorType *T, std::string &S) { 
+  print(T->getElementType(), S);
+  S = ("__attribute__((sierra_vector(" + 
+        llvm::utostr_32(T->getNumElements()) + "))) " + S);
 }
 
 void TypePrinter::printExtVector(const ExtVectorType *T, std::string &S) { 

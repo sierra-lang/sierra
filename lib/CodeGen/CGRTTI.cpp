@@ -404,6 +404,7 @@ void RTTIBuilder::BuildVTablePointer(const Type *Ty) {
   case Type::Builtin:
   // GCC treats vector and complex types as fundamental types.
   case Type::Vector:
+  case Type::SierraVector:
   case Type::ExtVector:
   case Type::Complex:
   case Type::Atomic:
@@ -597,6 +598,7 @@ llvm::Constant *RTTIBuilder::BuildTypeInfo(QualType Ty, bool Force) {
   // GCC treats vector types as fundamental types.
   case Type::Builtin:
   case Type::Vector:
+  case Type::SierraVector:
   case Type::ExtVector:
   case Type::Complex:
   case Type::BlockPointer:

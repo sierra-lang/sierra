@@ -158,6 +158,11 @@ void ASTTypeWriter::VisitVectorType(const VectorType *T) {
   Code = TYPE_VECTOR;
 }
 
+void ASTTypeWriter::VisitSierraVectorType(const SierraVectorType *T) {
+  VisitVectorType(T);
+  Code = TYPE_EXT_VECTOR;
+}
+
 void ASTTypeWriter::VisitExtVectorType(const ExtVectorType *T) {
   VisitVectorType(T);
   Code = TYPE_EXT_VECTOR;
@@ -484,6 +489,9 @@ void TypeLocWriter::VisitDependentSizedExtVectorTypeLoc(
   Writer.AddSourceLocation(TL.getNameLoc(), Record);
 }
 void TypeLocWriter::VisitVectorTypeLoc(VectorTypeLoc TL) {
+  Writer.AddSourceLocation(TL.getNameLoc(), Record);
+}
+void TypeLocWriter::VisitSierraVectorTypeLoc(SierraVectorTypeLoc TL) {
   Writer.AddSourceLocation(TL.getNameLoc(), Record);
 }
 void TypeLocWriter::VisitExtVectorTypeLoc(ExtVectorTypeLoc TL) {
@@ -3293,6 +3301,8 @@ void ASTWriter::WriteASTCore(Sema &SemaRef, MemorizeStatCalls *StatCalls,
   // Build a record containing all of the ext_vector declarations.
   RecordData ExtVectorDecls;
   AddLazyVectorDecls(*this, SemaRef.ExtVectorDecls, ExtVectorDecls);
+
+  // FIXME same for Sierra vectors?
 
   // Build a record containing all of the VTable uses information.
   RecordData VTableUses;

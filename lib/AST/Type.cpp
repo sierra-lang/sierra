@@ -966,6 +966,7 @@ bool QualType::isPODType(ASTContext &Context) const {
   case Type::Pointer:
   case Type::MemberPointer:
   case Type::Vector:
+  case Type::SierraVector:
   case Type::ExtVector:
     return true;
 
@@ -2086,6 +2087,7 @@ static CachedProperties computeCachedProperties(const Type *T) {
   case Type::VariableArray:
     return Cache::get(cast<ArrayType>(T)->getElementType());
   case Type::Vector:
+  case Type::SierraVector:
   case Type::ExtVector:
     return Cache::get(cast<VectorType>(T)->getElementType());
   case Type::FunctionNoProto:

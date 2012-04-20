@@ -683,6 +683,14 @@ public:
   ///
   /// By default, performs semantic analysis when building the vector type.
   /// Subclasses may override this routine to provide different behavior.
+  QualType RebuildSierraVectorType(QualType ElementType, unsigned NumElements,
+                                   SourceLocation AttributeLoc);
+
+  /// \brief Build a new extended vector type given the element type and
+  /// number of elements.
+  ///
+  /// By default, performs semantic analysis when building the vector type.
+  /// Subclasses may override this routine to provide different behavior.
   QualType RebuildExtVectorType(QualType ElementType, unsigned NumElements,
                                 SourceLocation AttributeLoc);
 
@@ -3874,7 +3882,7 @@ QualType TreeTransform<Derived>::TransformDependentSizedSierraVectorType(
       = TLB.push<DependentSizedSierraVectorTypeLoc>(Result);
     NewTL.setNameLoc(TL.getNameLoc());
   } else {
-    VectorTypeLoc NewTL = TLB.push<VectorTypeLoc>(Result);
+    SierraVectorTypeLoc NewTL = TLB.push<SierraVectorTypeLoc>(Result);
     NewTL.setNameLoc(TL.getNameLoc());
   }
 
@@ -3943,6 +3951,33 @@ QualType TreeTransform<Derived>::TransformVectorType(TypeLocBuilder &TLB,
   }
   
   VectorTypeLoc NewTL = TLB.push<VectorTypeLoc>(Result);
+  NewTL.setNameLoc(TL.getNameLoc());
+
+  return Result;
+}
+
+/*
+ * FIXME sierra copy&paste
+ */
+template<typename Derived>
+QualType TreeTransform<Derived>::TransformSierraVectorType(TypeLocBuilder &TLB,
+                                                        SierraVectorTypeLoc TL) {
+  const VectorType *T = TL.getTypePtr();
+  QualType ElementType = getDerived().TransformType(T->getElementType());
+  if (ElementType.isNull())
+    return QualType();
+
+  QualType Result = TL.getType();
+  if (getDerived().AlwaysRebuild() ||
+      ElementType != T->getElementType()) {
+    Result = getDerived().RebuildSierraVectorType(ElementType,
+                                                  T->getNumElements(),
+                                                  /*FIXME*/ SourceLocation());
+    if (Result.isNull())
+      return QualType();
+  }
+  
+  SierraVectorTypeLoc NewTL = TLB.push<SierraVectorTypeLoc>(Result);
   NewTL.setNameLoc(TL.getNameLoc());
 
   return Result;
@@ -9040,6 +9075,18 @@ QualType TreeTransform<Derived>::RebuildVectorType(QualType ElementType,
                                                VectorType::VectorKind VecKind) {
   // FIXME: semantic checking!
   return SemaRef.Context.getVectorType(ElementType, NumElements, VecKind);
+}
+
+template<typename Derived>
+QualType TreeTransform<Derived>::RebuildSierraVectorType(QualType ElementType,
+                                                         unsigned NumElements,
+                                                 SourceLocation AttributeLoc) {
+  llvm::APInt numElements(SemaRef.Context.getIntWidth(SemaRef.Context.IntTy),
+                          NumElements, true);
+  IntegerLiteral *VectorSize
+    = IntegerLiteral::Create(SemaRef.Context, numElements, SemaRef.Context.IntTy,
+                             AttributeLoc);
+  return SemaRef.BuildSierraVectorType(ElementType, VectorSize, AttributeLoc);
 }
 
 template<typename Derived>

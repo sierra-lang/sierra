@@ -92,6 +92,7 @@ namespace clang {
   class EnumConstantDecl;
   class Expr;
   class ExtVectorType;
+  class SierraVectorType;
   class ExternalSemaSource;
   class FormatAttr;
   class FriendDecl;
