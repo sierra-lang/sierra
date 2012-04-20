@@ -4384,6 +4384,8 @@ uint64_t ASTWriter::WriteASTCore(Sema &SemaRef, StringRef isysroot,
   RecordData ExtVectorDecls;
   AddLazyVectorDecls(*this, SemaRef.ExtVectorDecls, ExtVectorDecls);
 
+  // FIXME same for Sierra vectors?
+
   // Build a record containing all of the VTable uses information.
   RecordData VTableUses;
   if (!SemaRef.VTableUses.empty()) {

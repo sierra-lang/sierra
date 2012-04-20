@@ -114,6 +114,7 @@ namespace clang {
   class EnumConstantDecl;
   class Expr;
   class ExtVectorType;
+  class SierraVectorType;
   class FormatAttr;
   class FriendDecl;
   class FunctionDecl;

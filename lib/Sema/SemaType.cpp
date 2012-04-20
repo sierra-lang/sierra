@@ -2282,7 +2282,8 @@ QualType Sema::BuildSierraVectorType(QualType T, Expr *ArraySize,
       return QualType();
     }
 
-    return Context.getVectorType(T, vectorSize, VectorType::SierraVector);
+    QualType res = Context.getSierraVectorType(T, vectorSize);
+    return res;
   }
 
   return Context.getDependentSizedSierraVectorType(T, ArraySize, AttrLoc);
@@ -6579,6 +6580,11 @@ static void HandleVectorSizeAttr(QualType& CurType, const AttributeList &Attr,
 /// this routine will return a new vector type.
 static void HandleSierraVectorAttr(QualType& CurType, const AttributeList &Attr,
                                    Sema &S) {
+  if (!S.getLangOpts().SIERRA) {
+    S.Diag(Attr.getLoc(), diag::err_sierra_attr_not_enabled);
+    return;
+  }
+
   Expr *sizeExpr;
   
   // Special case where the argument is a template id.

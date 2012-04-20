@@ -1659,6 +1659,7 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
       Width = llvm::alignTo(Width, Align);
     break;
   }
+  case Type::SierraVector:
   case Type::ExtVector:
   case Type::Vector: {
     const VectorType *VT = cast<VectorType>(T);
@@ -2747,6 +2748,8 @@ QualType ASTContext::getVariableArrayDecayedType(QualType type) const {
   case Type::Complex:
   case Type::Vector:
   case Type::ExtVector:
+  case Type::SierraVector:
+  case Type::DependentSizedSierraVector:
   case Type::DependentSizedExtVector:
   case Type::ObjCObject:
   case Type::ObjCInterface:
@@ -2991,6 +2994,10 @@ QualType ASTContext::getIncompleteArrayType(QualType elementType,
   return QualType(newType, 0);
 }
 
+/*
+ * FIXME getVectorType, getSierraVector and getExtVectorType is ugly copy&paste-code
+ */
+
 /// getVectorType - Return the unique reference to a vector type of
 /// the specified element type and size. VectorType must be a built-in type.
 QualType ASTContext::getVectorType(QualType vecType, unsigned NumElts,
@@ -3017,6 +3024,37 @@ QualType ASTContext::getVectorType(QualType vecType, unsigned NumElts,
   }
   VectorType *New = new (*this, TypeAlignment)
     VectorType(vecType, NumElts, Canonical, VecKind);
+  VectorTypes.InsertNode(New, InsertPos);
+  Types.push_back(New);
+  return QualType(New, 0);
+}
+
+/// getSierraVectorType - Return the unique reference to an extended vector type of
+/// the specified element type and size. VectorType must be a built-in type.
+QualType
+ASTContext::getSierraVectorType(QualType vecType, unsigned NumElts) const {
+  assert(vecType->isBuiltinType() || vecType->isDependentType());
+
+  // Check if we've already instantiated a vector of this type.
+  llvm::FoldingSetNodeID ID;
+  VectorType::Profile(ID, vecType, NumElts, Type::SierraVector,
+                      VectorType::GenericVector);
+  void *InsertPos = 0;
+  if (VectorType *VTP = VectorTypes.FindNodeOrInsertPos(ID, InsertPos))
+    return QualType(VTP, 0);
+
+  // If the element type isn't canonical, this won't be a canonical type either,
+  // so fill in the canonical type field.
+  QualType Canonical;
+  if (!vecType.isCanonical()) {
+    Canonical = getSierraVectorType(getCanonicalType(vecType), NumElts);
+
+    // Get the new insert position for the node we care about.
+    VectorType *NewIP = VectorTypes.FindNodeOrInsertPos(ID, InsertPos);
+    assert(NewIP == 0 && "Shouldn't be in the map!"); (void)NewIP;
+  }
+  SierraVectorType *New = new (*this, TypeAlignment)
+    SierraVectorType(vecType, NumElts, Canonical);
   VectorTypes.InsertNode(New, InsertPos);
   Types.push_back(New);
   return QualType(New, 0);
@@ -8142,9 +8180,14 @@ QualType ASTContext::mergeTypes(QualType LHS, QualType RHS,
   if (LHSClass == Type::ObjCInterface) LHSClass = Type::ObjCObject;
   if (RHSClass == Type::ObjCInterface) RHSClass = Type::ObjCObject;
 
+  // Canonicalize SierraVector -> Vector.
+  if (LHSClass == Type::SierraVector) LHSClass = Type::Vector;
+  if (RHSClass == Type::SierraVector) RHSClass = Type::Vector;
+
   // Canonicalize ExtVector -> Vector.
   if (LHSClass == Type::ExtVector) LHSClass = Type::Vector;
   if (RHSClass == Type::ExtVector) RHSClass = Type::Vector;
+
 
   // If the canonical type classes don't match.
   if (LHSClass != RHSClass) {
@@ -8187,6 +8230,7 @@ QualType ASTContext::mergeTypes(QualType LHS, QualType RHS,
   case Type::IncompleteArray:
   case Type::VariableArray:
   case Type::FunctionProto:
+  case Type::SierraVector:
   case Type::ExtVector:
     llvm_unreachable("Types are eliminated above");
 

@@ -220,8 +220,10 @@ bool TypePrinter::canPrefixQualifiers(const Type *T,
     case Type::LValueReference:
     case Type::RValueReference:
     case Type::MemberPointer:
+    case Type::DependentSizedSierraVector:
     case Type::DependentSizedExtVector:
     case Type::Vector:
+    case Type::SierraVector:
     case Type::ExtVector:
     case Type::FunctionProto:
     case Type::FunctionNoProto:
@@ -530,7 +532,7 @@ void TypePrinter::printDependentSizedSierraVectorBefore(
                                           raw_ostream &OS) {
   printBefore(T->getElementType(), OS);
 }
-void TypePrinter::printDependentSizedSierraVectorBefore(
+void TypePrinter::printDependentSizedSierraVectorAfter(
                                           const DependentSizedSierraVectorType *T, 
                                           raw_ostream &OS) {
   OS << " __attribute__((sierra_vector(";
@@ -590,17 +592,21 @@ void TypePrinter::printVectorBefore(const VectorType *T, raw_ostream &OS) {
     printBefore(T->getElementType(), OS);
     break;
   }
-  case VectorType::SierraVector: {
-    OS << "__attribute__((sierra_vector(" + 
-          T->getNumElements() + "))) ";
-    printBefore(T->getElementType(), OS);
-    break;
-  }
   }
 }
 void TypePrinter::printVectorAfter(const VectorType *T, raw_ostream &OS) {
   printAfter(T->getElementType(), OS);
 } 
+
+void TypePrinter::printSierraVectorBefore(const SierraVectorType *T,
+                                          raw_ostream &OS) {
+  printBefore(T->getElementType(), OS);
+}
+void TypePrinter::printSierraVectorAfter(const SierraVectorType *T,
+    raw_ostream &OS) {
+  printAfter(T->getElementType(), OS);
+  OS << "__attribute__((sierra_vector(" + T->getNumElements() + "))) ";
+}
 
 void TypePrinter::printExtVectorBefore(const ExtVectorType *T,
                                        raw_ostream &OS) { 

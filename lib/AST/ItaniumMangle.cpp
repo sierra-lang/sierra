@@ -1862,8 +1862,10 @@ bool CXXNameMangler::mangleUnresolvedTypeOrSimpleId(QualType Ty,
   case Type::IncompleteArray:
   case Type::VariableArray:
   case Type::DependentSizedArray:
+  case Type::DependentSizedSierraVector:
   case Type::DependentSizedExtVector:
   case Type::Vector:
+  case Type::SierraVector:
   case Type::ExtVector:
   case Type::FunctionProto:
   case Type::FunctionNoProto:
@@ -2954,6 +2956,11 @@ void CXXNameMangler::mangleType(const VectorType *T) {
   else
     mangleType(T->getElementType());
 }
+
+void CXXNameMangler::mangleType(const SierraVectorType *T) {
+  mangleType(static_cast<const VectorType*>(T));
+}
+
 void CXXNameMangler::mangleType(const ExtVectorType *T) {
   mangleType(static_cast<const VectorType*>(T));
 }

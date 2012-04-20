@@ -5167,12 +5167,12 @@ static QualType BoolToVecBool(Sema &S, Expr* From, unsigned AllowedVectorLength)
   if (AllowedVectorLength == 1)
     return S.Context.BoolTy;
   else if (AllowedVectorLength > 0) 
-    return S.Context.getVectorType(S.Context.BoolTy, AllowedVectorLength, VectorType::SierraVector);
+    return S.Context.getSierraVectorType(S.Context.BoolTy, AllowedVectorLength);
   else /* AllowedVectorLength == 0 */ {
     QualType FromType = From->getType();
     if (FromType->isSierraVectorType()) {
       if (const VectorType* V = FromType->getAs<VectorType>())
-        return S.Context.getVectorType(S.Context.BoolTy, V->getNumElements(), VectorType::SierraVector);
+        return S.Context.getSierraVectorType(S.Context.BoolTy, V->getNumElements());
     }
 
     return S.Context.BoolTy;

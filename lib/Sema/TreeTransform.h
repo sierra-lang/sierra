@@ -5703,6 +5703,33 @@ QualType TreeTransform<Derived>::TransformDependentTemplateSpecializationType(
   return Result;
 }
 
+/*
+ * FIXME sierra copy&paste
+ */
+template<typename Derived>
+QualType TreeTransform<Derived>::TransformSierraVectorType(TypeLocBuilder &TLB,
+                                                        SierraVectorTypeLoc TL) {
+  const VectorType *T = TL.getTypePtr();
+  QualType ElementType = getDerived().TransformType(T->getElementType());
+  if (ElementType.isNull())
+    return QualType();
+
+  QualType Result = TL.getType();
+  if (getDerived().AlwaysRebuild() ||
+      ElementType != T->getElementType()) {
+    Result = getDerived().RebuildSierraVectorType(ElementType,
+                                                  T->getNumElements(),
+                                                  /*FIXME*/ SourceLocation());
+    if (Result.isNull())
+      return QualType();
+  }
+  
+  SierraVectorTypeLoc NewTL = TLB.push<SierraVectorTypeLoc>(Result);
+  NewTL.setNameLoc(TL.getNameLoc());
+
+  return Result;
+}
+
 template<typename Derived>
 QualType
 TreeTransform<Derived>::TransformElaboratedType(TypeLocBuilder &TLB,
@@ -11885,6 +11912,18 @@ QualType TreeTransform<Derived>::RebuildVectorType(QualType ElementType,
                                                VectorType::VectorKind VecKind) {
   // FIXME: semantic checking!
   return SemaRef.Context.getVectorType(ElementType, NumElements, VecKind);
+}
+
+template<typename Derived>
+QualType TreeTransform<Derived>::RebuildSierraVectorType(QualType ElementType,
+                                                         unsigned NumElements,
+                                                 SourceLocation AttributeLoc) {
+  llvm::APInt numElements(SemaRef.Context.getIntWidth(SemaRef.Context.IntTy),
+                          NumElements, true);
+  IntegerLiteral *VectorSize
+    = IntegerLiteral::Create(SemaRef.Context, numElements, SemaRef.Context.IntTy,
+                             AttributeLoc);
+  return SemaRef.BuildSierraVectorType(ElementType, VectorSize, AttributeLoc);
 }
 
 template<typename Derived>

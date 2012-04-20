@@ -1667,6 +1667,12 @@ class VectorTypeLoc : public InheritingConcreteTypeLoc<TypeSpecTypeLoc,
 };
 
 // FIXME: size expression and attribute locations.
+class SierraVectorTypeLoc : public InheritingConcreteTypeLoc<VectorTypeLoc,
+                                                             SierraVectorTypeLoc,
+                                                             SierraVectorType> {
+};
+
+// FIXME: size expression and attribute locations.
 class ExtVectorTypeLoc : public InheritingConcreteTypeLoc<VectorTypeLoc,
                                                           ExtVectorTypeLoc,
                                                           ExtVectorType> {

@@ -2710,6 +2710,46 @@ public:
                       unsigned TypeQuals, Expr *E);
 };
 
+/// DependentSizedSierraVectorType - This type represent an extended vector type
+/// where either the type or size is dependent. For example:
+/// \code
+/// template<typename T, int Size>
+/// class vector {
+///   typedef T __attribute__((sierra_vector_type(Size))) type;
+/// }
+/// \endcode
+class DependentSizedSierraVectorType : public Type, public llvm::FoldingSetNode {
+  const ASTContext &Context;
+  Expr *SizeExpr;
+  /// ElementType - The element type of the array.
+  QualType ElementType;
+  SourceLocation loc;
+
+  DependentSizedSierraVectorType(const ASTContext &Context, QualType ElementType,
+                              QualType can, Expr *SizeExpr, SourceLocation loc);
+
+  friend class ASTContext;
+
+public:
+  Expr *getSizeExpr() const { return SizeExpr; }
+  QualType getElementType() const { return ElementType; }
+  SourceLocation getAttributeLoc() const { return loc; }
+
+  bool isSugared() const { return false; }
+  QualType desugar() const { return QualType(this, 0); }
+
+  static bool classof(const Type *T) {
+    return T->getTypeClass() == DependentSizedSierraVector;
+  }
+
+  void Profile(llvm::FoldingSetNodeID &ID) {
+    Profile(ID, Context, getElementType(), getSizeExpr());
+  }
+
+  static void Profile(llvm::FoldingSetNodeID &ID, const ASTContext &Context,
+                      QualType ElementType, Expr *SizeExpr);
+};
+
 /// Represents an extended vector type where either the type or size is
 /// dependent.
 ///
@@ -2719,11 +2759,11 @@ public:
 /// class vector {
 ///   typedef T __attribute__((ext_vector_type(Size))) type;
 /// }
-/// \endcode
+/// @endcode
 class DependentSizedExtVectorType : public Type, public llvm::FoldingSetNode {
   const ASTContext &Context;
   Expr *SizeExpr;
-  /// The element type of the array.
+  /// ElementType - The element type of the array.
   QualType ElementType;
   SourceLocation loc;
 
@@ -2752,48 +2792,6 @@ public:
                       QualType ElementType, Expr *SizeExpr);
 };
 
-
-/// DependentSizedSierraVectorType - This type represent an extended vector type
-/// where either the type or size is dependent. For example:
-/// @code
-/// template<typename T, int Size>
-/// class vector {
-///   typedef T __attribute__((sierra_vector_type(Size))) type;
-/// }
-/// @endcode
-class DependentSizedSierraVectorType : public Type, public llvm::FoldingSetNode {
-  const ASTContext &Context;
-  Expr *SizeExpr;
-  /// ElementType - The element type of the array.
-  QualType ElementType;
-  SourceLocation loc;
-
-  DependentSizedSierraVectorType(const ASTContext &Context, QualType ElementType,
-                              QualType can, Expr *SizeExpr, SourceLocation loc);
-
-  friend class ASTContext;
-
-public:
-  Expr *getSizeExpr() const { return SizeExpr; }
-  QualType getElementType() const { return ElementType; }
-  SourceLocation getAttributeLoc() const { return loc; }
-
-  bool isSugared() const { return false; }
-  QualType desugar() const { return QualType(this, 0); }
-
-  static bool classof(const Type *T) {
-    return T->getTypeClass() == DependentSizedSierraVector;
-  }
-  static bool classof(const DependentSizedSierraVectorType *) { return true; }
-
-  void Profile(llvm::FoldingSetNodeID &ID) {
-    Profile(ID, Context, getElementType(), getSizeExpr());
-  }
-
-  static void Profile(llvm::FoldingSetNodeID &ID, const ASTContext &Context,
-                      QualType ElementType, Expr *SizeExpr);
-};
-
 /// Represents a GCC generic vector type. This type is created using
 /// __attribute__((vector_size(n)), where "n" specifies the vector size in
 /// bytes; or from an Altivec __vector or vector declaration.
@@ -2807,8 +2805,7 @@ public:
     AltiVecPixel,   ///< is AltiVec 'vector Pixel'
     AltiVecBool,    ///< is AltiVec 'vector bool ...'
     NeonVector,     ///< is ARM Neon vector
-    NeonPolyVector, ///< is ARM Neon polynomial vector
-    SierraVector    ///< is SIMD vector for Sierra extension
+    NeonPolyVector  ///< is ARM Neon polynomial vector
   };
 protected:
   /// The element type of the vector.
@@ -2851,7 +2848,23 @@ public:
   }
 
   static bool classof(const Type *T) {
-    return T->getTypeClass() == Vector || T->getTypeClass() == ExtVector;
+    return T->getTypeClass() == Vector 
+        || T->getTypeClass() == SierraVector
+        || T->getTypeClass() == ExtVector;
+  }
+};
+
+/// SierraVectorType - sierra vector type. This type is created using
+/// __attribute__((sierra_vector_type(n)), where "n" is the number of elements.
+// FIXME Unlike vector_size, ext_vector_type is only allowed on typedef's.
+class SierraVectorType : public VectorType {
+  SierraVectorType(QualType vecType, unsigned nElements, QualType canonType) :
+    VectorType(SierraVector, vecType, nElements, canonType, GenericVector) {}
+  friend class ASTContext;  // ASTContext creates these.
+public:
+
+  static bool classof(const Type *T) {
+    return T->getTypeClass() == SierraVector;
   }
 };
 
@@ -5699,9 +5712,7 @@ inline bool Type::isVectorType() const {
   return isa<VectorType>(CanonicalType);
 }
 inline bool Type::isSierraVectorType() const {
-  if (const VectorType* V = dyn_cast<VectorType>(CanonicalType)) 
-    return V->getVectorKind() == VectorType::SierraVector;
-  return false;
+  return isa<SierraVectorType>(CanonicalType);
 }
 inline bool Type::isExtVectorType() const {
   return isa<ExtVectorType>(CanonicalType);

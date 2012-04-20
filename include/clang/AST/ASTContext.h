@@ -1244,6 +1244,11 @@ public:
   QualType getVectorType(QualType VectorType, unsigned NumElts,
                          VectorType::VectorKind VecKind) const;
 
+  /// getSierraVectorType - Return the unique reference to an extended vector type
+  /// of the specified element type and size.  VectorType must be a built-in
+  /// type.
+  QualType getSierraVectorType(QualType VectorType, unsigned NumElts) const;
+
   /// \brief Return the unique reference to an extended vector type
   /// of the specified element type and size.
   ///

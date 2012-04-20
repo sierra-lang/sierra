@@ -2564,6 +2564,7 @@ llvm::DIType *CGDebugInfo::CreateTypeNode(QualType Ty, llvm::DIFile *Unit) {
 #include "clang/AST/TypeNodes.def"
     llvm_unreachable("Dependent types cannot show up in debug information");
 
+  case Type::SierraVector:
   case Type::ExtVector:
   case Type::Vector:
     return CreateType(cast<VectorType>(Ty), Unit);
