@@ -865,9 +865,13 @@ Sema::CheckClassTemplate(Scope *S, unsigned TagSpec, TagUseKind TUK,
     return true;
   }
 
-  // Find any previous declaration with this name.
+  // Find any previous declaration with this name. For a friend with no
+  // scope explicitly specified, we only look for tag declarations (per
+  // C++11 [basic.lookup.elab]p2).
   DeclContext *SemanticContext;
-  LookupResult Previous(*this, Name, NameLoc, LookupTagName,
+  LookupResult Previous(*this, Name, NameLoc,
+                        (SS.isEmpty() && TUK == TUK_Friend)
+                          ? LookupTagName : LookupOrdinaryName,
                         ForRedeclaration);
   if (SS.isNotEmpty() && !SS.isInvalid()) {
     SemanticContext = computeDeclContext(SS, true);
@@ -893,7 +897,7 @@ Sema::CheckClassTemplate(Scope *S, unsigned TagSpec, TagUseKind TUK,
         Invalid = true;
     } else if (TUK != TUK_Friend && TUK != TUK_Reference)
       diagnoseQualifiedDeclaration(SS, SemanticContext, Name, NameLoc);
-        
+
     LookupQualifiedName(Previous, SemanticContext);
   } else {
     SemanticContext = CurContext;
@@ -948,22 +952,32 @@ Sema::CheckClassTemplate(Scope *S, unsigned TagSpec, TagUseKind TUK,
         // declaration.
         PrevDecl = PrevClassTemplate = 0;
         SemanticContext = OutermostContext;
-      }
-    }
 
-    if (CurContext->isDependentContext() && PrevClassTemplate) {
-      // If this is a dependent context, we don't want to link the friend
-      // class template to the template in scope, because that would perform
-      // checking of the template parameter lists that can't be performed
-      // until the outer context is instantiated.
-      PrevDecl = PrevClassTemplate = 0;
+        // Check that the chosen semantic context doesn't already contain a
+        // declaration of this name as a non-tag type.
+        LookupResult Previous(*this, Name, NameLoc, LookupOrdinaryName,
+                              ForRedeclaration);
+        DeclContext *LookupContext = SemanticContext;
+        while (LookupContext->isTransparentContext())
+          LookupContext = LookupContext->getLookupParent();
+        LookupQualifiedName(Previous, LookupContext);
+
+        if (Previous.isAmbiguous())
+          return true;
+
+        if (Previous.begin() != Previous.end())
+          PrevDecl = (*Previous.begin())->getUnderlyingDecl();
+      }
     }
   } else if (PrevDecl && !isDeclInScope(PrevDecl, SemanticContext, S))
     PrevDecl = PrevClassTemplate = 0;
 
   if (PrevClassTemplate) {
-    // Ensure that the template parameter lists are compatible.
-    if (!TemplateParameterListsAreEqual(TemplateParams,
+    // Ensure that the template parameter lists are compatible. Skip this check
+    // for a friend in a dependent context: the template parameter list itself
+    // could be dependent.
+    if (!(TUK == TUK_Friend && CurContext->isDependentContext()) &&
+        !TemplateParameterListsAreEqual(TemplateParams,
                                    PrevClassTemplate->getTemplateParameters(),
                                         /*Complain=*/true,
                                         TPL_TemplateMatch))
@@ -1012,8 +1026,10 @@ Sema::CheckClassTemplate(Scope *S, unsigned TagSpec, TagUseKind TUK,
 
   // Check the template parameter list of this declaration, possibly
   // merging in the template parameter list from the previous class
-  // template declaration.
-  if (CheckTemplateParameterList(TemplateParams,
+  // template declaration. Skip this check for a friend in a dependent
+  // context, because the template parameter list might be dependent.
+  if (!(TUK == TUK_Friend && CurContext->isDependentContext()) &&
+      CheckTemplateParameterList(TemplateParams,
             PrevClassTemplate? PrevClassTemplate->getTemplateParameters() : 0,
                                  (SS.isSet() && SemanticContext &&
                                   SemanticContext->isRecord() &&
@@ -1025,9 +1041,9 @@ Sema::CheckClassTemplate(Scope *S, unsigned TagSpec, TagUseKind TUK,
   if (SS.isSet()) {
     // If the name of the template was qualified, we must be defining the
     // template out-of-line.
-    if (!SS.isInvalid() && !Invalid && !PrevClassTemplate &&
-        !(TUK == TUK_Friend && CurContext->isDependentContext())) {
-      Diag(NameLoc, diag::err_member_def_does_not_match)
+    if (!SS.isInvalid() && !Invalid && !PrevClassTemplate) {
+      Diag(NameLoc, TUK == TUK_Friend ? diag::err_friend_decl_does_not_match
+                                      : diag::err_member_def_does_not_match)
         << Name << SemanticContext << SS.getRange();
       Invalid = true;
     }

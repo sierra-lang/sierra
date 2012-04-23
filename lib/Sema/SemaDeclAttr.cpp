@@ -238,6 +238,24 @@ static bool isIntOrBool(Expr *Exp) {
   return QT->isBooleanType() || QT->isIntegerType();
 }
 
+
+// Check to see if the type is a smart pointer of some kind.  We assume
+// it's a smart pointer if it defines both operator-> and operator*.
+static bool threadSafetyCheckIsSmartPointer(Sema &S, const QualType QT) {
+  if (const RecordType *RT = QT->getAs<RecordType>()) {
+    DeclContextLookupConstResult Res1 = RT->getDecl()->lookup(
+      S.Context.DeclarationNames.getCXXOperatorName(OO_Star));
+    if (Res1.first == Res1.second)
+      return false;
+
+    DeclContextLookupConstResult Res2 = RT->getDecl()->lookup(
+      S.Context.DeclarationNames.getCXXOperatorName(OO_Arrow));
+    if (Res2.first != Res2.second)
+      return true;
+  }
+  return false;
+}
+
 ///
 /// \brief Check if passed in Decl is a pointer type.
 /// Note that this function may produce an error message.
@@ -249,6 +267,10 @@ static bool threadSafetyCheckIsPointer(Sema &S, const Decl *D,
     QualType QT = vd->getType();
     if (QT->isAnyPointerType())
       return true;
+
+    if (threadSafetyCheckIsSmartPointer(S, QT))
+      return true;
+
     S.Diag(Attr.getLoc(), diag::warn_thread_attribute_decl_not_pointer)
       << Attr.getName()->getName() << QT;
   } else {
@@ -313,7 +335,11 @@ static void checkAttrArgsAreLockableObjs(Sema &S, Decl *D,
       continue;
     }
 
-    if (isa<StringLiteral>(ArgExp)) {
+    if (StringLiteral *StrLit = dyn_cast<StringLiteral>(ArgExp)) {
+      // Ignore empty strings without warnings
+      if (StrLit->getLength() == 0)
+        continue;
+
       // We allow constant strings to be used as a placeholder for expressions
       // that are not valid C++ syntax, but warn that they are ignored.
       S.Diag(Attr.getLoc(), diag::warn_thread_attribute_ignored) <<
@@ -322,6 +348,14 @@ static void checkAttrArgsAreLockableObjs(Sema &S, Decl *D,
     }
 
     QualType ArgTy = ArgExp->getType();
+
+    // A pointer to member expression of the form  &MyClass::mu is treated
+    // specially -- we need to look at the type of the member.
+    if (UnaryOperator *UOp = dyn_cast<UnaryOperator>(ArgExp))
+      if (UOp->getOpcode() == UO_AddrOf)
+        if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(UOp->getSubExpr()))
+          if (DRE->getDecl()->isCXXInstanceMember())
+            ArgTy = DRE->getDecl()->getType();
 
     // First see if we can just cast to record type, or point to record type.
     const RecordType *RT = getRecordType(ArgTy);
@@ -3334,7 +3368,7 @@ static void handleObjCReturnsInnerPointerAttr(Sema &S, Decl *D,
 
   ObjCMethodDecl *method = dyn_cast<ObjCMethodDecl>(D);
 
-  if (!method || !isa<ObjCMethodDecl>(method)) {
+  if (!method) {
     S.Diag(D->getLocStart(), diag::err_attribute_wrong_decl_type)
       << SourceRange(loc, loc) << attr.getName() << ExpectedMethod;
     return;
