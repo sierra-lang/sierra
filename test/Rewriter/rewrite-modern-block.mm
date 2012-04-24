@@ -21,3 +21,25 @@ void y() {
 int foo() {
     __block int hello;
 }
+
+// rdar://7547630
+// rewriting multiple __block decls on wintin same decl stmt.
+int radar7547630() {
+  __block int BI1, BI2;
+
+  __block float FLOAT1, FT2, FFFFFFFF3,
+   FFFXXX4;
+
+  __block void (^B)(), (^BB)();
+}
+
+// rewriting multiple __block decls on wintin same decl stmt
+// with initializers.
+void  rdar7547630(const char *keybuf, const char *valuebuf) {
+  __block int BI1 = 1, BI2 = 2;
+
+  double __block BYREFVAR = 1.34, BYREFVAR_NO_INIT, BYREFVAR2 = 1.37;
+
+  __block const char *keys = keybuf, *values = valuebuf, *novalues;
+}
+
