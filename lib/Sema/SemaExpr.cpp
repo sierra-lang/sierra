@@ -9696,10 +9696,16 @@ QualType Sema::CheckVectorCompareOperands(ExprResult &LHS, ExprResult &RHS,
 
   // If AltiVec, the comparison results in a numeric type, i.e.
   // bool for C++, int for C
-  // Same is true for Sierra vectors
+  // If Sierra, the comparison results a vector of bool/int
   if (vType->getAs<VectorType>()->getVectorKind() == VectorType::AltiVecVector
-      || vType->isSierraVectorType())
-    return Context.getLogicalOperationType();
+      || vType->isSierraVectorType()) {
+    QualType LogType = Context.getLogicalOperationType();
+
+    if (vType->isSierraVectorType())
+      return Context.getSierraVectorType(LogType, vType->getAs<SierraVectorType>()->getNumElements());
+
+    return LogType;
+  }
 
   // For non-floating point types, check for self-comparisons of the form
   // x == x, x != x, x < x, etc.  These always evaluate to a constant, and
