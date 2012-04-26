@@ -3118,6 +3118,7 @@ public:
   bool CheckCallingConvAttr(const AttributeList &attr, CallingConv &CC,
                             const FunctionDecl *FD = nullptr);
   bool CheckNoReturnAttr(const AttributeList &attr);
+  bool CheckSierraSPMDAttr(QualType &type, const AttributeList &attr);
   bool checkStringLiteralArgumentAttr(const AttributeList &Attr,
                                       unsigned ArgNum, StringRef &Str,
                                       SourceLocation *ArgLocation = nullptr);

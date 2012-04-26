@@ -6392,6 +6392,9 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state,
   // Delay if the type didn't work out to a function.
   if (!unwrapped.isFunctionType()) return false;
 
+  if (attr.getKind() == AttributeList::AT_sierra_spmd)
+    return S.CheckSierraSPMDAttr(type, attr);
+
   // Otherwise, a calling convention.
   CallingConv CC;
   if (S.CheckCallingConvAttr(attr, CC))
@@ -6619,54 +6622,6 @@ static void HandleSierraVectorAttr(QualType& CurType, const AttributeList &Attr,
   QualType T = S.BuildSierraVectorType(CurType, sizeExpr, Attr.getLoc());
   if (!T.isNull())
     CurType = T;
-}
-
-/// HandleSierraSPMDAttr - TODO
-static void HandleSierraSPMDAttr(QualType& curType, const AttributeList &Attr, 
-                                 Sema &S) {
-  if (!S.getLangOpts().SIERRA) {
-    S.Diag(Attr.getLoc(), diag::err_sierra_attr_not_enabled) << "sierra_spmd";
-    return;
-  }
-
-  bool result = true;
-
-  if (curType->isDependentType()) {
-    assert(false && "TODO");
-  }
-
-  if (!curType->isFunctionType()) {
-    S.Diag(Attr.getLoc(), diag::err_spmd_only_allowed_on_fct_types) << curType;
-    result = false;
-  }
-
-  if (Attr.getNumArgs() != 1) {
-    S.Diag(Attr.getLoc(), diag::err_attribute_wrong_number_arguments) << 1;
-    result = false;
-  }
-
-  if (!result)
-    return;
-
-  Expr *sizeExpr;
-
-  // Special case where the argument is a template id.
-  if (Attr.getParameterName()) {
-    CXXScopeSpec SS;
-    SourceLocation TemplateKWLoc;
-    UnqualifiedId id;
-    id.setIdentifier(Attr.getParameterName(), Attr.getLoc());
-
-    ExprResult Size = S.ActOnIdExpression(S.getCurScope(), SS, TemplateKWLoc,
-                                          id, false, false);
-    if (Size.isInvalid())
-      return;
-    
-    sizeExpr = Size.get();
-  } else
-    sizeExpr = Attr.getArg(0);
-
-  // TODO handle sizeExpr
 }
 
 /// \brief Process the OpenCL-like ext_vector_type attribute when it occurs on
@@ -6928,12 +6883,9 @@ static void processTypeAttrs(TypeProcessingState &state, QualType &type,
       HandleSierraVectorAttr(type, attr, state.getSema());
       attr.setUsedAsTypeAttr();
       break;
-    case AttributeList::AT_sierra_spmd:
-      HandleSierraSPMDAttr(type, attr, state.getSema());
-      attr.setUsedAsTypeAttr();
-      break;
     case AttributeList::AT_ExtVectorType:
       HandleExtVectorTypeAttr(type, attr, state.getSema());
+      attr.setUsedAsTypeAttr();
       break;
     case AttributeList::AT_NeonVectorType:
       HandleNeonVectorTypeAttr(type, attr, state.getSema(),

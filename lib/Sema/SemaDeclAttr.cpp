@@ -1868,6 +1868,54 @@ bool Sema::CheckNoReturnAttr(const AttributeList &attr) {
   return false;
 }
 
+/// HandleSierraSPMDAttr - TODO
+bool Sema::CheckSierraSPMDAttr(QualType& curType, const AttributeList &Attr) {
+  if (!getLangOpts().SIERRA) {
+    Diag(Attr.getLoc(), diag::err_sierra_attr_not_enabled) << "sierra_spmd";
+    return false;
+  }
+
+  bool result = true;
+
+  if (curType->isDependentType()) {
+    assert(false && "TODO");
+  }
+
+  if (!curType->isFunctionType()) {
+    Diag(Attr.getLoc(), diag::err_spmd_only_allowed_on_fct_types) << curType;
+    result = false;
+  }
+
+  if (Attr.getNumArgs() != 1) {
+    Diag(Attr.getLoc(), diag::err_attribute_wrong_number_arguments) << 1;
+    result = false;
+  }
+
+  if (!result)
+    return false;
+
+  Expr *sizeExpr;
+
+  // Special case where the argument is a template id.
+  if (Attr.getParameterName()) {
+    CXXScopeSpec SS;
+    SourceLocation TemplateKWLoc;
+    UnqualifiedId id;
+    id.setIdentifier(Attr.getParameterName(), Attr.getLoc());
+
+    ExprResult Size = ActOnIdExpression(getCurScope(), SS, TemplateKWLoc,
+                                          id, false, false);
+    if (Size.isInvalid())
+      return false;
+    
+    sizeExpr = Size.get();
+  } else
+    sizeExpr = Attr.getArg(0);
+
+  // TODO handle sizeExpr
+  return true;
+}
+
 static void handleAnalyzerNoReturnAttr(Sema &S, Decl *D,
                                        const AttributeList &Attr) {
   
