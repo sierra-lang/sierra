@@ -1986,6 +1986,7 @@ public:
   bool CheckRegparmAttr(const AttributeList &attr, unsigned &value);
   bool CheckCallingConvAttr(const AttributeList &attr, CallingConv &CC);
   bool CheckNoReturnAttr(const AttributeList &attr);
+  bool CheckSierraSPMDAttr(QualType &type, const AttributeList &attr);
 
   /// \brief Stmt attributes - this routine is the top level dispatcher.
   StmtResult ProcessStmtAttributes(Stmt *Stmt, AttributeList *Attrs,
