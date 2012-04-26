@@ -3841,6 +3841,7 @@ public:
     attr_regparm,
     attr_vector_size,
     attr_sierra_vector,
+    attr_sierra_spmd,
     attr_neon_vector_type,
     attr_neon_polyvector_type,
 
