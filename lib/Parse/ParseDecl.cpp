@@ -862,6 +862,7 @@ bool Parser::IsThreadSafetyAttribute(llvm::StringRef AttrName){
       .Case("locks_excluded", true)
       .Case("exclusive_locks_required", true)
       .Case("shared_locks_required", true)
+      .Case("sierra_spmd", true)
       .Default(false);
 }
 

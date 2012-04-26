@@ -5486,8 +5486,10 @@ def err_invalid_astype_of_different_size : Error<
 // Sierra warnings and errors.
 def err_incompatible_vector_lengths : Error<
   "incompatible vector lengths; old length %0, new length %1">;
-def err_sierra_attr_not_enabled : Error<
+def err_sierra_vector_attr_not_enabled : Error<
   "'sierra_vector' attribute not enabled; use '-fsierra'">;
+def err_sierra_spmd_attr_not_enabled : Error<
+  "'sierra_spmd' attribute not enabled; use '-fsierra'">;
 } // end of sema category
 
 let CategoryName = "Related Result Type Issue" in {

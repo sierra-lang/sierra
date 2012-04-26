@@ -2848,6 +2848,8 @@ static AttributeList::Kind getAttrListKind(AttributedType::Kind kind) {
     return AttributeList::AT_neon_polyvector_type;
   case AttributedType::attr_sierra_vector:
     return AttributeList::AT_sierra_vector;
+  case AttributedType::attr_sierra_spmd:
+    return AttributeList::AT_sierra_spmd;
   case AttributedType::attr_objc_gc:
     return AttributeList::AT_objc_gc;
   case AttributedType::attr_objc_ownership:
@@ -3910,7 +3912,7 @@ static void HandleVectorSizeAttr(QualType& CurType, const AttributeList &Attr,
 static void HandleSierraVectorAttr(QualType& CurType, const AttributeList &Attr,
                                    Sema &S) {
   if (!S.getLangOpts().SIERRA) {
-    S.Diag(Attr.getLoc(), diag::err_sierra_attr_not_enabled);
+    S.Diag(Attr.getLoc(), diag::err_sierra_vector_attr_not_enabled);
     return;
   }
 
@@ -3942,6 +3944,15 @@ static void HandleSierraVectorAttr(QualType& CurType, const AttributeList &Attr,
   QualType T = S.BuildSierraVectorType(CurType, sizeExpr, Attr.getLoc());
   if (!T.isNull())
     CurType = T;
+}
+
+/// HandleSierraSPMDAttr - TODO
+static void HandleSierraSPMDAttr(const AttributeList &Attr, Sema &S) {
+  // TODO
+  if (!S.getLangOpts().SIERRA) {
+    S.Diag(Attr.getLoc(), diag::err_sierra_spmd_attr_not_enabled);
+    return;
+  }
 }
 
 /// \brief Process the OpenCL-like ext_vector_type attribute when it occurs on
@@ -4079,6 +4090,10 @@ static void processTypeAttrs(TypeProcessingState &state, QualType &type,
       break;
     case AttributeList::AT_sierra_vector:
       HandleSierraVectorAttr(type, attr, state.getSema());
+      attr.setUsedAsTypeAttr();
+      break;
+    case AttributeList::AT_sierra_spmd:
+      HandleSierraSPMDAttr(attr, state.getSema());
       attr.setUsedAsTypeAttr();
       break;
     case AttributeList::AT_ext_vector_type:

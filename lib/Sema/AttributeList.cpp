@@ -123,5 +123,6 @@ AttributeList::Kind AttributeList::getKind(const IdentifierInfo *Name) {
     .Case("objc_ownership", AT_objc_ownership)
     .Case("vector_size", AT_vector_size)
     .Case("sierra_vector", AT_sierra_vector)
+    .Case("sierra_spmd", AT_sierra_spmd)
     .Default(UnknownAttribute);
 }
