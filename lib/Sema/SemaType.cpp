@@ -6619,11 +6619,35 @@ static void HandleSierraVectorAttr(QualType& CurType, const AttributeList &Attr,
 
 /// HandleSierraSPMDAttr - TODO
 static void HandleSierraSPMDAttr(const AttributeList &Attr, Sema &S) {
-  // TODO
   if (!S.getLangOpts().SIERRA) {
     S.Diag(Attr.getLoc(), diag::err_sierra_spmd_attr_not_enabled);
     return;
   }
+
+  if (Attr.getNumArgs() != 1) {
+    S.Diag(Attr.getLoc(), diag::err_attribute_wrong_number_arguments) << 1;
+    return;
+  }
+
+  Expr *sizeExpr;
+
+  // Special case where the argument is a template id.
+  if (Attr.getParameterName()) {
+    CXXScopeSpec SS;
+    SourceLocation TemplateKWLoc;
+    UnqualifiedId id;
+    id.setIdentifier(Attr.getParameterName(), Attr.getLoc());
+
+    ExprResult Size = S.ActOnIdExpression(S.getCurScope(), SS, TemplateKWLoc,
+                                          id, false, false);
+    if (Size.isInvalid())
+      return;
+    
+    sizeExpr = Size.get();
+  } else
+    sizeExpr = Attr.getArg(0);
+
+  // TODO handle sizeExpr
 }
 
 /// \brief Process the OpenCL-like ext_vector_type attribute when it occurs on
