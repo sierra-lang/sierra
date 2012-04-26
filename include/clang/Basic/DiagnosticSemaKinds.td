@@ -1367,6 +1367,8 @@ def err_constexpr_virtual : Error<"virtual function cannot be constexpr">;
 def err_constexpr_virtual_base : Error<
   "constexpr %select{member function|constructor}0 not allowed in "
   "%select{class|struct}1 with virtual base %plural{1:class|:classes}2">;
+def note_non_literal_incomplete : Note<
+  "incomplete type %0 is not a literal type">;
 def note_non_literal_virtual_base : Note<"%select{class|struct}0 with virtual "
   "base %plural{1:class|:classes}1 is not a literal type">;
 def note_constexpr_virtual_base_here : Note<"virtual base class declared here">;
@@ -3641,6 +3643,8 @@ def warn_subscript_is_char : Warning<"array subscript is of type 'char'">,
 
 def err_typecheck_incomplete_tag : Error<"incomplete definition of type %0">;
 def err_no_member : Error<"no member named %0 in %1">;
+def err_no_member_overloaded_arrow : Error<
+  "no member named %0 in %1; did you mean to use '->' instead of '.'?">;
 
 def err_member_not_yet_instantiated : Error<
   "no member %0 in %1; it has not yet been instantiated">;
