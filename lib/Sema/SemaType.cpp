@@ -2282,6 +2282,10 @@ QualType Sema::BuildSierraVectorType(QualType T, Expr *ArraySize,
       return QualType();
     }
 
+    // uniform special case
+    if (vectorSize == 1)
+      return QualType();
+
     QualType res = Context.getSierraVectorType(T, vectorSize);
     return res;
   }
@@ -6583,7 +6587,7 @@ static void HandleVectorSizeAttr(QualType& CurType, const AttributeList &Attr,
 static void HandleSierraVectorAttr(QualType& CurType, const AttributeList &Attr,
                                    Sema &S) {
   if (!S.getLangOpts().SIERRA) {
-    S.Diag(Attr.getLoc(), diag::err_sierra_vector_attr_not_enabled);
+    S.Diag(Attr.getLoc(), diag::err_sierra_attr_not_enabled) << "sierra_vector";
     return;
   }
 
@@ -6618,16 +6622,31 @@ static void HandleSierraVectorAttr(QualType& CurType, const AttributeList &Attr,
 }
 
 /// HandleSierraSPMDAttr - TODO
-static void HandleSierraSPMDAttr(const AttributeList &Attr, Sema &S) {
+static void HandleSierraSPMDAttr(QualType& curType, const AttributeList &Attr, 
+                                 Sema &S) {
   if (!S.getLangOpts().SIERRA) {
-    S.Diag(Attr.getLoc(), diag::err_sierra_spmd_attr_not_enabled);
+    S.Diag(Attr.getLoc(), diag::err_sierra_attr_not_enabled) << "sierra_spmd";
     return;
+  }
+
+  bool result = true;
+
+  if (curType->isDependentType()) {
+    assert(false && "TODO");
+  }
+
+  if (!curType->isFunctionType()) {
+    S.Diag(Attr.getLoc(), diag::err_spmd_only_allowed_on_fct_types) << curType;
+    result = false;
   }
 
   if (Attr.getNumArgs() != 1) {
     S.Diag(Attr.getLoc(), diag::err_attribute_wrong_number_arguments) << 1;
-    return;
+    result = false;
   }
+
+  if (!result)
+    return;
 
   Expr *sizeExpr;
 
@@ -6910,7 +6929,7 @@ static void processTypeAttrs(TypeProcessingState &state, QualType &type,
       attr.setUsedAsTypeAttr();
       break;
     case AttributeList::AT_sierra_spmd:
-      HandleSierraSPMDAttr(attr, state.getSema());
+      HandleSierraSPMDAttr(type, attr, state.getSema());
       attr.setUsedAsTypeAttr();
       break;
     case AttributeList::AT_ExtVectorType:

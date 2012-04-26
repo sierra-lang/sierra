@@ -8240,10 +8240,10 @@ def ext_opencl_ext_vector_type_rgba_selector: ExtWarn<
 // Sierra warnings and errors.
 def err_incompatible_vector_lengths : Error<
   "incompatible vector lengths; old length %0, new length %1">;
-def err_sierra_vector_attr_not_enabled : Error<
-  "'sierra_vector' attribute not enabled; use '-fsierra'">;
-def err_sierra_spmd_attr_not_enabled : Error<
-  "'sierra_spmd' attribute not enabled; use '-fsierra'">;
+def err_sierra_attr_not_enabled : Error<
+  "'%0' attribute not enabled; use '-fsierra'">;
+def err_spmd_only_allowed_on_fct_types : Error<
+  "attribute 'sierra_spmd' is only allowed on function types, got type %0">;
 } // end of sema category
 
 let CategoryName = "OpenMP Issue" in {
