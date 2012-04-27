@@ -1868,7 +1868,6 @@ bool Sema::CheckNoReturnAttr(const AttributeList &attr) {
   return false;
 }
 
-/// HandleSierraSPMDAttr - TODO
 bool Sema::CheckSierraSPMDAttr(QualType& curType, const AttributeList &Attr) {
   if (!getLangOpts().SIERRA) {
     Diag(Attr.getLoc(), diag::err_sierra_attr_not_enabled) << "sierra_spmd";
@@ -1882,7 +1881,8 @@ bool Sema::CheckSierraSPMDAttr(QualType& curType, const AttributeList &Attr) {
   }
 
   if (!curType->isFunctionType()) {
-    Diag(Attr.getLoc(), diag::err_spmd_only_allowed_on_fct_types) << curType;
+    // we've already seen a warning for that
+    //Diag(Attr.getLoc(), diag::err_spmd_only_allowed_on_fct_types) << curType;
     result = false;
   }
 
