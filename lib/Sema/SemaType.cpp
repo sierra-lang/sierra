@@ -105,6 +105,7 @@ static void diagnoseBadTypeAttribute(Sema &S, const AttributeList &attr,
     case AttributeList::AT_thiscall: \
     case AttributeList::AT_pascal: \
     case AttributeList::AT_regparm: \
+    case AttributeList::AT_sierra_spmd: \
     case AttributeList::AT_pcs \
 
 namespace {
