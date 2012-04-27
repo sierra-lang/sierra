@@ -5830,7 +5830,8 @@ QualType Sema::CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
     return RHSType;
   }
 
-  if (getLangOpts().LaxVectorConversions &&
+  // Not allowewd in Sierra
+  if (!getLangOpts().SIERRA && getLangOpts().LaxVectorConversions &&
       Context.getTypeSize(LHSType) == Context.getTypeSize(RHSType)) {
     // If we are allowing lax vector conversions, and LHS and RHS are both
     // vectors, the total size only needs to be the same. This is a
@@ -5840,10 +5841,11 @@ QualType Sema::CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
     return LHSType;
   }
 
-  // Canonicalize the ExtVector to the LHS, remember if we swapped so we can
+  // Canonicalize the ExtVector/SierraVector to the LHS, remember if we swapped so we can
   // swap back (so that we don't reverse the inputs to a subtract, for instance.
   bool swapped = false;
-  if (RHSType->isExtVectorType() && !IsCompAssign) {
+  if ((RHSType->isExtVectorType() || RHSType->isSierraVectorType()) 
+      && !IsCompAssign) {
     swapped = true;
     std::swap(RHS, LHS);
     std::swap(RHSType, LHSType);
@@ -5874,6 +5876,89 @@ QualType Sema::CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
       }
     }
   }
+
+  // Do not mix different vector types
+  // RHS must also be a sierra vector or a scalar
+  if (LHSType->isSierraVectorType() 
+      && (RHSType->isSierraVectorType() || RHSType->isScalarType())) {
+
+    const SierraVectorType* LV = LHSType->getAs<SierraVectorType>();
+    const SierraVectorType* RV = RHSType->getAs<SierraVectorType>();
+    QualType LE = LV->getElementType();
+    QualType RE = RV ? RV->getElementType() : RHSType;
+    unsigned LNum = LV->getNumElements();
+    unsigned RNum = RV ? RV->getNumElements() : 0;
+
+    if (RNum && LNum != RNum) goto out;
+
+    // Apply unary and bitfield promotions to the LE's type.
+    QualType LEUnpromotedType = LE;
+    if (LE->isPromotableIntegerType())
+      LE = Context.getPromotedIntegerType(LE);
+    QualType LEBitfieldPromoteTy = Context.isPromotableBitField(LHS.get());
+    if (!LEBitfieldPromoteTy.isNull())
+      LE = LEBitfieldPromoteTy;
+
+    // LE is the promoted LHS vector element type
+    if (LE != LEUnpromotedType && !IsCompAssign) {
+      LHS = ImpCastExprToType(LHS.take(), 
+                              Context.getSierraVectorType(LE, LNum), 
+                              CK_IntegralCast);
+    }
+
+    bool IsLFloat = LE->isRealFloatingType();
+    bool IsRFloat = RE->isRealFloatingType();
+
+    if (LE == RE) goto splat;
+
+    if (IsLFloat && IsRFloat) {   // LE and RE are floating
+      int order = Context.getFloatingTypeOrder(LE, RE);
+      if (order > 0) {
+        RE = LE;
+        QualType NewRType = RNum ? Context.getSierraVectorType(RE, RNum) : RE;
+        RHS = ImpCastExprToType(RHS.take(), NewRType, CK_FloatingCast);
+      } else {
+        assert(order < 0 && "illegal float comparison");
+        if (!IsCompAssign) {
+          LE = RE;
+          QualType NewLType = Context.getSierraVectorType(LE, LNum);
+          LHS = ImpCastExprToType(LHS.take(), NewLType, CK_FloatingCast);
+        }
+      }
+    } else if (IsRFloat) {        // just LE is floating
+      assert(LE->isIntegerType() && "LE must be an integer");
+      if (!IsCompAssign) {
+        LE = RE;
+        QualType NewLType = Context.getSierraVectorType(LE, LNum);
+        LHS = ImpCastExprToType(LHS.take(), NewLType, CK_IntegralToFloating);
+      }
+    } else if (IsLFloat) {        // just RE is floating
+      assert(RE->isIntegerType() && "RE must be an integer");
+      if (!IsCompAssign) {
+        RE = LE;
+        QualType NewRType = RNum ? Context.getSierraVectorType(RE, RNum) : RE;
+        RHS = ImpCastExprToType(RHS.take(), NewRType, CK_IntegralToFloating);
+      }
+    } else {                      // LE and RE are integer
+      assert(false && "TODO");
+    }
+
+splat:
+    if (LE == RE) {
+      if (RNum) {
+        assert(LNum == RNum && "vector lengths do not match");
+        if (swapped) std::swap(RHS, LHS);
+        return Context.getSierraVectorType(LE, RNum);
+      }
+
+      QualType NewRType = Context.getSierraVectorType(LE, LNum);
+      RHS = ImpCastExprToType(RHS.take(), NewRType, CK_VectorSplat);
+      if (swapped) std::swap(RHS, LHS);
+      return NewRType;
+    }
+  }
+
+out:
 
   // Vectors of different size or scalar and non-ext-vector are errors.
   if (swapped) std::swap(RHS, LHS);

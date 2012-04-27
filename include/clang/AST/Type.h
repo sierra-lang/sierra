@@ -2603,8 +2603,9 @@ class FunctionType : public Type {
            RegParmOffset = 5 }; // Assumed to be the last field
 
     uint16_t Bits;
+    unsigned Spmd;
 
-    ExtInfo(unsigned Bits) : Bits(static_cast<uint16_t>(Bits)) {}
+    ExtInfo(unsigned Bits) : Bits(static_cast<uint16_t>(Bits)), Spmd(1) {}
 
     friend class FunctionType;
 
