@@ -231,9 +231,13 @@ def err_using_decl_can_not_refer_to_namespace : Error<
   "using declaration can not refer to namespace">;
 def err_using_decl_constructor : Error<
   "using declaration can not refer to a constructor">;
-def warn_cxx98_compat_using_decl_constructor : Warning<
-  "inherited constructors are incompatible with C++98">,
-  InGroup<CXX98Compat>, DefaultIgnore;
+def err_using_decl_constructor_unsupported : Error<
+  "inheriting constructors are not supported">;
+// FIXME: Replace the above error with this warning if support for
+//        inheriting constructors is implemented.
+//def warn_cxx98_compat_using_decl_constructor : Warning<
+//  "inheriting constructors are incompatible with C++98">,
+//  InGroup<CXX98Compat>, DefaultIgnore;
 def err_using_decl_destructor : Error<
   "using declaration can not refer to a destructor">;
 def err_using_decl_template_id : Error<
@@ -1815,6 +1819,8 @@ def warn_attribute_unknown_visibility : Warning<"unknown visibility '%0'">;
 def warn_attribute_protected_visibility :
   Warning<"target does not support 'protected' visibility; using 'default'">,
   InGroup<DiagGroup<"unsupported-visibility">>;
+def err_mismatched_visibilit: Error<"visibility does not match previous declaration">;
+def note_previous_attribute : Note<"previous attribute is here">;
 def err_unknown_machine_mode : Error<"unknown machine mode %0">;
 def err_unsupported_machine_mode : Error<"unsupported machine mode %0">;
 def err_mode_not_primitive : Error<
@@ -2363,6 +2369,9 @@ def err_template_arg_not_ice : Error<
   "expression">;
 def err_template_arg_not_address_constant : Error<
   "non-type template argument of type %0 is not a constant expression">;
+def warn_cxx98_compat_template_arg_null : Warning<
+  "use of null pointer as non-type template argument is incompatible with "
+  "C++98">, InGroup<CXX98Compat>, DefaultIgnore;
 def err_template_arg_untyped_null_constant : Error<
   "null non-type template argument must be cast to template parameter type %0">;
 def err_template_arg_wrongtype_null_constant : Error<
@@ -3832,6 +3841,9 @@ def err_this_static_member_func : Error<
   "declaration">;
 def err_invalid_member_use_in_static_method : Error<
   "invalid use of member %0 in static member function">;
+def warn_cxx98_compat_this_outside_method : Warning<
+  "use of 'this' outside a non-static member function is incompatible "
+  "with C++98">, InGroup<CXX98Compat>, DefaultIgnore;
 def err_invalid_qualified_function_type : Error<
   "%select{static |non-}0member function %select{of type %2 |}1"
   "cannot have '%3' qualifier">;
