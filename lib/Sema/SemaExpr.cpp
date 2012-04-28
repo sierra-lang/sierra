@@ -17,6 +17,7 @@
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/ScopeInfo.h"
 #include "clang/Sema/AnalysisBasedWarnings.h"
+#include "clang/Sema/SemaSierra.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTMutationListener.h"
@@ -5796,10 +5797,6 @@ QualType Sema::InvalidOperands(SourceLocation Loc, ExprResult &LHS,
   return QualType();
 }
 
-// Sierra HACK -- insert proto somewhere else
-QualType CheckSierraVectorOperands(Sema &S, ExprResult &LHS, ExprResult &RHS, 
-                          SourceLocation Loc, bool IsCompAssign);
-
 QualType Sema::CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
                                    SourceLocation Loc, bool IsCompAssign) {
   if (!IsCompAssign) {
@@ -5850,11 +5847,10 @@ QualType Sema::CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
     return LHSType;
   }
 
-  // Canonicalize the ExtVector/SierraVector to the LHS, remember if we swapped so we can
+  // Canonicalize the ExtVector to the LHS, remember if we swapped so we can
   // swap back (so that we don't reverse the inputs to a subtract, for instance.
   bool swapped = false;
-  if ((RHSType->isExtVectorType() || RHSType->isSierraVectorType()) 
-      && !IsCompAssign) {
+  if (RHSType->isExtVectorType() && !IsCompAssign) {
     swapped = true;
     std::swap(RHS, LHS);
     std::swap(RHSType, LHSType);
