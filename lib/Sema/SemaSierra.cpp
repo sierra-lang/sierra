@@ -1,7 +1,8 @@
 #include <clang/Sema/Sema.h>
+#include <clang/Sema/SemaSierra.h>
+#include <clang/AST/OperationKinds.h>
 
-using namespace clang;
-using namespace sema;
+namespace clang {
 
 class SierraVectorOperandsChecker {
 public:
@@ -39,9 +40,7 @@ SierraVectorOperandsChecker::SierraVectorOperandsChecker(Sema &S,
                                                          SourceLocation Loc, 
                                                          bool IsCompAssign) 
   : S(S), LHS(LHS), RHS(RHS), Loc(Loc), 
-    IsCompAssign(IsCompAssign), Swapped(false) {
-
-  assert((!IsCompAssign || !Swapped) && "an compassign expr may not be swapped");
+    IsCompAssign(IsCompAssign) {
 
   LHSType = S.Context.getCanonicalType(LHS.get()->getType()).getUnqualifiedType();
   RHSType = S.Context.getCanonicalType(RHS.get()->getType()).getUnqualifiedType();
@@ -51,7 +50,10 @@ SierraVectorOperandsChecker::SierraVectorOperandsChecker(Sema &S,
     Swapped = true;
     std::swap(RHS, LHS);
     std::swap(RHSType, LHSType);
-  }
+  } else
+    Swapped = false;
+
+  assert((!IsCompAssign || !Swapped) && "an compassign expr may not be swapped");
 
   LV      = LHSType->getAs<SierraVectorType>();
   RV      = RHSType->getAs<SierraVectorType>();
@@ -194,3 +196,4 @@ QualType CheckSierraVectorOperands(Sema &S, ExprResult &LHS, ExprResult &RHS,
   return Checker.Check();
 }
 
+}
