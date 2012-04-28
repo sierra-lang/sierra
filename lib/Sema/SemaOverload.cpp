@@ -1539,7 +1539,14 @@ static bool IsVectorConversion(Sema &S, QualType FromType,
 
     if (VFrom && VTo) {
       if (VFrom->getNumElements() == VTo->getNumElements()) {
+        //QualType FromE = VFrom->getElementType();
+        //QualType   ToE =  VFTo->getElementType();
+
+        //if (FromE->isF
+
         ICK = ICK_Vector_Conversion;
+        //
+        //ICK = ICK_Floating_Promotion;
         return true;
       }
     }
@@ -1560,6 +1567,17 @@ static bool IsVectorConversion(Sema &S, QualType FromType,
   }
 
   return false;
+}
+
+static void AdjustSierraVectorTypes(QualType &FromType, QualType &ToType) {
+  if (const SierraVectorType* VTo = ToType->getAs<SierraVectorType>()) {
+    if (const SierraVectorType* VFrom = FromType->getAs<SierraVectorType>()) {
+      if (VFrom->getNumElements() == VTo->getNumElements()) {
+        FromType = VFrom->getElementType();
+        ToType   = VTo  ->getElementType();
+      }
+    }
+  }
 }
 
 static bool tryAtomicConversion(Sema &S, Expr *From, QualType ToType,
@@ -1722,6 +1740,7 @@ static bool IsStandardConversion(Sema &S, Expr* From, QualType ToType,
   // conversion.
   bool IncompatibleObjC = false;
   ImplicitConversionKind SecondICK = ICK_Identity;
+  AdjustSierraVectorTypes(FromType, ToType);
   if (S.Context.hasSameUnqualifiedType(FromType, ToType)) {
     // The unqualified versions of the types are the same: there's no
     // conversion to do.
@@ -1941,6 +1960,8 @@ IsTransparentUnionStandardConversion(Sema &S, Expr* From,
 /// ToType is an integral promotion (C++ 4.5). If so, returns true and
 /// sets PromotedType to the promoted type.
 bool Sema::IsIntegralPromotion(Expr *From, QualType FromType, QualType ToType) {
+  AdjustSierraVectorTypes(FromType, ToType);
+
   const BuiltinType *To = ToType->getAs<BuiltinType>();
   // All integers are built-in.
   if (!To) {
@@ -2089,6 +2110,8 @@ bool Sema::IsIntegralPromotion(Expr *From, QualType FromType, QualType ToType) {
 /// FromType to ToType is a floating point promotion (C++ 4.6). If so,
 /// returns true and sets PromotedType to the promoted type.
 bool Sema::IsFloatingPointPromotion(QualType FromType, QualType ToType) {
+  AdjustSierraVectorTypes(FromType, ToType);
+
   if (const BuiltinType *FromBuiltin = FromType->getAs<BuiltinType>())
     if (const BuiltinType *ToBuiltin = ToType->getAs<BuiltinType>()) {
       /// An rvalue of type float can be converted to an rvalue of type
