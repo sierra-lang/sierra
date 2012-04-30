@@ -18,6 +18,7 @@
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/SemaDiagnostic.h"
+#include "clang/Sema/SemaSierra.h"
 #include "clang/Sema/ScopeInfo.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclObjC.h"
@@ -9086,7 +9087,7 @@ QualType TreeTransform<Derived>::RebuildSierraVectorType(QualType ElementType,
   IntegerLiteral *VectorSize
     = IntegerLiteral::Create(SemaRef.Context, numElements, SemaRef.Context.IntTy,
                              AttributeLoc);
-  return SemaRef.BuildSierraVectorType(ElementType, VectorSize, AttributeLoc);
+  return BuildSierraVectorType(SemaRef, ElementType, VectorSize, AttributeLoc);
 }
 
 template<typename Derived>
@@ -9106,7 +9107,7 @@ QualType
 TreeTransform<Derived>::RebuildDependentSizedSierraVectorType(QualType ElementType,
                                                               Expr *SizeExpr,
                                                      SourceLocation AttributeLoc) {
-  return SemaRef.BuildSierraVectorType(ElementType, SizeExpr, AttributeLoc);
+  return BuildSierraVectorType(SemaRef, ElementType, SizeExpr, AttributeLoc);
 }
 
 template<typename Derived>

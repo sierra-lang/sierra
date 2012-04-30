@@ -887,8 +887,6 @@ public:
   QualType BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
                           Expr *ArraySize, unsigned Quals,
                           SourceRange Brackets, DeclarationName Entity);
-  QualType BuildSierraVectorType(QualType T, Expr *ArraySize,
-                                 SourceLocation AttrLoc);
   QualType BuildExtVectorType(QualType T, Expr *ArraySize,
                               SourceLocation AttrLoc);
   QualType BuildFunctionType(QualType T,
@@ -1986,7 +1984,6 @@ public:
   bool CheckRegparmAttr(const AttributeList &attr, unsigned &value);
   bool CheckCallingConvAttr(const AttributeList &attr, CallingConv &CC);
   bool CheckNoReturnAttr(const AttributeList &attr);
-  bool CheckSierraSPMDAttr(QualType &type, const AttributeList &attr);
 
   /// \brief Stmt attributes - this routine is the top level dispatcher.
   StmtResult ProcessStmtAttributes(Stmt *Stmt, AttributeList *Attrs,
