@@ -17,6 +17,7 @@
 #include "CGObjCRuntime.h"
 #include "CodeGenModule.h"
 #include "TargetInfo.h"
+#include "CGSierra.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/Expr.h"
@@ -829,63 +830,8 @@ Value *ScalarExprEmitter::EmitScalarConversion(Value *Src, QualType SrcType,
     return Builder.CreateVectorSplat(NumElements, Src, "splat");
   }
 
-  if (SrcType->isSierraVectorType()) {
-    assert(SrcType->isSierraVectorType() && "must be a sierra vector");
-    assert(SrcTy->isVectorTy() && "must be a vector");
-    assert(DstTy->isVectorTy() && "must be a vector");
-
-    QualType SrcE = SrcType->getAs<SierraVectorType>()->getElementType();
-    QualType DstE = DstType->getAs<SierraVectorType>()->getElementType();
-
-    llvm::VectorType* SrcV = cast<llvm::VectorType>(SrcTy);
-    llvm::VectorType* DstV = cast<llvm::VectorType>(DstTy);
-
-    SrcTy = SrcV->getElementType();
-    DstTy = DstV->getElementType();
-
-    //llvm::VectorType* = cast<llvm::VectorType> SElemTy = SrcTy->get
-    //assert(
-
-    Value *Res = NULL;
-    //llvm::Type *ResTy = DstTy;
-
-    // Cast to half via float
-    if (DstE->isHalfType())
-      DstTy = CGF.FloatTy;
-
-    if (isa<llvm::IntegerType>(SrcTy)) {
-      bool InputSigned = SrcE->isSignedIntegerOrEnumerationType();
-      if (isa<llvm::IntegerType>(DstTy))
-        Res = Builder.CreateIntCast(Src, DstV, InputSigned, "conv");
-      else if (InputSigned)
-        Res = Builder.CreateSIToFP(Src, DstV, "conv");
-      else
-        Res = Builder.CreateUIToFP(Src, DstV, "conv");
-    } else if (isa<llvm::IntegerType>(DstV)) {
-      assert(SrcTy->isFloatingPointTy() && "Unknown real conversion");
-      if (DstE->isSignedIntegerOrEnumerationType())
-        Res = Builder.CreateFPToSI(Src, DstV, "conv");
-      else
-        Res = Builder.CreateFPToUI(Src, DstV, "conv");
-    } else {
-      assert(SrcTy->isFloatingPointTy() && DstTy->isFloatingPointTy() &&
-            "Unknown real conversion");
-      if (DstTy->getTypeID() < SrcTy->getTypeID())
-        Res = Builder.CreateFPTrunc(Src, DstV, "conv");
-      else
-        Res = Builder.CreateFPExt(Src, DstV, "conv");
-    }
-
-    // TODO handle halfs
-    //assert(DstTy->isVectorTy() && "must be a vector");
-
-    //if (DstTy != ResTy) {
-      //assert(ResTy->isIntegerTy(16) && "Only half FP requires extra conversion");
-      //Res = Builder.CreateCall(CGF.CGM.getIntrinsic(llvm::Intrinsic::convert_to_fp16), Res);
-    //}
-
-    return Res;
-  }
+  if (SrcType->isSierraVectorType())
+    return EmitSierraConversion(this->CGF, Src, SrcType, DstType);
 
   // Allow bitcast from vector to integer/fp of the same size.
   if (isa<llvm::VectorType>(SrcTy) ||

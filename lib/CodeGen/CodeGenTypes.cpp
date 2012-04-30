@@ -550,7 +550,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
     ResultType = llvm::ArrayType::get(EltTy, A->getSize().getZExtValue());
     break;
   }
-  case Type::SierraVector:
+  case Type::SierraVector: // TODO other types
   case Type::ExtVector:
   case Type::Vector: {
     const VectorType *VT = cast<VectorType>(Ty);
