@@ -2980,9 +2980,10 @@ class FunctionType : public Type {
            RegParmOffset = 7 }; // Assumed to be the last field
 
     uint16_t Bits;
-    unsigned Spmd;
+    unsigned SierraSpmd;
 
-    ExtInfo(unsigned Bits) : Bits(static_cast<uint16_t>(Bits)), Spmd(1) {}
+    ExtInfo(unsigned Bits, unsigned Spmd = 1) : 
+      Bits(static_cast<uint16_t>(Bits)), SierraSpmd(Spmd) {}
 
     friend class FunctionType;
 
@@ -2990,12 +2991,13 @@ class FunctionType : public Type {
     // Constructor with no defaults. Use this when you know that you
     // have all the elements (when reading an AST file for example).
     ExtInfo(bool noReturn, bool hasRegParm, unsigned regParm, CallingConv cc,
-            bool producesResult) {
+            bool producesResult, unsigned Spmd = 1) {
       assert((!hasRegParm || regParm < 7) && "Invalid regparm value");
       Bits = ((unsigned) cc) |
              (noReturn ? NoReturnMask : 0) |
              (producesResult ? ProducesResultMask : 0) |
              (hasRegParm ? ((regParm + 1) << RegParmOffset) : 0);
+      SierraSpmd = Spmd;
     }
 
     // Constructor with all defaults. Use when for example creating a
@@ -3018,10 +3020,10 @@ class FunctionType : public Type {
     CallingConv getCC() const { return CallingConv(Bits & CallConvMask); }
 
     bool operator==(ExtInfo Other) const {
-      return Bits == Other.Bits;
+      return Bits == Other.Bits && SierraSpmd == Other.SierraSpmd;
     }
     bool operator!=(ExtInfo Other) const {
-      return Bits != Other.Bits;
+      return Bits != Other.Bits || SierraSpmd != Other.SierraSpmd;
     }
 
     // Note that we don't have setters. That is by design, use
@@ -3049,6 +3051,10 @@ class FunctionType : public Type {
 
     ExtInfo withCallingConv(CallingConv cc) const {
       return ExtInfo((Bits & ~CallConvMask) | (unsigned) cc);
+    }
+
+    ExtInfo withSierraSpmd(unsigned Spmd) const {
+      return ExtInfo(Bits, Spmd);
     }
 
     void Profile(llvm::FoldingSetNodeID &ID) const {

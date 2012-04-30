@@ -13,6 +13,7 @@
 
 #include "TypeLocBuilder.h"
 #include "clang/AST/ASTConsumer.h"
+#include "clang/Sema/SemaSierra.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTMutationListener.h"
 #include "clang/AST/CXXInheritance.h"
@@ -2250,50 +2251,6 @@ QualType Sema::BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
 
   return T;
 }
-
-/// \brief Build an sierra vector type.
-///
-/// Run the required checks for the sierra vector type.
-QualType Sema::BuildSierraVectorType(QualType T, Expr *ArraySize,
-                                     SourceLocation AttrLoc) {
-  // FIXME Sierra: actually we want to allow that!!!
-  // unlike gcc's vector_size attribute, we do not allow vectors to be defined
-  // in conjunction with complex types (pointers, arrays, functions, etc.).
-  if (!T->isDependentType() &&
-      !T->isIntegerType() && !T->isRealFloatingType()) {
-    Diag(AttrLoc, diag::err_attribute_invalid_vector_type) << T;
-    return QualType();
-  }
-
-  if (!ArraySize->isTypeDependent() && !ArraySize->isValueDependent()) {
-    llvm::APSInt vecSize(32);
-    if (!ArraySize->isIntegerConstantExpr(vecSize, Context)) {
-      Diag(AttrLoc, diag::err_attribute_argument_not_int)
-        << "sierra_vector" << ArraySize->getSourceRange();
-      return QualType();
-    }
-
-    // unlike gcc's vector_size attribute, the size is specified as the
-    // number of elements, not the number of bytes.
-    unsigned vectorSize = static_cast<unsigned>(vecSize.getZExtValue());
-
-    if (vectorSize == 0) {
-      Diag(AttrLoc, diag::err_attribute_zero_size)
-      << ArraySize->getSourceRange();
-      return QualType();
-    }
-
-    // uniform special case
-    if (vectorSize == 1)
-      return QualType();
-
-    QualType res = Context.getSierraVectorType(T, vectorSize);
-    return res;
-  }
-
-  return Context.getDependentSizedSierraVectorType(T, ArraySize, AttrLoc);
-}
-
 
 /// \brief Build an ext-vector type.
 ///
@@ -6394,7 +6351,7 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state,
   if (!unwrapped.isFunctionType()) return false;
 
   if (attr.getKind() == AttributeList::AT_sierra_spmd)
-    return S.CheckSierraSPMDAttr(type, attr);
+    return CheckSierraSPMDAttr(S, type, attr);
 
   // Otherwise, a calling convention.
   CallingConv CC;
@@ -6579,50 +6536,6 @@ static void HandleVectorSizeAttr(QualType& CurType, const AttributeList &Attr,
   // not required to be a power of 2, unlike GCC.
   CurType = S.Context.getVectorType(CurType, vectorSize/typeSize,
                                     VectorType::GenericVector);
-}
-
-/// HandleSierraVectorAttr - this attribute is only applicable to integral
-/// and float scalars, although arrays, pointers, and function return values are
-/// allowed in conjunction with this construct. Aggregates with this attribute
-/// are invalid, even if they are of the same size as a corresponding scalar.
-/// The raw attribute should contain precisely 1 argument, the vector size for
-/// the variable, measured in bytes. If curType and rawAttr are well formed,
-/// this routine will return a new vector type.
-static void HandleSierraVectorAttr(QualType& CurType, const AttributeList &Attr,
-                                   Sema &S) {
-  if (!S.getLangOpts().SIERRA) {
-    S.Diag(Attr.getLoc(), diag::err_sierra_attr_not_enabled) << "sierra_vector";
-    return;
-  }
-
-  Expr *sizeExpr;
-  
-  // Special case where the argument is a template id.
-  if (Attr.getParameterName()) {
-    CXXScopeSpec SS;
-    SourceLocation TemplateKWLoc;
-    UnqualifiedId id;
-    id.setIdentifier(Attr.getParameterName(), Attr.getLoc());
-
-    ExprResult Size = S.ActOnIdExpression(S.getCurScope(), SS, TemplateKWLoc,
-                                          id, false, false);
-    if (Size.isInvalid())
-      return;
-    
-    sizeExpr = Size.get();
-  } else {
-    // check the attribute arguments.
-    if (Attr.getNumArgs() != 1) {
-      S.Diag(Attr.getLoc(), diag::err_attribute_wrong_number_arguments) << 1;
-      return;
-    }
-    sizeExpr = Attr.getArg(0);
-  }
-  
-  // Create the vector type.
-  QualType T = S.BuildSierraVectorType(CurType, sizeExpr, Attr.getLoc());
-  if (!T.isNull())
-    CurType = T;
 }
 
 /// \brief Process the OpenCL-like ext_vector_type attribute when it occurs on

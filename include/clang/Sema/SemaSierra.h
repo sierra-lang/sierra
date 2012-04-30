@@ -8,10 +8,19 @@
 namespace clang {
 
 class Sema;
+class AttributeList;
+
+bool CheckSierraSPMDAttr(Sema &S, QualType &type, const AttributeList &attr);
 
 QualType CheckSierraVectorOperands(Sema &S, ExprResult &LHS, ExprResult &RHS, 
                                    SourceLocation Loc, bool IsCompAssign);
 
-}
+QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize, 
+                               SourceLocation AttrLoc);
+
+void HandleSierraVectorAttr(QualType& CurType, 
+                            const AttributeList &Attr, Sema &S);
+
+} // end namespace clang
 
 #endif

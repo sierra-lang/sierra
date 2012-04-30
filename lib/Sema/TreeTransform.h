@@ -11923,7 +11923,7 @@ QualType TreeTransform<Derived>::RebuildSierraVectorType(QualType ElementType,
   IntegerLiteral *VectorSize
     = IntegerLiteral::Create(SemaRef.Context, numElements, SemaRef.Context.IntTy,
                              AttributeLoc);
-  return SemaRef.BuildSierraVectorType(ElementType, VectorSize, AttributeLoc);
+  return BuildSierraVectorType(SemaRef, ElementType, VectorSize, AttributeLoc);
 }
 
 template<typename Derived>
