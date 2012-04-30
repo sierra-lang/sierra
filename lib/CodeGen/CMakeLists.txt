@@ -39,6 +39,7 @@ add_clang_library(clangCodeGen
   CGRecordLayoutBuilder.cpp
   CGRTTI.cpp
   CGStmt.cpp
+  CGSierra.cpp
   CGVTables.cpp
   CGVTT.cpp
   CodeGenAction.cpp
