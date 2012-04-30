@@ -14,6 +14,12 @@
 let Component = "Sema" in {
 let CategoryName = "Semantic Issue" in {
 
+// For loop analysis
+def warn_variables_not_in_loop_body : Warning<
+  "variable%select{s| %1|s %1 and %2|s %1 %2 and %3|s %1 %2 %3 and %4}0 "
+  "used in loop condition not modified in loop body">,
+  InGroup<DiagGroup<"loop-analysis">>, DefaultIgnore;
+
 // Constant expressions
 def err_expr_not_ice : Error<
   "expression is not an %select{integer|integral}0 constant expression">;
@@ -2897,8 +2903,8 @@ def note_deleted_dtor_no_operator_delete : Note<
 def note_deleted_special_member_class_subobject : Note<
   "%select{default constructor|copy constructor|move constructor|"
   "copy assignment operator|move assignment operator|destructor}0 of "
-  "%select{||||union }4%1 is implicitly deleted because "
-  "%select{base class %3|field %3}2 has "
+  "%1 is implicitly deleted because "
+  "%select{base class %3|%select{||||variant }4field %3}2 has "
   "%select{no|a deleted|multiple|an inaccessible|a non-trivial}4 "
   "%select{%select{default constructor|copy constructor|move constructor|copy "
   "assignment operator|move assignment operator|destructor}0|destructor}5"
@@ -2917,8 +2923,8 @@ def note_deleted_copy_user_declared_move : Note<
   "copy %select{constructor|assignment operator}0 is implicitly deleted because"
   " %1 has a user-declared move %select{constructor|assignment operator}2">;
 def note_deleted_assign_field : Note<
-  "%select{copy|move}0 assignment operator of %0 is implicitly deleted "
-  "because field %1 is of %select{reference|const-qualified}3 type %2">;
+  "%select{copy|move}0 assignment operator of %1 is implicitly deleted "
+  "because field %2 is of %select{reference|const-qualified}4 type %3">;
 
 // This should eventually be an error.
 def warn_undefined_internal : Warning<
@@ -3535,6 +3541,8 @@ def ext_offsetof_extended_field_designator : Extension<
   InGroup<DiagGroup<"extended-offsetof">>;
 def warn_offsetof_non_pod_type : ExtWarn<"offset of on non-POD type %0">,
   InGroup<InvalidOffsetof>;
+def warn_offsetof_non_standardlayout_type : ExtWarn<
+  "offset of on non-standard-layout type %0">, InGroup<InvalidOffsetof>;
 def err_offsetof_bitfield : Error<"cannot compute offset of bit-field %0">;
 
 def warn_floatingpoint_eq : Warning<
@@ -5178,9 +5186,11 @@ def err_blocks_disable : Error<"blocks support disabled - compile with -fblocks"
 def err_block_returning_array_function : Error<
   "block cannot return %select{array|function}0 type %1">;
 
-// Builtin annotation string.
-def err_builtin_annotation_not_string_constant : Error<
-  "__builtin_annotation requires a non wide string constant">;
+// Builtin annotation
+def err_builtin_annotation_first_arg : Error<
+  "first argument to __builtin_annotation must be an integer">;
+def err_builtin_annotation_second_arg : Error<
+  "second argument to __builtin_annotation must be a non-wide string constant">;
 
 // CFString checking
 def err_cfstring_literal_not_string_constant : Error<
