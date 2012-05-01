@@ -10,16 +10,16 @@ namespace clang {
 class Sema;
 class AttributeList;
 
-bool CheckSierraSPMDAttr(Sema &S, QualType &type, const AttributeList &attr);
+QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize, 
+                               SourceLocation AttrLoc);
 
 QualType CheckSierraVectorOperands(Sema &S, ExprResult &LHS, ExprResult &RHS, 
                                    SourceLocation Loc, bool IsCompAssign);
 
-QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize, 
-                               SourceLocation AttrLoc);
+void HandleSierraVectorAttr(Sema &S, QualType& CurType, const AttributeList &Attr);
 
-void HandleSierraVectorAttr(QualType& CurType, 
-                            const AttributeList &Attr, Sema &S);
+bool HandleSierraSpmdAttr(Sema &S, const FunctionType *FunT, 
+                          const AttributeList &Attr, unsigned &SpmdSize);
 
 } // end namespace clang
 
