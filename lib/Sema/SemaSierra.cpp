@@ -5,6 +5,49 @@
 
 namespace clang {
 
+/// \brief Build an sierra vector type.
+///
+/// Run the required checks for the sierra vector type.
+QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize,
+                                     SourceLocation AttrLoc) {
+  // FIXME Sierra: actually we want to allow that!!!
+  // unlike gcc's vector_size attribute, we do not allow vectors to be defined
+  // in conjunction with complex types (pointers, arrays, functions, etc.).
+  if (!T->isDependentType() &&
+      !T->isIntegerType() && !T->isRealFloatingType()) {
+    S.Diag(AttrLoc, diag::err_attribute_invalid_vector_type) << T;
+    return QualType();
+  }
+
+  if (!ArraySize->isTypeDependent() && !ArraySize->isValueDependent()) {
+    llvm::APSInt vecSize(32);
+    if (!ArraySize->isIntegerConstantExpr(vecSize, S.Context)) {
+      S.Diag(AttrLoc, diag::err_attribute_argument_not_int)
+        << "sierra_vector" << ArraySize->getSourceRange();
+      return QualType();
+    }
+
+    // unlike gcc's vector_size attribute, the size is specified as the
+    // number of elements, not the number of bytes.
+    unsigned vectorSize = static_cast<unsigned>(vecSize.getZExtValue());
+
+    if (vectorSize == 0) {
+      S.Diag(AttrLoc, diag::err_attribute_zero_size)
+      << ArraySize->getSourceRange();
+      return QualType();
+    }
+
+    // uniform special case
+    if (vectorSize == 1)
+      return QualType();
+
+    QualType res = S.Context.getSierraVectorType(T, vectorSize);
+    return res;
+  }
+
+  return S.Context.getDependentSizedSierraVectorType(T, ArraySize, AttrLoc);
+}
+
 class SierraVectorOperandsChecker {
 public:
   SierraVectorOperandsChecker(Sema &S, ExprResult &LHS, ExprResult &RHS, 
@@ -197,6 +240,8 @@ QualType CheckSierraVectorOperands(Sema &S, ExprResult &LHS, ExprResult &RHS,
   return Checker.Check();
 }
 
+//------------------------------------------------------------------------------
+
 /// HandleSierraVectorAttr - this attribute is only applicable to integral
 /// and float scalars, although arrays, pointers, and function return values are
 /// allowed in conjunction with this construct. Aggregates with this attribute
@@ -204,8 +249,7 @@ QualType CheckSierraVectorOperands(Sema &S, ExprResult &LHS, ExprResult &RHS,
 /// The raw attribute should contain precisely 1 argument, the vector size for
 /// the variable, measured in bytes. If curType and rawAttr are well formed,
 /// this routine will return a new vector type.
-void HandleSierraVectorAttr(QualType& CurType, const AttributeList &Attr,
-                            Sema &S) {
+void HandleSierraVectorAttr(Sema &S, QualType& CurType, const AttributeList &Attr) {
   if (!S.getLangOpts().SIERRA) {
     S.Diag(Attr.getLoc(), diag::err_sierra_attr_not_enabled) << "sierra_vector";
     return;
@@ -241,34 +285,24 @@ void HandleSierraVectorAttr(QualType& CurType, const AttributeList &Attr,
     CurType = T;
 }
 
-
-bool CheckSierraSPMDAttr(Sema &S, QualType& curType, const AttributeList &Attr) {
+bool HandleSierraSpmdAttr(Sema &S, const FunctionType *FunT, 
+                          const AttributeList &Attr, unsigned &SpmdSize) {
   if (!S.getLangOpts().SIERRA) {
     S.Diag(Attr.getLoc(), diag::err_sierra_attr_not_enabled) << "sierra_spmd";
     return false;
   }
 
+  if (!FunT)
+    return false; // error message issued by usual clang magic
+
   bool result = true;
-
-  if (curType->isDependentType()) {
-    assert(false && "TODO");
-  }
-
-  if (!curType->isFunctionType()) {
-    // we've already seen a warning for that
-    //Diag(Attr.getLoc(), diag::err_spmd_only_allowed_on_fct_types) << curType;
-    result = false;
-  }
 
   if (Attr.getNumArgs() != 1) {
     S.Diag(Attr.getLoc(), diag::err_attribute_wrong_number_arguments) << 1;
     result = false;
   }
 
-  if (!result)
-    return false;
-
-  Expr *sizeExpr;
+  Expr *SizeExpr;
 
   // Special case where the argument is a template id.
   if (Attr.getParameterName()) {
@@ -282,55 +316,25 @@ bool CheckSierraSPMDAttr(Sema &S, QualType& curType, const AttributeList &Attr) 
     if (Size.isInvalid())
       return false;
     
-    sizeExpr = Size.get();
+    SizeExpr = Size.get();
   } else
-    sizeExpr = Attr.getArg(0);
+    SizeExpr = Attr.getArg(0);
 
-  // TODO handle sizeExpr
+  if (SizeExpr->isTypeDependent() || SizeExpr->isValueDependent())
+    result = false;
+
+  if (!result)
+    return false;
+
+  llvm::APSInt SpmdSizeAPS(32);
+  if (!SizeExpr->isIntegerConstantExpr(SpmdSizeAPS, S.Context)) {
+    S.Diag(Attr.getLoc(), diag::err_attribute_argument_not_int)
+      << "sierra_vector" << SizeExpr->getSourceRange();
+    return false;
+  }
+
+  SpmdSize = static_cast<unsigned>(SpmdSizeAPS.getZExtValue());
   return true;
-}
-
-/// \brief Build an sierra vector type.
-///
-/// Run the required checks for the sierra vector type.
-QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize,
-                                     SourceLocation AttrLoc) {
-  // FIXME Sierra: actually we want to allow that!!!
-  // unlike gcc's vector_size attribute, we do not allow vectors to be defined
-  // in conjunction with complex types (pointers, arrays, functions, etc.).
-  if (!T->isDependentType() &&
-      !T->isIntegerType() && !T->isRealFloatingType()) {
-    S.Diag(AttrLoc, diag::err_attribute_invalid_vector_type) << T;
-    return QualType();
-  }
-
-  if (!ArraySize->isTypeDependent() && !ArraySize->isValueDependent()) {
-    llvm::APSInt vecSize(32);
-    if (!ArraySize->isIntegerConstantExpr(vecSize, S.Context)) {
-      S.Diag(AttrLoc, diag::err_attribute_argument_not_int)
-        << "sierra_vector" << ArraySize->getSourceRange();
-      return QualType();
-    }
-
-    // unlike gcc's vector_size attribute, the size is specified as the
-    // number of elements, not the number of bytes.
-    unsigned vectorSize = static_cast<unsigned>(vecSize.getZExtValue());
-
-    if (vectorSize == 0) {
-      S.Diag(AttrLoc, diag::err_attribute_zero_size)
-      << ArraySize->getSourceRange();
-      return QualType();
-    }
-
-    // uniform special case
-    if (vectorSize == 1)
-      return QualType();
-
-    QualType res = S.Context.getSierraVectorType(T, vectorSize);
-    return res;
-  }
-
-  return S.Context.getDependentSizedSierraVectorType(T, ArraySize, AttrLoc);
 }
 
 } // end namespace clang

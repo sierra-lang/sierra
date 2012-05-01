@@ -3717,8 +3717,16 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state,
     return true;
   }
 
-  if (attr.getKind() == AttributeList::AT_sierra_spmd)
-    return CheckSierraSPMDAttr(S, type, attr);
+  if (attr.getKind() == AttributeList::AT_sierra_spmd) {
+    unsigned SpmdSize;
+
+    if (HandleSierraSpmdAttr(S, unwrapped.get(), attr, SpmdSize)) {
+      // we can process right away.
+      FunctionType::ExtInfo EI = unwrapped.get()->getExtInfo().withSierraSpmd(SpmdSize);
+      type = unwrapped.wrap(S, S.Context.adjustFunctionType(unwrapped.get(), EI));
+    }
+    return false;
+  }
 
   // Otherwise, a calling convention.
   CallingConv CC;
@@ -4001,7 +4009,7 @@ static void processTypeAttrs(TypeProcessingState &state, QualType &type,
       attr.setUsedAsTypeAttr();
       break;
     case AttributeList::AT_sierra_vector:
-      HandleSierraVectorAttr(type, attr, state.getSema());
+      HandleSierraVectorAttr(state.getSema(), type, attr);
       attr.setUsedAsTypeAttr();
       break;
     case AttributeList::AT_ext_vector_type:
