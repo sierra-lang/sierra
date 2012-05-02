@@ -765,7 +765,7 @@ CGFunctionInfo *CGFunctionInfo::create(unsigned llvmCC,
   return FI;
 }
 
-/***/
+/**/
 
 namespace {
 // ABIArgInfo::Expand implementation.
@@ -1422,7 +1422,7 @@ void ClangToLLVMArgMapping::construct(const ASTContext &Context,
 }
 }  // namespace
 
-/***/
+/**/
 
 bool CodeGenModule::ReturnTypeUsesSRet(const CGFunctionInfo &FI) {
   return FI.getReturnInfo().isIndirect();
@@ -2173,9 +2173,16 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
   CGFunctionInfo::const_arg_iterator info_it = FI.arg_begin();
   for (FunctionArgList::const_iterator i = Args.begin(), e = Args.end();
        i != e; ++i, ++info_it, ++ArgNo) {
+
     const VarDecl *Arg = *i;
     QualType Ty = info_it->type;
     const ABIArgInfo &ArgI = info_it->info;
+
+    //unsigned SierraSpmd = FI.getSierraSpmd();
+    //if (ArgNo == 0 && SierraSpmd != 1) {
+      //continue;
+    //}
+
 
     bool isPromoted =
       isa<ParmVarDecl>(Arg) && cast<ParmVarDecl>(Arg)->isKNRPromoted();
