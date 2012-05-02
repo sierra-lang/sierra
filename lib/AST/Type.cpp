@@ -1683,6 +1683,7 @@ void FunctionProtoType::Profile(llvm::FoldingSetNodeID &ID, QualType Result,
   }
   epi.ExtInfo.Profile(ID);
   ID.AddBoolean(epi.HasTrailingReturn);
+  ID.AddInteger(epi.ExtInfo.getSierraSpmd());
 }
 
 void FunctionProtoType::Profile(llvm::FoldingSetNodeID &ID,

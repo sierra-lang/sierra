@@ -5816,6 +5816,12 @@ QualType ASTContext::mergeFunctionTypes(QualType lhs, QualType rhs,
   if (lbaseInfo.getProducesResult() != rbaseInfo.getProducesResult())
     return QualType();
 
+  // different spmd values which are not polymorphic (0) are not compatible
+  unsigned lspmd = lbaseInfo.getSierraSpmd();
+  unsigned rspmd = rbaseInfo.getSierraSpmd();
+  if (lspmd && rspmd && lspmd != rspmd)
+    return QualType(); 
+
   // functypes which return are preferred over those that do not.
   if (lbaseInfo.getNoReturn() && !rbaseInfo.getNoReturn())
     allLTypes = false;

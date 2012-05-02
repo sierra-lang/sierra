@@ -1215,6 +1215,7 @@ protected:
     ///
     /// This is a value of type \c RefQualifierKind.
     unsigned RefQualifier : 2;
+    uint16_t SierraSpmd;
   };
 
   class ObjCObjectTypeBitfields {
@@ -2608,10 +2609,10 @@ class FunctionType : public Type {
            RegParmOffset = 5 }; // Assumed to be the last field
 
     uint16_t Bits;
-    unsigned SierraSpmd;
+    uint16_t SierraSpmd;
 
-    ExtInfo(unsigned Bits, unsigned Spmd = 1) : 
-      Bits(static_cast<uint16_t>(Bits)), SierraSpmd(Spmd) {}
+    ExtInfo(unsigned Bits, unsigned spmd = 1) : 
+      Bits(static_cast<uint16_t>(Bits)), SierraSpmd(spmd) {}
 
     friend class FunctionType;
 
@@ -2619,18 +2620,18 @@ class FunctionType : public Type {
     // Constructor with no defaults. Use this when you know that you
     // have all the elements (when reading an AST file for example).
     ExtInfo(bool noReturn, bool hasRegParm, unsigned regParm, CallingConv cc,
-            bool producesResult, unsigned Spmd = 1) {
+            bool producesResult, unsigned spmd = 1) {
       assert((!hasRegParm || regParm < 7) && "Invalid regparm value");
       Bits = ((unsigned) cc) |
              (noReturn ? NoReturnMask : 0) |
              (producesResult ? ProducesResultMask : 0) |
              (hasRegParm ? ((regParm + 1) << RegParmOffset) : 0);
-      SierraSpmd = Spmd;
+        SierraSpmd = spmd;
     }
 
     // Constructor with all defaults. Use when for example creating a
     // function know to use defaults.
-    ExtInfo() : Bits(0) {}
+    ExtInfo() : Bits(0), SierraSpmd(1) {}
 
     bool getNoReturn() const { return Bits & NoReturnMask; }
     bool getProducesResult() const { return Bits & ProducesResultMask; }
@@ -2641,6 +2642,7 @@ class FunctionType : public Type {
         --RegParm;
       return RegParm;
     }
+    unsigned getSierraSpmd() const { return SierraSpmd; }
     CallingConv getCC() const { return CallingConv(Bits & CallConvMask); }
 
     bool operator==(ExtInfo Other) const {
@@ -2655,30 +2657,30 @@ class FunctionType : public Type {
 
     ExtInfo withNoReturn(bool noReturn) const {
       if (noReturn)
-        return ExtInfo(Bits | NoReturnMask);
+        return ExtInfo(Bits | NoReturnMask, SierraSpmd);
       else
-        return ExtInfo(Bits & ~NoReturnMask);
+        return ExtInfo(Bits & ~NoReturnMask, SierraSpmd);
     }
 
     ExtInfo withProducesResult(bool producesResult) const {
       if (producesResult)
-        return ExtInfo(Bits | ProducesResultMask);
+        return ExtInfo(Bits | ProducesResultMask, SierraSpmd);
       else
-        return ExtInfo(Bits & ~ProducesResultMask);
+        return ExtInfo(Bits & ~ProducesResultMask, SierraSpmd);
     }
 
     ExtInfo withRegParm(unsigned RegParm) const {
       assert(RegParm < 7 && "Invalid regparm value");
       return ExtInfo((Bits & ~RegParmMask) |
-                     ((RegParm + 1) << RegParmOffset));
+                     ((RegParm + 1) << RegParmOffset), SierraSpmd);
     }
 
     ExtInfo withCallingConv(CallingConv cc) const {
-      return ExtInfo((Bits & ~CallConvMask) | (unsigned) cc);
+      return ExtInfo((Bits & ~CallConvMask) | (unsigned) cc, SierraSpmd);
     }
 
-    ExtInfo withSierraSpmd(unsigned Spmd) const {
-      return ExtInfo(Bits, Spmd);
+    ExtInfo withSierraSpmd(unsigned SierraSpmd) const {
+      return ExtInfo(Bits, SierraSpmd);
     }
 
     void Profile(llvm::FoldingSetNodeID &ID) const {
@@ -2694,11 +2696,12 @@ protected:
                bool VariablyModified, bool ContainsUnexpandedParameterPack,
                ExtInfo Info)
     : Type(tc, Canonical, Dependent, InstantiationDependent, VariablyModified,
-           ContainsUnexpandedParameterPack),
+           ContainsUnexpandedParameterPack), 
       ResultType(res) {
     FunctionTypeBits.ExtInfo = Info.Bits;
     FunctionTypeBits.TypeQuals = typeQuals;
     FunctionTypeBits.RefQualifier = static_cast<unsigned>(RefQualifier);
+    FunctionTypeBits.SierraSpmd = Info.SierraSpmd;
   }
   unsigned getTypeQuals() const { return FunctionTypeBits.TypeQuals; }
 
@@ -2714,7 +2717,8 @@ public:
   unsigned getRegParmType() const { return getExtInfo().getRegParm(); }
   bool getNoReturnAttr() const { return getExtInfo().getNoReturn(); }
   CallingConv getCallConv() const { return getExtInfo().getCC(); }
-  ExtInfo getExtInfo() const { return ExtInfo(FunctionTypeBits.ExtInfo); }
+  ExtInfo getExtInfo() const { return ExtInfo(FunctionTypeBits.ExtInfo, FunctionTypeBits.SierraSpmd); }
+  unsigned getSierraSpmd() const { return getExtInfo().getSierraSpmd(); }
 
   /// \brief Determine the type of an expression that calls a function of
   /// this type.
