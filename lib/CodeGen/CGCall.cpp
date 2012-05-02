@@ -412,7 +412,7 @@ CGFunctionInfo *CGFunctionInfo::create(unsigned llvmCC,
   return FI;
 }
 
-/***/
+/**/
 
 void CodeGenTypes::GetExpandedTypes(QualType type,
                      SmallVectorImpl<llvm::Type*> &expandedTypes) {
@@ -736,7 +736,7 @@ static void CreateCoercedStore(llvm::Value *Src,
   }
 }
 
-/***/
+/**/
 
 bool CodeGenModule::ReturnTypeUsesSRet(const CGFunctionInfo &FI) {
   return FI.getReturnInfo().isIndirect();
@@ -784,6 +784,16 @@ CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
   
   SmallVector<llvm::Type*, 8> argTypes;
   llvm::Type *resultType = 0;
+
+#if 0
+  unsigned SierraSpmd = FI.getSierraSpmd();
+  assert(SierraSpmd != 0 && "TODO");
+  if (SierraSpmd != 1) {
+    argTypes.push_back(llvm::VectorType::get(llvm::IntegerType::getInt1Ty(getLLVMContext()), SierraSpmd));
+  }
+
+#endif
+
 
   const ABIArgInfo &retAI = FI.getReturnInfo();
   switch (retAI.getKind()) {
@@ -1080,11 +1090,19 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
          "Mismatch between function signature & arguments.");
   unsigned ArgNo = 1;
   CGFunctionInfo::const_arg_iterator info_it = FI.arg_begin();
-  for (FunctionArgList::const_iterator i = Args.begin(), e = Args.end(); 
+
+  for (FunctionArgList::const_iterator i = Args.begin() , e = Args.end(); 
        i != e; ++i, ++info_it, ++ArgNo) {
+
     const VarDecl *Arg = *i;
     QualType Ty = info_it->type;
     const ABIArgInfo &ArgI = info_it->info;
+
+    //unsigned SierraSpmd = FI.getSierraSpmd();
+    //if (ArgNo == 0 && SierraSpmd != 1) {
+      //continue;
+    //}
+
 
     bool isPromoted =
       isa<ParmVarDecl>(Arg) && cast<ParmVarDecl>(Arg)->isKNRPromoted();

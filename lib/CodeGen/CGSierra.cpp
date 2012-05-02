@@ -28,15 +28,13 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src, QualType Src
   SrcTy = SrcV->getElementType();
   DstTy = DstV->getElementType();
 
-  //llvm::VectorType* = cast<llvm::VectorType> SElemTy = SrcTy->get
-  //assert(
-
   Value *Res = NULL;
-  //llvm::Type *ResTy = DstTy;
 
   // Cast to half via float
-  if (DstE->isHalfType())
+  if (DstE->isHalfType()) {
+    assert(false && "TODO");
     DstTy = CGF.FloatTy;
+  }
 
   if (isa<llvm::IntegerType>(SrcTy)) {
     bool InputSigned = SrcE->isSignedIntegerOrEnumerationType();
