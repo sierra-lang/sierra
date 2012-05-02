@@ -6355,7 +6355,8 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state,
 
     if (HandleSierraSpmdAttr(S, unwrapped.get(), attr, SpmdSize)) {
       // we can process right away.
-      FunctionType::ExtInfo EI = unwrapped.get()->getExtInfo().withSierraSpmd(SpmdSize);
+      FunctionType::ExtInfo EI = 
+        unwrapped.get()->getExtInfo().withSierraSpmd(SpmdSize);
       type = unwrapped.wrap(S, S.Context.adjustFunctionType(unwrapped.get(), EI));
       return true;
     }

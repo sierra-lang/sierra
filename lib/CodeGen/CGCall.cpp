@@ -41,7 +41,7 @@
 using namespace clang;
 using namespace CodeGen;
 
-/***/
+/**/
 
 unsigned CodeGenTypes::ClangCallConvToLLVMCallConv(CallingConv CC) {
   switch (CC) {
@@ -756,6 +756,7 @@ CGFunctionInfo *CGFunctionInfo::create(unsigned llvmCC,
   FI->ArgStructAlign = 0;
   FI->NumArgs = argTypes.size();
   FI->HasExtParameterInfos = !paramInfos.empty();
+  FI->SierraSpmd = info.getSierraSpmd();
   FI->getArgsBuffer()[0].type = resultType;
   for (unsigned i = 0, e = argTypes.size(); i != e; ++i)
     FI->getArgsBuffer()[i + 1].type = argTypes[i];
