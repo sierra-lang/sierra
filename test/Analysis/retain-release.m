@@ -1305,6 +1305,11 @@ void testattr2_b() {
   TestOwnershipAttr *x = [[TestOwnershipAttr alloc] pseudoInit];  // expected-warning{{leak}}
 }
 
+void testattr2_b_11358224_self_assign_looses_the_leak() {
+  TestOwnershipAttr *x = [[TestOwnershipAttr alloc] pseudoInit];// expected-warning{{leak}}
+  x = x;
+}
+
 void testattr2_c() {
   TestOwnershipAttr *x = [[TestOwnershipAttr alloc] pseudoInit]; // no-warning
   [x release];
@@ -1680,6 +1685,32 @@ void rdar_10824732() {
     [foo release];
   }
 }
+
+// Stop tracking objects passed to functions, which take callbacks as parameters.
+// radar://10973977
+typedef int (*CloseCallback) (void *);
+void ReaderForIO(CloseCallback ioclose, void *ioctx);
+int IOClose(void *context);
+
+@protocol SInS <NSObject>
+@end
+
+@interface radar10973977 : NSObject
+- (id<SInS>)inputS;
+- (void)reader;
+@end
+
+@implementation radar10973977
+- (void)reader
+{
+    id<SInS> inputS = [[self inputS] retain];
+    ReaderForIO(IOClose, inputS);
+}
+- (id<SInS>)inputS
+{
+    return 0;
+}
+@end
 
 //===----------------------------------------------------------------------===//
 // Test returning allocated memory in a struct.

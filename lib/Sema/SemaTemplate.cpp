@@ -354,12 +354,14 @@ void Sema::LookupTemplateName(LookupResult &Found,
     return;
   }
 
-  if (S && !ObjectType.isNull() && !ObjectTypeSearchedInScope) {
-    // C++ [basic.lookup.classref]p1:
+  if (S && !ObjectType.isNull() && !ObjectTypeSearchedInScope &&
+      !(getLangOpts().CPlusPlus0x && !Found.empty())) {
+    // C++03 [basic.lookup.classref]p1:
     //   [...] If the lookup in the class of the object expression finds a
     //   template, the name is also looked up in the context of the entire
     //   postfix-expression and [...]
     //
+    // Note: C++11 does not perform this second lookup.
     LookupResult FoundOuter(*this, Found.getLookupName(), Found.getNameLoc(),
                             LookupOrdinaryName);
     LookupName(FoundOuter, S);
@@ -4120,8 +4122,20 @@ ExprResult Sema::CheckTemplateArgument(NonTypeTemplateParmDecl *Param,
       Diag(Param->getLocation(), diag::note_template_param_here);
       return ExprError();
     } else if (!Arg->isValueDependent()) {
-      Arg = VerifyIntegerConstantExpression(Arg, &Value,
-        PDiag(diag::err_template_arg_not_ice) << ArgType, false).take();
+      class TmplArgICEDiagnoser : public VerifyICEDiagnoser {
+        QualType T;
+        
+      public:
+        TmplArgICEDiagnoser(QualType T) : T(T) { }
+        
+        virtual void diagnoseNotICE(Sema &S, SourceLocation Loc,
+                                    SourceRange SR) {
+          S.Diag(Loc, diag::err_template_arg_not_ice) << T << SR;
+        }
+      } Diagnoser(ArgType);
+
+      Arg = VerifyIntegerConstantExpression(Arg, &Value, Diagnoser,
+                                            false).take();
       if (!Arg)
         return ExprError();
     }

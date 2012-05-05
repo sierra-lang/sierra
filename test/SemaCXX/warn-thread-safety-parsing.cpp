@@ -970,7 +970,7 @@ int lr_function_8() LOCK_RETURNED(muPointer);
 int lr_function_bad_1() LOCK_RETURNED(1); // \
   // expected-warning {{'lock_returned' attribute requires arguments that are class type or point to class type}}
 int lr_function_bad_2() LOCK_RETURNED("mu"); // \
-  // expected-warning {{'lock_returned' attribute requires arguments that are class type or point to class type}}
+  // expected-warning {{ignoring 'lock_returned' attribute because its argument is invalid}}
 int lr_function_bad_3() LOCK_RETURNED(muDoublePointer); // \
   // expected-warning {{'lock_returned' attribute requires arguments that are class type or point to class type}}
 int lr_function_bad_4() LOCK_RETURNED(umu); // \
@@ -1319,6 +1319,8 @@ private:
   Mutex mu_;
 };
 
+} // end namespace TestMultiDecl
+
 
 namespace NestedClassLateDecl {
 
@@ -1350,6 +1352,8 @@ void testEmptyAttributeFunction() EXCLUSIVE_LOCKS_REQUIRED("");
 class Graph {
 public:
   Mutex mu_;
+
+  static Mutex* get_static_mu() LOCK_RETURNED(&Graph::mu_);
 };
 
 class Node {
@@ -1366,8 +1370,6 @@ namespace SmartPointerTest {
 template<class T>
 class smart_ptr {
  public:
-  smart_ptr(T* p) : ptr_(p) { };
-
   T* operator->() { return ptr_; }
   T& operator*()  { return ptr_; }
 
@@ -1376,15 +1378,55 @@ class smart_ptr {
 };
 
 
+Mutex gmu;
+smart_ptr<int> gdat PT_GUARDED_BY(gmu);
+
+
 class MyClass {
 public:
   Mutex mu_;
+  smart_ptr<Mutex> smu_;
+
 
   smart_ptr<int> a PT_GUARDED_BY(mu_);
+  int b            GUARDED_BY(smu_);
 };
 
 }
 
 
-} // end namespace TestMultiDecl
+namespace InheritanceTest {
+
+class LOCKABLE Base {
+ public:
+  void lock()   EXCLUSIVE_LOCK_FUNCTION();
+  void unlock() UNLOCK_FUNCTION();
+};
+
+class Base2 { };
+
+class Derived1 : public Base { };
+
+class Derived2 : public Base2, public Derived1 { };
+
+class Derived3 : public Base2 { };
+
+class Foo {
+  Derived1 mu1_;
+  Derived2 mu2_;
+  Derived3 mu3_;
+  int a GUARDED_BY(mu1_);
+  int b GUARDED_BY(mu2_);
+  int c GUARDED_BY(mu3_);  // \
+    // expected-warning {{'guarded_by' attribute requires arguments whose type is annotated with 'lockable' attribute; type here is 'class InheritanceTest::Derived3'}}
+
+  void foo() EXCLUSIVE_LOCKS_REQUIRED(mu1_, mu2_) {
+    a = 0;
+    b = 0;
+  }
+};
+
+}
+
+
 

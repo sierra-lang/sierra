@@ -667,9 +667,9 @@ static bool CheckConstexprParameterTypes(Sema &SemaRef,
     SourceLocation ParamLoc = PD->getLocation();
     if (!(*i)->isDependentType() &&
         SemaRef.RequireLiteralType(ParamLoc, *i,
-                            SemaRef.PDiag(diag::err_constexpr_non_literal_param)
-                                     << ArgIndex+1 << PD->getSourceRange()
-                                     << isa<CXXConstructorDecl>(FD)))
+                                   diag::err_constexpr_non_literal_param,
+                                   ArgIndex+1, PD->getSourceRange(),
+                                   isa<CXXConstructorDecl>(FD)))
       return false;
   }
   return true;
@@ -725,7 +725,7 @@ bool Sema::CheckConstexprFunctionDecl(const FunctionDecl *NewFD) {
     QualType RT = NewFD->getResultType();
     if (!RT->isDependentType() &&
         RequireLiteralType(NewFD->getLocation(), RT,
-                           PDiag(diag::err_constexpr_non_literal_return)))
+                           diag::err_constexpr_non_literal_return))
       return false;
   }
 
@@ -1055,8 +1055,7 @@ Sema::CheckBaseSpecifier(CXXRecordDecl *Class,
   //   The class-name in a base-specifier shall not be an incompletely
   //   defined class.
   if (RequireCompleteType(BaseLoc, BaseType,
-                          PDiag(diag::err_incomplete_base_class)
-                            << SpecifierRange)) {
+                          diag::err_incomplete_base_class, SpecifierRange)) {
     Class->setInvalidDecl();
     return 0;
   }
@@ -3397,19 +3396,32 @@ void Sema::ActOnDefaultCtorInitializers(Decl *CDtorDecl) {
 
 bool Sema::RequireNonAbstractType(SourceLocation Loc, QualType T,
                                   unsigned DiagID, AbstractDiagSelID SelID) {
-  if (SelID == -1)
-    return RequireNonAbstractType(Loc, T, PDiag(DiagID));
-  else
-    return RequireNonAbstractType(Loc, T, PDiag(DiagID) << SelID);
+  class NonAbstractTypeDiagnoser : public TypeDiagnoser {
+    unsigned DiagID;
+    AbstractDiagSelID SelID;
+    
+  public:
+    NonAbstractTypeDiagnoser(unsigned DiagID, AbstractDiagSelID SelID)
+      : TypeDiagnoser(DiagID == 0), DiagID(DiagID), SelID(SelID) { }
+    
+    virtual void diagnose(Sema &S, SourceLocation Loc, QualType T) {
+      if (SelID == -1)
+        S.Diag(Loc, DiagID) << T;
+      else
+        S.Diag(Loc, DiagID) << SelID << T;
+    }
+  } Diagnoser(DiagID, SelID);
+  
+  return RequireNonAbstractType(Loc, T, Diagnoser);
 }
 
 bool Sema::RequireNonAbstractType(SourceLocation Loc, QualType T,
-                                  const PartialDiagnostic &PD) {
+                                  TypeDiagnoser &Diagnoser) {
   if (!getLangOpts().CPlusPlus)
     return false;
 
   if (const ArrayType *AT = Context.getAsArrayType(T))
-    return RequireNonAbstractType(Loc, AT->getElementType(), PD);
+    return RequireNonAbstractType(Loc, AT->getElementType(), Diagnoser);
 
   if (const PointerType *PT = T->getAs<PointerType>()) {
     // Find the innermost pointer type.
@@ -3417,7 +3429,7 @@ bool Sema::RequireNonAbstractType(SourceLocation Loc, QualType T,
       PT = T;
 
     if (const ArrayType *AT = Context.getAsArrayType(PT->getPointeeType()))
-      return RequireNonAbstractType(Loc, AT->getElementType(), PD);
+      return RequireNonAbstractType(Loc, AT->getElementType(), Diagnoser);
   }
 
   const RecordType *RT = T->getAs<RecordType>();
@@ -3436,7 +3448,7 @@ bool Sema::RequireNonAbstractType(SourceLocation Loc, QualType T,
   if (!RD->isAbstract())
     return false;
 
-  Diag(Loc, PD) << RD->getDeclName();
+  Diagnoser.diagnose(*this, Loc, T);
   DiagnoseAbstractType(RD);
 
   return true;
@@ -3763,7 +3775,7 @@ void Sema::CheckCompletedCXXClass(CXXRecordDecl *Record) {
         case TSK_Undeclared:
         case TSK_ExplicitSpecialization:
           RequireLiteralType(M->getLocation(), Context.getRecordType(Record),
-                             PDiag(diag::err_constexpr_method_non_literal));
+                             diag::err_constexpr_method_non_literal);
           break;
         }
 
@@ -9894,7 +9906,7 @@ Decl *Sema::ActOnStaticAssertDeclaration(SourceLocation StaticAssertLoc,
 
     llvm::APSInt Cond;
     if (VerifyIntegerConstantExpression(Converted.get(), &Cond,
-          PDiag(diag::err_static_assert_expression_is_not_constant),
+          diag::err_static_assert_expression_is_not_constant,
           /*AllowFold=*/false).isInvalid())
       return 0;
 
@@ -10650,8 +10662,8 @@ bool Sema::CheckOverridingFunctionReturnType(const CXXMethodDecl *New,
   if (const RecordType *RT = NewClassTy->getAs<RecordType>()) {
     if (!RT->isBeingDefined() &&
         RequireCompleteType(New->getLocation(), NewClassTy, 
-                            PDiag(diag::err_covariant_return_incomplete)
-                              << New->getDeclName()))
+                            diag::err_covariant_return_incomplete,
+                            New->getDeclName()))
     return true;
   }
 
@@ -11290,75 +11302,11 @@ Sema::checkExceptionSpecification(ExceptionSpecificationType EST,
       
       if (!NoexceptExpr->isValueDependent())
         NoexceptExpr = VerifyIntegerConstantExpression(NoexceptExpr, 0,
-                         PDiag(diag::err_noexcept_needs_constant_expression),
+                         diag::err_noexcept_needs_constant_expression,
                          /*AllowFold*/ false).take();
       EPI.NoexceptExpr = NoexceptExpr;
     }
     return;
-  }
-}
-
-void Sema::actOnDelayedExceptionSpecification(Decl *MethodD,
-             ExceptionSpecificationType EST,
-             SourceRange SpecificationRange,
-             ArrayRef<ParsedType> DynamicExceptions,
-             ArrayRef<SourceRange> DynamicExceptionRanges,
-             Expr *NoexceptExpr) {
-  if (!MethodD)
-    return;
-  
-  // Dig out the method we're referring to.
-  CXXMethodDecl *Method = 0;
-  if (FunctionTemplateDecl *FunTmpl = dyn_cast<FunctionTemplateDecl>(MethodD))
-    Method = dyn_cast<CXXMethodDecl>(FunTmpl->getTemplatedDecl());
-  else
-    Method = dyn_cast<CXXMethodDecl>(MethodD);
-  
-  if (!Method)
-    return;
-  
-  // Dig out the prototype, looking through only parens. This should never fail.
-  const FunctionProtoType *Proto
-    = cast<FunctionProtoType>(Method->getType().IgnoreParens());
-  
-  // Check the exception specification.
-  llvm::SmallVector<QualType, 4> Exceptions;
-  FunctionProtoType::ExtProtoInfo EPI = Proto->getExtProtoInfo();
-  checkExceptionSpecification(EST, DynamicExceptions, DynamicExceptionRanges,
-                              NoexceptExpr, Exceptions, EPI);
-  
-  // Rebuild the function type.
-  QualType T = Context.getFunctionType(Proto->getResultType(),
-                                       Proto->arg_type_begin(),
-                                       Proto->getNumArgs(),
-                                       EPI);
-
-  // Rebuild any parens around the function type.
-  for (const ParenType *PT = dyn_cast<ParenType>(Method->getType()); PT;
-       PT = dyn_cast<ParenType>(PT->getInnerType()))
-    T = Context.getParenType(T);
-
-  if (TypeSourceInfo *TSInfo = Method->getTypeSourceInfo()) {
-    // FIXME: When we get proper type location information for exceptions,
-    // we'll also have to rebuild the TypeSourceInfo. For now, we just patch
-    // up the TypeSourceInfo;
-    assert(TypeLoc::getFullDataSizeForType(T)
-             == TypeLoc::getFullDataSizeForType(Method->getType()) &&
-           "TypeLoc size mismatch with delayed exception specification");
-    TSInfo->overrideType(T);
-  }
-
-  Method->setType(T);
-  
-  if (Method->isStatic())
-    checkThisInStaticMemberFunctionExceptionSpec(Method);
-  
-  if (Method->isVirtual()) {
-    // Check overrides, which we previously had to delay.
-    for (CXXMethodDecl::method_iterator O = Method->begin_overridden_methods(),
-                                     OEnd = Method->end_overridden_methods();
-         O != OEnd; ++O)
-      CheckOverridingFunctionExceptionSpec(Method, *O);
   }
 }
 

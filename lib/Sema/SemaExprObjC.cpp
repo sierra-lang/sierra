@@ -237,9 +237,6 @@ static ObjCMethodDecl *getNSNumberFactoryMethod(Sema &S, SourceLocation Loc,
 /// BuildObjCNumericLiteral - builds an ObjCBoxedExpr AST node for the
 /// numeric literal expression. Type of the expression will be "NSNumber *".
 ExprResult Sema::BuildObjCNumericLiteral(SourceLocation AtLoc, Expr *Number) {
-  // compute the effective range of the literal, including the leading '@'.
-  SourceRange SR(AtLoc, Number->getSourceRange().getEnd());
-    
   // Determine the type of the literal.
   QualType NumberType = Number->getType();
   if (CharacterLiteral *Char = dyn_cast<CharacterLiteral>(Number)) {
@@ -266,21 +263,27 @@ ExprResult Sema::BuildObjCNumericLiteral(SourceLocation AtLoc, Expr *Number) {
   
   // Look for the appropriate method within NSNumber.
   // Construct the literal.
+  SourceRange NR(Number->getSourceRange());
   ObjCMethodDecl *Method = getNSNumberFactoryMethod(*this, AtLoc, NumberType,
-                                                    true, Number->getSourceRange());
+                                                    true, NR);
   if (!Method)
     return ExprError();
 
   // Convert the number to the type that the parameter expects.
-  QualType ArgType = Method->param_begin()[0]->getType();
-  ExprResult ConvertedNumber = PerformImplicitConversion(Number, ArgType,
-                                                         AA_Sending);
+  ParmVarDecl *ParamDecl = Method->param_begin()[0];
+  InitializedEntity Entity = InitializedEntity::InitializeParameter(Context,
+                                                                    ParamDecl);
+  ExprResult ConvertedNumber = PerformCopyInitialization(Entity,
+                                                         SourceLocation(),
+                                                         Owned(Number));
   if (ConvertedNumber.isInvalid())
     return ExprError();
   Number = ConvertedNumber.get();
   
+  // Use the effective source range of the literal, including the leading '@'.
   return MaybeBindToTemporary(
-           new (Context) ObjCBoxedExpr(Number, NSNumberPointer, Method, SR));
+           new (Context) ObjCBoxedExpr(Number, NSNumberPointer, Method,
+                                       SourceRange(AtLoc, NR.getEnd())));
 }
 
 ExprResult Sema::ActOnObjCBoolLiteral(SourceLocation AtLoc, 
@@ -408,7 +411,7 @@ ExprResult Sema::BuildObjCBoxedExpr(SourceRange SR, Expr *ValueExpr) {
     return ExprError();
   }
   ValueExpr = RValue.get();
-  QualType ValueType(ValueExpr->getType().getCanonicalType());
+  QualType ValueType(ValueExpr->getType());
   if (const PointerType *PT = ValueType->getAs<PointerType>()) {
     QualType PointeeType = PT->getPointeeType();
     if (Context.hasSameUnqualifiedType(PointeeType, Context.CharTy)) {
@@ -475,7 +478,7 @@ ExprResult Sema::BuildObjCBoxedExpr(SourceRange SR, Expr *ValueExpr) {
       BoxingMethod = StringWithUTF8StringMethod;
       BoxedType = NSStringPointer;
     }
-  } else if (isa<BuiltinType>(ValueType)) {
+  } else if (ValueType->isBuiltinType()) {
     // The other types we support are numeric, char and BOOL/bool. We could also
     // provide limited support for structure types, such as NSRange, NSRect, and
     // NSSize. See NSValue (NSValueGeometryExtensions) in <Foundation/NSGeometry.h>
@@ -519,9 +522,12 @@ ExprResult Sema::BuildObjCBoxedExpr(SourceRange SR, Expr *ValueExpr) {
   }
   
   // Convert the expression to the type that the parameter requires.
-  QualType ArgType = BoxingMethod->param_begin()[0]->getType();
-  ExprResult ConvertedValueExpr = PerformImplicitConversion(ValueExpr, ArgType,
-                                                            AA_Sending);
+  ParmVarDecl *ParamDecl = BoxingMethod->param_begin()[0];
+  InitializedEntity Entity = InitializedEntity::InitializeParameter(Context,
+                                                                    ParamDecl);
+  ExprResult ConvertedValueExpr = PerformCopyInitialization(Entity,
+                                                            SourceLocation(),
+                                                            Owned(ValueExpr));
   if (ConvertedValueExpr.isInvalid())
     return ExprError();
   ValueExpr = ConvertedValueExpr.get();
@@ -904,8 +910,8 @@ ExprResult Sema::BuildObjCEncodeExpression(SourceLocation AtLoc,
     if (!EncodedType->getAsArrayTypeUnsafe() && //// Incomplete array is handled.
         !EncodedType->isVoidType()) // void is handled too.
       if (RequireCompleteType(AtLoc, EncodedType,
-                         PDiag(diag::err_incomplete_type_objc_at_encode)
-                             << EncodedTypeInfo->getTypeLoc().getSourceRange()))
+                              diag::err_incomplete_type_objc_at_encode,
+                              EncodedTypeInfo->getTypeLoc()))
         return ExprError();
 
     std::string Str;
@@ -1170,8 +1176,7 @@ bool Sema::CheckMessageArgumentTypes(QualType ReceiverType,
 
     if (RequireCompleteType(argExpr->getSourceRange().getBegin(),
                             param->getType(),
-                            PDiag(diag::err_call_incomplete_argument)
-                              << argExpr->getSourceRange()))
+                            diag::err_call_incomplete_argument, argExpr))
       return true;
 
     InitializedEntity Entity = InitializedEntity::InitializeParameter(Context,
@@ -1389,8 +1394,8 @@ HandleExprPropertyRefExpr(const ObjCObjectPointerType *OPT,
   SourceRange BaseRange = Super? SourceRange(SuperLoc)
                                : BaseExpr->getSourceRange();
   if (RequireCompleteType(MemberLoc, OPT->getPointeeType(), 
-                          PDiag(diag::err_property_not_found_forward_class)
-                            << MemberName << BaseRange))
+                          diag::err_property_not_found_forward_class,
+                          MemberName, BaseRange))
     return ExprError();
   
   // Search for a declared property first.
@@ -1518,8 +1523,8 @@ HandleExprPropertyRefExpr(const ObjCObjectPointerType *OPT,
     if (const ObjCObjectPointerType * OBJPT = 
         T->getAsObjCInterfacePointerType()) {
       if (RequireCompleteType(MemberLoc, OBJPT->getPointeeType(), 
-                              PDiag(diag::err_property_not_as_forward_class)
-                                << MemberName << BaseExpr->getSourceRange()))
+                              diag::err_property_not_as_forward_class,
+                              MemberName, BaseExpr))
         return ExprError();
     }
     Diag(MemberLoc, 
@@ -1952,11 +1957,11 @@ ExprResult Sema::BuildClassMessage(TypeSourceInfo *ReceiverTypeInfo,
     SourceRange TypeRange 
       = SuperLoc.isValid()? SourceRange(SuperLoc)
                           : ReceiverTypeInfo->getTypeLoc().getSourceRange();
-    if (RequireCompleteType(Loc, Context.getObjCInterfaceType(Class), 
+    if (RequireCompleteType(Loc, Context.getObjCInterfaceType(Class),
                             (getLangOpts().ObjCAutoRefCount
-                               ? PDiag(diag::err_arc_receiver_forward_class)
-                               : PDiag(diag::warn_receiver_forward_class))
-                                   << TypeRange)) {
+                               ? diag::err_arc_receiver_forward_class
+                               : diag::warn_receiver_forward_class),
+                            TypeRange)) {
       // A forward class used in messaging is treated as a 'Class'
       Method = LookupFactoryMethodInGlobalPool(Sel, 
                                                SourceRange(LBracLoc, RBracLoc));
@@ -2215,12 +2220,10 @@ ExprResult Sema::BuildInstanceMessage(Expr *Receiver,
         const ObjCInterfaceDecl *forwardClass = 0;
         if (RequireCompleteType(Loc, OCIType->getPointeeType(),
               getLangOpts().ObjCAutoRefCount
-                ? PDiag(diag::err_arc_receiver_forward_instance)
-                    << (Receiver ? Receiver->getSourceRange() 
-                                 : SourceRange(SuperLoc))
-                : PDiag(diag::warn_receiver_forward_instance)
-                    << (Receiver ? Receiver->getSourceRange() 
-                                 : SourceRange(SuperLoc)))) {
+                ? diag::err_arc_receiver_forward_instance
+                : diag::warn_receiver_forward_instance,
+                                Receiver? Receiver->getSourceRange()
+                                        : SourceRange(SuperLoc))) {
           if (getLangOpts().ObjCAutoRefCount)
             return ExprError();
           

@@ -16,7 +16,7 @@ let CategoryName = "Semantic Issue" in {
 
 // For loop analysis
 def warn_variables_not_in_loop_body : Warning<
-  "variable%select{s| %1|s %1 and %2|s %1 %2 and %3|s %1 %2 %3 and %4}0 "
+  "variable%select{s| %1|s %1 and %2|s %1, %2, and %3|s %1, %2, %3, and %4}0 "
   "used in loop condition not modified in loop body">,
   InGroup<DiagGroup<"loop-analysis">>, DefaultIgnore;
 
@@ -448,6 +448,8 @@ def err_class_extension_after_impl : Error<
   "cannot declare class extension for %0 after class implementation">;
 def note_implementation_declared : Note<
   "class implementation is declared here">;
+def not_while_in_implementation : Note<
+  "detected while default synthesizing properties in class implementation">;
 def note_class_declared : Note<
   "class is declared here">;
 def note_receiver_is_id : Note<
@@ -581,13 +583,15 @@ def err_objc_property_requires_object : Error<
   "property with '%0' attribute must be of object type">;
 def warn_objc_property_no_assignment_attribute : Warning<
   "no 'assign', 'retain', or 'copy' attribute is specified - "
-  "'assign' is assumed">;
+  "'assign' is assumed">,
+  InGroup<ObjCPropertyNoAttribute>;
 def warn_objc_isa_use : Warning<
   "direct access to objective-c's isa is deprecated "
   "in favor of object_setClass() and object_getClass()">,
   InGroup<DiagGroup<"deprecated-objc-isa-usage">>;
 def warn_objc_property_default_assign_on_object : Warning<
-  "default property attribute 'assign' not appropriate for non-gc object">;
+  "default property attribute 'assign' not appropriate for non-GC object">,
+  InGroup<ObjCPropertyNoAttribute>;
 def warn_property_attr_mismatch : Warning<
   "property attribute in continuation class does not match the primary class">;
 def warn_objc_property_copy_missing_on_block : Warning<
@@ -616,6 +620,9 @@ def warn_auto_synthesizing_protocol_property :Warning<
   "auto property synthesis will not synthesize property"
   " declared in a protocol">,
   InGroup<DiagGroup<"objc-protocol-property-synthesis">>;
+def warn_missing_explicit_synthesis : Warning <
+  "auto property synthesis is synthesizing property not explicitly synthesized">,
+  InGroup<DiagGroup<"objc-missing-property-synthesis">>, DefaultIgnore;
 def warn_property_getter_owning_mismatch : Warning<
   "property declared as returning non-retained objects"
   "; getter returning retained objects">;
@@ -673,10 +680,8 @@ def warn_receiver_is_weak : Warning <
   "weak %select{receiver|property|implicit property}0 may be "
   "unpredictably null in ARC mode">,
   InGroup<DiagGroup<"receiver-is-weak">>, DefaultIgnore;
-
-def error_synthesized_ivar_yet_not_supported : Error<
-  "instance variable synthesis not yet supported"
-  " (need to declare %0 explicitly)">;
+def err_incomplete_synthesized_property : Error<
+  "cannot synthesize property %0 with incomplete type %1">;
 
 def error_property_ivar_type : Error<
   "type of property %0 (%1) does not match type of ivar %2 (%3)">;
@@ -1323,10 +1328,8 @@ def err_delegating_initializer_alone : Error<
 def warn_delegating_ctor_cycle : Warning<
   "constructor for %0 creates a delegation cycle">, DefaultError,
   InGroup<DelegatingCtorCycles>;
-def note_it_delegates_to : Note<
-  "it delegates to">, InGroup<DelegatingCtorCycles>;
-def note_which_delegates_to : Note<
-  "which delegates to">, InGroup<DelegatingCtorCycles>;
+def note_it_delegates_to : Note<"it delegates to">;
+def note_which_delegates_to : Note<"which delegates to">;
 
 // C++11 range-based for loop
 def err_for_range_decl_must_be_var : Error<
@@ -1460,6 +1463,8 @@ def err_attribute_bad_neon_vector_size : Error<
   "Neon vector size must be 64 or 128 bits">;
 def err_attribute_argument_not_int : Error<
   "'%0' attribute requires integer constant">;
+def err_aligned_attribute_argument_not_int : Error<
+  "'aligned' attribute requires integer constant">;
 def err_attribute_argument_not_class : Error<
   "%0 attribute requires arguments that are class type or point to class type">;
 def err_attribute_first_argument_not_int_or_bool : Error<
@@ -1534,7 +1539,7 @@ def err_invalid_nsnumber_type : Error<
 def err_undeclared_nsstring : Error<
   "cannot box a string value because NSString has not been declared">;
 def err_objc_illegal_boxed_expression_type : Error<
-  "Illegal type %0 used in a boxed expression">;
+  "illegal type %0 used in a boxed expression">;
 def err_undeclared_nsarray : Error<
   "NSArray must be available to use Objective-C array literals">;
 def err_undeclared_nsdictionary : Error<
@@ -1715,8 +1720,7 @@ def warn_lock_exclusive_and_shared : Warning<
   "mutex '%0' is locked exclusively and shared in the same scope">,
   InGroup<ThreadSafetyAnalysis>, DefaultIgnore;
 def note_lock_exclusive_and_shared : Note<
-  "the other lock of mutex '%0' is here">,
-  InGroup<ThreadSafetyAnalysis>, DefaultIgnore;
+  "the other lock of mutex '%0' is here">;
 def warn_variable_requires_lock : Warning<
   "%select{reading|writing}2 variable '%0' requires locking "
   "%select{'%1'|'%1' exclusively}2">,
@@ -3549,8 +3553,10 @@ def warn_floatingpoint_eq : Warning<
   "comparing floating point with == or != is unsafe">,
   InGroup<DiagGroup<"float-equal">>, DefaultIgnore;
 
-def warn_division_by_zero : Warning<"division by zero is undefined">;
-def warn_remainder_by_zero : Warning<"remainder by zero is undefined">;
+def warn_division_by_zero : Warning<"division by zero is undefined">,
+  InGroup<DivZero>;
+def warn_remainder_by_zero : Warning<"remainder by zero is undefined">,
+  InGroup<DivZero>;
 def warn_shift_negative : Warning<"shift count is negative">,
   InGroup<DiagGroup<"shift-count-negative">>;
 def warn_shift_gt_typewidth : Warning<"shift count >= width of type">,
@@ -3849,9 +3855,6 @@ def err_this_static_member_func : Error<
   "declaration">;
 def err_invalid_member_use_in_static_method : Error<
   "invalid use of member %0 in static member function">;
-def warn_cxx98_compat_this_outside_method : Warning<
-  "use of 'this' outside a non-static member function is incompatible "
-  "with C++98">, InGroup<CXX98Compat>, DefaultIgnore;
 def err_invalid_qualified_function_type : Error<
   "%select{static |non-}0member function %select{of type %2 |}1"
   "cannot have '%3' qualifier">;
@@ -5244,6 +5247,27 @@ def warn_missing_cases : Warning<
   "%0 enumeration values not handled in switch: %1, %2, %3...">,
   InGroup<Switch>;
 
+def warn_unannotated_fallthrough : Warning<
+  "unannotated fall-through between switch labels">,
+  InGroup<ImplicitFallthrough>, DefaultIgnore;
+def note_insert_fallthrough_fixit : Note<
+  "insert '[[clang::fallthrough]];' to silence this warning">;
+def note_insert_break_fixit : Note<
+  "insert 'break;' to avoid fall-through">;
+def err_fallthrough_attr_wrong_target : Error<
+  "clang::fallthrough attribute is only allowed on empty statements">,
+  InGroup<IgnoredAttributes>;
+def note_fallthrough_insert_semi_fixit : Note<"did you forget ';'?">;
+def err_fallthrough_attr_outside_switch : Error<
+  "fallthrough annotation is outside switch statement">,
+  InGroup<IgnoredAttributes>;
+def warn_fallthrough_attr_invalid_placement : Warning<
+  "fallthrough annotation does not directly precede switch label">,
+  InGroup<ImplicitFallthrough>;
+def warn_fallthrough_attr_unreachable : Warning<
+  "fallthrough annotation in unreachable code">,
+  InGroup<ImplicitFallthrough>;
+
 def warn_unreachable_default : Warning<
   "default label in switch which covers all enumeration values">,
   InGroup<CoveredSwitchDefault>, DefaultIgnore;
@@ -5276,8 +5300,7 @@ def warn_empty_while_body : Warning<
 def warn_empty_switch_body : Warning<
   "switch statement has empty body">, InGroup<EmptyBody>;
 def note_empty_body_on_separate_line : Note<
-  "put the semicolon on a separate line to silence this warning">,
-  InGroup<EmptyBody>;
+  "put the semicolon on a separate line to silence this warning">;
 
 def err_va_start_used_in_non_variadic_function : Error<
   "'va_start' used in function with fixed args">;

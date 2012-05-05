@@ -83,7 +83,7 @@ void test2() {
   for (; i != 3i; ) { ++i; }
 
   // Testing ConditionalOperator
-  for (; i ? j : k; ) {} // expected-warning {{variables 'i' 'j' and 'k' used in loop condition not modified in loop body}}
+  for (; i ? j : k; ) {} // expected-warning {{variables 'i', 'j', and 'k' used in loop condition not modified in loop body}}
   for (; i ? j : k; ) { ++i; }
   for (; i ? j : k; ) { ++j; }
   for (; i ? j : k; ) { ++k; }
@@ -124,12 +124,12 @@ void test4() {
   int a, b, c, d, e, f;
   for (; a;);  // expected-warning {{variable 'a' used in loop condition not modified in loop body}}
   for (; a + b;);  // expected-warning {{variables 'a' and 'b' used in loop condition not modified in loop body}}
-  for (; a + b + c;);  // expected-warning {{variables 'a' 'b' and 'c' used in loop condition not modified in loop body}}
-  for (; a + b + c + d;);  // expected-warning {{variables 'a' 'b' 'c' and 'd' used in loop condition not modified in loop body}}
+  for (; a + b + c;);  // expected-warning {{variables 'a', 'b', and 'c' used in loop condition not modified in loop body}}
+  for (; a + b + c + d;);  // expected-warning {{variables 'a', 'b', 'c', and 'd' used in loop condition not modified in loop body}}
   for (; a + b + c + d + e;);  // expected-warning {{variables used in loop condition not modified in loop body}}
   for (; a + b + c + d + e + f;);  // expected-warning {{variables used in loop condition not modified in loop body}}
-  for (; a + c + d + b;);  // expected-warning {{variables 'a' 'c' 'd' and 'b' used in loop condition not modified in loop body}}
-  for (; d + c + b + a;);  // expected-warning {{variables 'd' 'c' 'b' and 'a' used in loop condition not modified in loop body}}
+  for (; a + c + d + b;);  // expected-warning {{variables 'a', 'c', 'd', and 'b' used in loop condition not modified in loop body}}
+  for (; d + c + b + a;);  // expected-warning {{variables 'd', 'c', 'b', and 'a' used in loop condition not modified in loop body}}
 }
 
 // Ensure that the warning doesn't fail when lots of variables are used
@@ -143,4 +143,12 @@ void test5() {
    // expected-warning {{variable 'a' used in loop condition not modified in loop body}}
   for (int a; a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a;);//\
    // expected-warning {{variable 'a' used in loop condition not modified in loop body}}
+}
+
+// Ignore global variables and static variables.
+int x6;
+void test6() {
+  static int y;
+  for (;x6;);
+  for (;y;);
 }

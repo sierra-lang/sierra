@@ -58,6 +58,26 @@ void ExprEngine::VisitBinaryOperator(const BinaryOperator* B,
       
     if (!B->isAssignmentOp()) {
       StmtNodeBuilder Bldr(*it, Tmp2, *currentBuilderContext);
+
+      if (B->isAdditiveOp()) {
+        // If one of the operands is a location, conjure a symbol for the other
+        // one (offset) if it's unknown so that memory arithmetic always
+        // results in an ElementRegion.
+        // TODO: This can be removed after we enable history tracking with
+        // SymSymExpr.
+        unsigned Count = currentBuilderContext->getCurrentBlockCount();
+        if (isa<Loc>(LeftV) &&
+            RHS->getType()->isIntegerType() && RightV.isUnknown()) {
+          RightV = svalBuilder.getConjuredSymbolVal(RHS, LCtx,
+                                                    RHS->getType(), Count);
+        }
+        if (isa<Loc>(RightV) &&
+            LHS->getType()->isIntegerType() && LeftV.isUnknown()) {
+          LeftV = svalBuilder.getConjuredSymbolVal(LHS, LCtx,
+                                                   LHS->getType(), Count);
+        }
+      }
+
       // Process non-assignments except commas or short-circuited
       // logical expressions (LAnd and LOr).
       SVal Result = evalBinOp(state, Op, LeftV, RightV, B->getType());      
@@ -162,14 +182,35 @@ void ExprEngine::VisitBlockExpr(const BlockExpr *BE, ExplodedNode *Pred,
                                 ExplodedNodeSet &Dst) {
   
   CanQualType T = getContext().getCanonicalType(BE->getType());
+
+  // Get the value of the block itself.
   SVal V = svalBuilder.getBlockPointer(BE->getBlockDecl(), T,
                                        Pred->getLocationContext());
+  
+  ProgramStateRef State = Pred->getState();
+  
+  // If we created a new MemRegion for the block, we should explicitly bind
+  // the captured variables.
+  if (const BlockDataRegion *BDR =
+      dyn_cast_or_null<BlockDataRegion>(V.getAsRegion())) {
+    
+    BlockDataRegion::referenced_vars_iterator I = BDR->referenced_vars_begin(),
+                                              E = BDR->referenced_vars_end();
+    
+    for (; I != E; ++I) {
+      const MemRegion *capturedR = I.getCapturedRegion();
+      const MemRegion *originalR = I.getOriginalRegion();
+      if (capturedR != originalR) {
+        SVal originalV = State->getSVal(loc::MemRegionVal(originalR));
+        State = State->bindLoc(loc::MemRegionVal(capturedR), originalV);
+      }
+    }
+  }
   
   ExplodedNodeSet Tmp;
   StmtNodeBuilder Bldr(Pred, Tmp, *currentBuilderContext);
   Bldr.generateNode(BE, Pred,
-                    Pred->getState()->BindExpr(BE, Pred->getLocationContext(),
-                                               V),
+                    State->BindExpr(BE, Pred->getLocationContext(), V),
                     false, 0,
                     ProgramPoint::PostLValueKind);
   

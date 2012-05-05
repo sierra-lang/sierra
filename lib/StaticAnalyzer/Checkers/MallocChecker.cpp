@@ -137,6 +137,9 @@ public:
     return true;
   }
 
+  void printState(raw_ostream &Out, ProgramStateRef State,
+                  const char *NL, const char *Sep) const;
+
 private:
   void initIdentifierInfo(ASTContext &C) const;
 
@@ -1118,7 +1121,11 @@ void MallocChecker::checkBind(SVal loc, SVal val, const Stmt *S,
       // To test (3), generate a new state with the binding added.  If it is
       // the same state, then it escapes (since the store cannot represent
       // the binding).
-      escapes = (state == (state->bindLoc(*regionLoc, val)));
+      // Do this only if we know that the store is not supposed to generate the
+      // same state.
+      SVal StoredVal = state->getSVal(regionLoc->getRegion());
+      if (StoredVal != val)
+        escapes = (state == (state->bindLoc(*regionLoc, val)));
     }
     if (!escapes) {
       // Case 4: We do not currently model what happens when a symbol is
@@ -1278,6 +1285,11 @@ bool MallocChecker::doesNotFreeMemory(const CallOrObjCMessage *Call,
     if (FName.startswith("NS") && (FName.find("Insert") != StringRef::npos))
       return false;
 
+    // If the call has a callback as an argument, assume the memory
+    // can be freed.
+    if (Call->hasNonZeroCallbackArg())
+      return false;
+
     // Otherwise, assume that the function does not free memory.
     // Most system calls, do not free the memory.
     return true;
@@ -1304,6 +1316,11 @@ bool MallocChecker::doesNotFreeMemory(const CallOrObjCMessage *Call,
     if (S.getNameForSlot(0).endswith("NoCopy")) {
       return false;
     }
+
+    // If the call has a callback as an argument, assume the memory
+    // can be freed.
+    if (Call->hasNonZeroCallbackArg())
+      return false;
 
     // Otherwise, assume that the function does not free memory.
     // Most system calls, do not free the memory.
@@ -1452,6 +1469,14 @@ MallocChecker::MallocBugVisitor::VisitNode(const ExplodedNode *N,
   return new PathDiagnosticEventPiece(Pos, Msg, true, StackHint);
 }
 
+void MallocChecker::printState(raw_ostream &Out, ProgramStateRef State,
+                               const char *NL, const char *Sep) const {
+
+  RegionStateTy RS = State->get<RegionState>();
+
+  if (!RS.isEmpty())
+    Out << "Has Malloc data" << NL;
+}
 
 #define REGISTER_CHECKER(name) \
 void ento::register##name(CheckerManager &mgr) {\
