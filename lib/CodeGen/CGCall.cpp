@@ -24,6 +24,7 @@
 #include "clang/AST/DeclObjC.h"
 #include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/Attributes.h"
+#include "llvm/Constants.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/InlineAsm.h"
@@ -785,16 +786,6 @@ CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
   SmallVector<llvm::Type*, 8> argTypes;
   llvm::Type *resultType = 0;
 
-#if 0
-  unsigned SierraSpmd = FI.getSierraSpmd();
-  assert(SierraSpmd != 0 && "TODO");
-  if (SierraSpmd != 1) {
-    argTypes.push_back(llvm::VectorType::get(llvm::IntegerType::getInt1Ty(getLLVMContext()), SierraSpmd));
-  }
-
-#endif
-
-
   const ABIArgInfo &retAI = FI.getReturnInfo();
   switch (retAI.getKind()) {
   case ABIArgInfo::Expand:
@@ -859,6 +850,11 @@ CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
       break;
     }
   }
+
+  unsigned SierraSpmd = FI.getSierraSpmd();
+  assert(SierraSpmd != 0 && "TODO");
+  if (SierraSpmd != 1)
+    argTypes.push_back(llvm::VectorType::get(llvm::IntegerType::getInt1Ty(getLLVMContext()), SierraSpmd));
 
   bool Erased = FunctionsBeingProcessed.erase(&FI); (void)Erased;
   assert(Erased && "Not in set?");
@@ -1079,6 +1075,7 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
   // Emit allocs for param decls.  Give the LLVM Argument nodes names.
   llvm::Function::arg_iterator AI = Fn->arg_begin();
 
+
   // Name the struct return argument.
   if (CGM.ReturnTypeUsesSRet(FI)) {
     AI->setName("agg.result");
@@ -1089,20 +1086,13 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
   assert(FI.arg_size() == Args.size() &&
          "Mismatch between function signature & arguments.");
   unsigned ArgNo = 1;
+  FunctionArgList::const_iterator i = Args.begin(), e = Args.end();
   CGFunctionInfo::const_arg_iterator info_it = FI.arg_begin();
 
-  for (FunctionArgList::const_iterator i = Args.begin() , e = Args.end(); 
-       i != e; ++i, ++info_it, ++ArgNo) {
-
+  for (;i != e; ++i, ++info_it, ++ArgNo) {
     const VarDecl *Arg = *i;
     QualType Ty = info_it->type;
     const ABIArgInfo &ArgI = info_it->info;
-
-    //unsigned SierraSpmd = FI.getSierraSpmd();
-    //if (ArgNo == 0 && SierraSpmd != 1) {
-      //continue;
-    //}
-
 
     bool isPromoted =
       isa<ParmVarDecl>(Arg) && cast<ParmVarDecl>(Arg)->isKNRPromoted();
@@ -1278,6 +1268,9 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
 
     ++AI;
   }
+
+  unsigned SierraSpmd = FI.getSierraSpmd();
+  if (SierraSpmd != 1) ++AI;
   assert(AI == Fn->arg_end() && "Argument mismatch!");
 }
 
@@ -2050,6 +2043,18 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       IRArgNo = Args.size();
       break;
     }
+  }
+
+  unsigned SierraSpmd = CallInfo.getSierraSpmd();
+  if (SierraSpmd != 1) {
+    llvm::Constant** undefs = new llvm::Constant*[SierraSpmd];
+    for (size_t i = 0; i < SierraSpmd; ++i)
+      undefs[i] = llvm::UndefValue::get(llvm::IntegerType::getInt1Ty(getLLVMContext()));
+
+    llvm::ArrayRef<llvm::Constant*> values(undefs, SierraSpmd);
+    Args.push_back(llvm::ConstantVector::get(values));
+
+    delete[] undefs;
   }
 
   // If the callee is a bitcast of a function to a varargs pointer to function
