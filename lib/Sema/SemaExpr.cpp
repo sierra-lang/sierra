@@ -14677,11 +14677,12 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
       if (ERes.isInvalid())
         return ERes;
 
-      E = ERes.take();
+      E = ERes.get();
       QualType T = E->getType();
       unsigned newL = T->getSierraVectorLength();
-      scope->setCurrentVectorLength(newL);
       assert(oldL == 1 || newL == 1 || oldL == newL);
+      if (newL != 1)
+        scope->setCurrentVectorLength(newL);
 
       return Owned(E);
     }
@@ -14702,7 +14703,7 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
         return Owned(E);
       }
 
-      Diag(Loc, diag::err_incompatible_vector_lengths)
+      Diag(Loc, diag::err_incompatible_vector_lengths_in_condition)
         << oldL << newL;
       return ExprError();
     }
