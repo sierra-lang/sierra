@@ -37,6 +37,7 @@
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/Transforms/Utils/Local.h"
 using namespace clang;
 using namespace CodeGen;
@@ -1588,6 +1589,11 @@ CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
     }
   }
 
+  unsigned SierraSpmd = FI.getSierraSpmd();
+  assert(SierraSpmd != 0 && "TODO");
+  if (SierraSpmd != 1)
+    ArgTypes.push_back(llvm::VectorType::get(llvm::IntegerType::getInt1Ty(getLLVMContext()), SierraSpmd));
+
   bool Erased = FunctionsBeingProcessed.erase(&FI); (void)Erased;
   assert(Erased && "Not in set?");
 
@@ -2177,12 +2183,6 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
     const VarDecl *Arg = *i;
     QualType Ty = info_it->type;
     const ABIArgInfo &ArgI = info_it->info;
-
-    //unsigned SierraSpmd = FI.getSierraSpmd();
-    //if (ArgNo == 0 && SierraSpmd != 1) {
-      //continue;
-    //}
-
 
     bool isPromoted =
       isa<ParmVarDecl>(Arg) && cast<ParmVarDecl>(Arg)->isKNRPromoted();
@@ -3878,6 +3878,18 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       assert(IRArgPos == FirstIRArg + NumIRArgs);
       break;
     }
+  }
+
+  unsigned SierraSpmd = CallInfo.getSierraSpmd();
+  if (SierraSpmd != 1) {
+    llvm::Constant** undefs = new llvm::Constant*[SierraSpmd];
+    for (size_t i = 0; i < SierraSpmd; ++i)
+      undefs[i] = llvm::UndefValue::get(llvm::IntegerType::getInt1Ty(getLLVMContext()));
+
+    llvm::ArrayRef<llvm::Constant*> values(undefs, SierraSpmd);
+    Args.push_back(llvm::ConstantVector::get(values));
+
+    delete[] undefs;
   }
 
   llvm::Value *CalleePtr = Callee.getFunctionPointer();
