@@ -1,4 +1,5 @@
 #include "clang/Sema/Sema.h"
+#include "clang/Sema/Scope.h"
 #include "clang/Sema/SemaSierra.h"
 #include "clang/AST/OperationKinds.h"
 #include "clang/Sema/SemaDiagnostic.h"
@@ -29,19 +30,27 @@ QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize,
 
     // unlike gcc's vector_size attribute, the size is specified as the
     // number of elements, not the number of bytes.
-    unsigned vectorSize = static_cast<unsigned>(vecSize.getZExtValue());
+    unsigned VecS = static_cast<unsigned>(vecSize.getZExtValue());
 
-    if (vectorSize == 0) {
+    if (VecS == 0) {
       S.Diag(AttrLoc, diag::err_attribute_zero_size)
       << ArraySize->getSourceRange();
       return QualType();
     }
 
     // uniform special case
-    if (vectorSize == 1)
+    if (VecS == 1)
       return QualType();
 
-    QualType res = S.Context.getSierraVectorType(T, vectorSize);
+    unsigned CurS = S.getCurScope()->getCurrentVectorLength();
+    // TODO polymorphism
+    if (CurS != 1 && CurS != VecS) {
+      S.Diag(AttrLoc, diag::err_incompatible_vector_lengths_in_decl)
+        << CurS << VecS;
+      return QualType();
+    }
+
+    QualType res = S.Context.getSierraVectorType(T, VecS);
     return res;
   }
 
@@ -333,7 +342,12 @@ bool HandleSierraSpmdAttr(Sema &S, const FunctionType *FunT,
     return false;
   }
 
+  // check vector length of params/ret type
+  // TODO -- how do I do that?
+
+  // update current scope
   SpmdSize = static_cast<unsigned>(SpmdSizeAPS.getZExtValue());
+  S.getCurScope()->setCurrentVectorLength(SpmdSize);
   return true;
 }
 

@@ -10926,14 +10926,14 @@ ExprResult Sema::CheckBooleanCondition(Expr *E, SourceLocation Loc) {
 
       ExprResult ERes = CheckCXXBooleanCondition(E, allowed); // C++ 6.4p4
 
-      if (ERes.isInvalid())
-        return ExprError();
+      if (ERes.isInvalid()) return ExprError();
 
       E = ERes.take();
       QualType T = E->getType();
       unsigned newL = T->getSierraVectorLength();
-      scope->setCurrentVectorLength(newL);
       assert(oldL == 1 || newL == 1 || oldL == newL);
+      if (newL != 1)
+        scope->setCurrentVectorLength(newL);
 
       return Owned(E);
     }
@@ -10954,7 +10954,7 @@ ExprResult Sema::CheckBooleanCondition(Expr *E, SourceLocation Loc) {
         return Owned(E);
       }
 
-      Diag(Loc, diag::err_incompatible_vector_lengths)
+      Diag(Loc, diag::err_incompatible_vector_lengths_in_condition)
         << oldL << newL;
       return ExprError();
     }
