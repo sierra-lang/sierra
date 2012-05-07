@@ -10954,7 +10954,7 @@ ExprResult Sema::CheckBooleanCondition(Expr *E, SourceLocation Loc) {
         return Owned(E);
       }
 
-      Diag(Loc, diag::err_incompatible_vector_lengths_in_condition)
+      Diag(Loc, diag::err_sierra_incompatible_vector_lengths_in_condition)
         << oldL << newL;
       return ExprError();
     }

@@ -6,57 +6,6 @@
 
 namespace clang {
 
-/// \brief Build an sierra vector type.
-///
-/// Run the required checks for the sierra vector type.
-QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize,
-                                     SourceLocation AttrLoc) {
-  // FIXME Sierra: actually we want to allow that!!!
-  // unlike gcc's vector_size attribute, we do not allow vectors to be defined
-  // in conjunction with complex types (pointers, arrays, functions, etc.).
-  if (!T->isDependentType() &&
-      !T->isIntegerType() && !T->isRealFloatingType()) {
-    S.Diag(AttrLoc, diag::err_attribute_invalid_vector_type) << T;
-    return QualType();
-  }
-
-  if (!ArraySize->isTypeDependent() && !ArraySize->isValueDependent()) {
-    llvm::APSInt vecSize(32);
-    if (!ArraySize->isIntegerConstantExpr(vecSize, S.Context)) {
-      S.Diag(AttrLoc, diag::err_attribute_argument_not_int)
-        << "sierra_vector" << ArraySize->getSourceRange();
-      return QualType();
-    }
-
-    // unlike gcc's vector_size attribute, the size is specified as the
-    // number of elements, not the number of bytes.
-    unsigned VecS = static_cast<unsigned>(vecSize.getZExtValue());
-
-    if (VecS == 0) {
-      S.Diag(AttrLoc, diag::err_attribute_zero_size)
-      << ArraySize->getSourceRange();
-      return QualType();
-    }
-
-    // uniform special case
-    if (VecS == 1)
-      return QualType();
-
-    unsigned CurS = S.getCurScope()->getCurrentVectorLength();
-    // TODO polymorphism
-    if (CurS != 1 && CurS != VecS) {
-      S.Diag(AttrLoc, diag::err_incompatible_vector_lengths_in_decl)
-        << CurS << VecS;
-      return QualType();
-    }
-
-    QualType res = S.Context.getSierraVectorType(T, VecS);
-    return res;
-  }
-
-  return S.Context.getDependentSizedSierraVectorType(T, ArraySize, AttrLoc);
-}
-
 class SierraVectorOperandsChecker {
 public:
   SierraVectorOperandsChecker(Sema &S, ExprResult &LHS, ExprResult &RHS, 
@@ -251,13 +200,59 @@ QualType CheckSierraVectorOperands(Sema &S, ExprResult &LHS, ExprResult &RHS,
 
 //------------------------------------------------------------------------------
 
-/// HandleSierraVectorAttr - this attribute is only applicable to integral
-/// and float scalars, although arrays, pointers, and function return values are
-/// allowed in conjunction with this construct. Aggregates with this attribute
-/// are invalid, even if they are of the same size as a corresponding scalar.
-/// The raw attribute should contain precisely 1 argument, the vector size for
-/// the variable, measured in bytes. If curType and rawAttr are well formed,
-/// this routine will return a new vector type.
+/// \brief Build an sierra vector type.
+///
+/// Run the required checks for the sierra vector type.
+QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize,
+                                     SourceLocation AttrLoc) {
+  // TODO allow more types
+  if (!T->isDependentType() &&
+      !T->isIntegerType() && !T->isRealFloatingType()) {
+    S.Diag(AttrLoc, diag::err_attribute_invalid_vector_type) << T;
+    return QualType();
+  }
+
+  if (!ArraySize->isTypeDependent() && !ArraySize->isValueDependent()) {
+    llvm::APSInt vecSize(32);
+    if (!ArraySize->isIntegerConstantExpr(vecSize, S.Context)) {
+      S.Diag(AttrLoc, diag::err_attribute_argument_not_int)
+        << "sierra_vector" << ArraySize->getSourceRange();
+      return QualType();
+    }
+
+    // unlike gcc's vector_size attribute, the size is specified as the
+    // number of elements, not the number of bytes.
+    unsigned VecS = static_cast<unsigned>(vecSize.getZExtValue());
+
+    if (VecS == 0) {
+      S.Diag(AttrLoc, diag::err_attribute_zero_size)
+      << ArraySize->getSourceRange();
+      return QualType();
+    }
+    if (!llvm::isPowerOf2_32(VecS)){
+      S.Diag(AttrLoc, diag::err_sierra_non_pow2) << VecS;
+      return QualType();
+    }
+
+    // uniform special case
+    if (VecS == 1)
+      return QualType();
+
+    unsigned CurS = S.getCurScope()->getCurrentVectorLength();
+    // TODO polymorphism
+    if (CurS != 1 && CurS != VecS) {
+      S.Diag(AttrLoc, diag::err_sierra_incompatible_vector_lengths_in_decl)
+        << CurS << VecS;
+      return QualType();
+    }
+
+    QualType res = S.Context.getSierraVectorType(T, VecS);
+    return res;
+  }
+
+  return S.Context.getDependentSizedSierraVectorType(T, ArraySize, AttrLoc);
+}
+
 void HandleSierraVectorAttr(Sema &S, QualType& CurType, const AttributeList &Attr) {
   if (!S.getLangOpts().SIERRA) {
     S.Diag(Attr.getLoc(), diag::err_sierra_attr_not_enabled) << "sierra_vector";

@@ -1667,12 +1667,14 @@ def warn_attribute_not_on_decl : Error<
 
 // Availability attribute
 def warn_availability_unknown_platform : Warning<
-  "unknown platform %0 in availability macro">;
+  "unknown platform %0 in availability macro">, InGroup<Availability>;
 def warn_availability_version_ordering : Warning<
   "feature cannot be %select{introduced|deprecated|obsoleted}0 in %1 version "
   "%2 before it was %select{introduced|deprecated|obsoleted}3 in version %4; "
-  "attribute ignored">;
-  
+  "attribute ignored">, InGroup<Availability>;
+def warn_mismatched_availability: Warning<
+  "availability does not match previous declaration">, InGroup<Availability>;
+
 // Thread Safety Attributes
 def warn_thread_attribute_ignored : Warning<
   "ignoring %0 attribute because its argument is invalid">,
@@ -5531,10 +5533,12 @@ def err_invalid_astype_of_different_size : Error<
 // Sierra warnings and errors.
 def err_sierra_attr_not_enabled : Error<
   "'%0' attribute not enabled; use '-fsierra'">;
-def err_incompatible_vector_lengths_in_condition : Error<
+def err_sierra_incompatible_vector_lengths_in_condition : Error<
   "incompatible vector lengths in condition; old length %0, new length %1">;
-def err_incompatible_vector_lengths_in_decl : Error<
+def err_sierra_incompatible_vector_lengths_in_decl : Error<
   "incompatible vector lengths in declaration; current length %0, requested length %1">;
+def err_sierra_non_pow2 : Error<
+  "the length of a sierra vector must be a power of two but %0 requested">;
 } // end of sema category
 
 let CategoryName = "Related Result Type Issue" in {
