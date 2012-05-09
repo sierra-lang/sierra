@@ -300,8 +300,8 @@ static const RecordType *getRecordType(QualType QT) {
 }
 
 
-bool checkBaseClassIsLockableCallback(const CXXBaseSpecifier *Specifier,
-                                      CXXBasePath &Path, void *UserData) {
+static bool checkBaseClassIsLockableCallback(const CXXBaseSpecifier *Specifier,
+                                             CXXBasePath &Path, void *Unused) {
   const RecordType *RT = Specifier->getType()->getAs<RecordType>();
   if (RT->getDecl()->getAttr<LockableAttr>())
     return true;
@@ -1690,11 +1690,11 @@ static void handleObjCRequiresPropertyDefsAttr(Sema &S, Decl *D,
                                  Attr.getRange(), S.Context));
 }
 
-bool checkAvailabilityAttr(Sema &S, SourceRange Range,
-                           IdentifierInfo *Platform,
-                           VersionTuple Introduced,
-                           VersionTuple Deprecated,
-                           VersionTuple Obsoleted) {
+static bool checkAvailabilityAttr(Sema &S, SourceRange Range,
+                                  IdentifierInfo *Platform,
+                                  VersionTuple Introduced,
+                                  VersionTuple Deprecated,
+                                  VersionTuple Obsoleted) {
   StringRef PlatformName
     = AvailabilityAttr::getPrettyPlatformName(Platform->getName());
   if (PlatformName.empty())
@@ -1868,7 +1868,7 @@ static void handleVisibilityAttr(Sema &S, Decl *D, const AttributeList &Attr) {
   }
 
   // Find the last Decl that has an attribute.
-  VisibilityAttr *PrevAttr;
+  VisibilityAttr *PrevAttr = 0;
   assert(D->redecls_begin() == D);
   for (Decl::redecl_iterator I = D->redecls_begin(), E = D->redecls_end();
        I != E; ++I) {
@@ -1880,7 +1880,7 @@ static void handleVisibilityAttr(Sema &S, Decl *D, const AttributeList &Attr) {
   if (PrevAttr) {
     VisibilityAttr::VisibilityType PrevVisibility = PrevAttr->getVisibility();
     if (PrevVisibility != type) {
-      S.Diag(Attr.getLoc(), diag::err_mismatched_visibilit);
+      S.Diag(Attr.getLoc(), diag::err_mismatched_visibility);
       S.Diag(PrevAttr->getLocation(), diag::note_previous_attribute);
       return;
     }
@@ -3988,8 +3988,12 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
 void Sema::ProcessDeclAttributeList(Scope *S, Decl *D,
                                     const AttributeList *AttrList,
                                     bool NonInheritable, bool Inheritable) {
+  SmallVector<const AttributeList*, 4> attrs;
   for (const AttributeList* l = AttrList; l; l = l->getNext()) {
-    ProcessDeclAttribute(*this, S, D, *l, NonInheritable, Inheritable);
+    attrs.push_back(l);
+  }
+  for (int i = attrs.size() - 1; i >= 0; --i) {
+    ProcessDeclAttribute(*this, S, D, *attrs[i], NonInheritable, Inheritable);
   }
 
   // GCC accepts

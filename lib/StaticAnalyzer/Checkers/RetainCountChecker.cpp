@@ -648,6 +648,10 @@ public:
     return getPersistentSummary(Summ);
   }
 
+  const RetainSummary *getDoNothingSummary() {
+    return getPersistentSummary(RetEffect::MakeNoRet(), DoNothing, DoNothing);
+  }
+  
   const RetainSummary *getDefaultSummary() {
     return getPersistentSummary(RetEffect::MakeNoRet(),
                                 DoNothing, MayEscape);
@@ -997,6 +1001,8 @@ RetainSummaryManager::getSummary(const FunctionDecl *FD,
       // libdispatch finalizers.
       ScratchArgs = AF.add(ScratchArgs, 1, StopTracking);
       S = getPersistentSummary(RetEffect::MakeNoRet(), DoNothing, DoNothing);
+    } else if (FName.startswith("NSLog")) {
+      S = getDoNothingSummary();
     } else if (FName.startswith("NS") &&
                 (FName.find("Insert") != StringRef::npos)) {
       // Whitelist NSXXInsertXX, for example NSMapInsertIfAbsent, since they can
@@ -1005,10 +1011,8 @@ RetainSummaryManager::getSummary(const FunctionDecl *FD,
       ScratchArgs = AF.add(ScratchArgs, 2, StopTracking);
       S = getPersistentSummary(RetEffect::MakeNoRet(), DoNothing, DoNothing);
     } else if (CME && CME->hasNonZeroCallbackArg()) {
-      // Allow objects to escape throug callbacks. radar://10973977
-      for (unsigned I = 0; I < CME->getNumArgs(); ++I)
-        ScratchArgs = AF.add(ScratchArgs, I, StopTracking);
-      S = getPersistentSummary(RetEffect::MakeNoRet(), DoNothing, DoNothing);
+      // Allow objects to escape through callbacks. radar://10973977
+      S = getPersistentStopSummary();
     }
 
     // Did we get a summary?

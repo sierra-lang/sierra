@@ -81,14 +81,9 @@ public:
 } // end anonymous namespace
 
 BindingKey BindingKey::Make(const MemRegion *R, Kind k) {
-  if (const ElementRegion *ER = dyn_cast<ElementRegion>(R)) {
-    const RegionRawOffset &O = ER->getAsArrayOffset();
-
-    // FIXME: There are some ElementRegions for which we cannot compute
-    // raw offsets yet, including regions with symbolic offsets. These will be
-    // ignored by the store.
-    return BindingKey(O.getRegion(), O.getOffset().getQuantity(), k);
-  }
+  const RegionOffset &RO = R->getAsOffset();
+  if (RO.getRegion())
+    return BindingKey(RO.getRegion(), RO.getOffset(), k);
 
   return BindingKey(R, 0, k);
 }
@@ -648,7 +643,7 @@ void invalidateRegionsWorker::VisitBinding(SVal V) {
 
     for (RegionBindings::iterator RI = B.begin(), RE = B.end(); RI != RE; ++RI){
       const SubRegion *baseR = dyn_cast<SubRegion>(RI.getKey().getRegion());
-      if (baseR && baseR->isSubRegionOf(LazyR))
+      if (baseR && (baseR == LazyR || baseR->isSubRegionOf(LazyR)))
         VisitBinding(RI.getData());
     }
 
@@ -1157,7 +1152,11 @@ RegionStoreManager::GetLazyBinding(RegionBindings B, const MemRegion *R,
 }
 
 SVal RegionStoreManager::getBindingForElement(Store store,
-                                         const ElementRegion* R) {
+                                              const ElementRegion* R) {
+  // We do not currently model bindings of the CompoundLiteralregion.
+  if (isa<CompoundLiteralRegion>(R->getBaseRegion()))
+    return UnknownVal();
+
   // Check if the region has a binding.
   RegionBindings B = GetRegionBindings(store);
   if (const Optional<SVal> &V = getDirectBinding(B, R))
@@ -1427,12 +1426,30 @@ SVal RegionStoreManager::getBindingForLazySymbol(const TypedValueRegion *R) {
 SVal RegionStoreManager::getBindingForStruct(Store store, 
                                         const TypedValueRegion* R) {
   assert(R->getValueType()->isStructureOrClassType());
+  
+  // If we already have a lazy binding, don't create a new one.
+  RegionBindings B = GetRegionBindings(store);
+  BindingKey K = BindingKey::Make(R, BindingKey::Default);
+  if (const nonloc::LazyCompoundVal *V =
+      dyn_cast_or_null<nonloc::LazyCompoundVal>(lookup(B, K))) {
+    return *V;
+  }
+
   return svalBuilder.makeLazyCompoundVal(StoreRef(store, *this), R);
 }
 
-SVal RegionStoreManager::getBindingForArray(Store store, 
+SVal RegionStoreManager::getBindingForArray(Store store,
                                        const TypedValueRegion * R) {
   assert(Ctx.getAsConstantArrayType(R->getValueType()));
+  
+  // If we already have a lazy binding, don't create a new one.
+  RegionBindings B = GetRegionBindings(store);
+  BindingKey K = BindingKey::Make(R, BindingKey::Default);
+  if (const nonloc::LazyCompoundVal *V =
+      dyn_cast_or_null<nonloc::LazyCompoundVal>(lookup(B, K))) {
+    return *V;
+  }
+
   return svalBuilder.makeLazyCompoundVal(StoreRef(store, *this), R);
 }
 
@@ -2016,7 +2033,9 @@ StoreRef RegionStoreManager::enterStackFrame(ProgramStateRef state,
 void RegionStoreManager::print(Store store, raw_ostream &OS,
                                const char* nl, const char *sep) {
   RegionBindings B = GetRegionBindings(store);
-  OS << "Store (direct and default bindings):" << nl;
+  OS << "Store (direct and default bindings), "
+     << (void*) B.getRootWithoutRetain()
+     << " :" << nl;
 
   for (RegionBindings::iterator I = B.begin(), E = B.end(); I != E; ++I)
     OS << ' ' << I.getKey() << " : " << I.getData() << nl;

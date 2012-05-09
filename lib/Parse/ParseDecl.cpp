@@ -38,6 +38,8 @@ TypeResult Parser::ParseTypeName(SourceRange *Range,
                                  AccessSpecifier AS,
                                  Decl **OwnedType) {
   DeclSpecContext DSC = getDeclSpecContextFromDeclaratorContext(Context);
+  if (DSC == DSC_normal)
+    DSC = DSC_type_specifier;
 
   // Parse the common declaration-specifiers piece.
   DeclSpec DS(AttrFactory);
@@ -1544,7 +1546,8 @@ void Parser::ParseSpecifierQualifierList(DeclSpec &DS, AccessSpecifier AS,
 
   // Validate declspec for type-name.
   unsigned Specs = DS.getParsedSpecifiers();
-  if (DSC == DSC_type_specifier && !DS.hasTypeSpecifier()) {
+  if ((DSC == DSC_type_specifier || DSC == DSC_trailing) &&
+      !DS.hasTypeSpecifier()) {
     Diag(Tok, diag::err_expected_type);
     DS.SetTypeSpecError();
   } else if (Specs == DeclSpec::PQ_None && !DS.getNumProtocolQualifiers() &&
@@ -1641,7 +1644,7 @@ bool Parser::ParseImplicitInt(DeclSpec &DS, CXXScopeSpec *SS,
   // FIXME: Don't bail out here in languages with no implicit int (like
   // C++ with no -fms-extensions). This is much more likely to be an undeclared
   // type or typo than a use of implicit int.
-  if (DSC != DSC_type_specifier &&
+  if (DSC != DSC_type_specifier && DSC != DSC_trailing &&
       isValidAfterIdentifierInDeclarator(NextToken())) {
     // If this token is valid for implicit int, e.g. "static x = 4", then
     // we just avoid eating the identifier, so it will be parsed as the
@@ -1922,7 +1925,7 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
       continue;
 
     case tok::annot_cxxscope: {
-      if (DS.hasTypeSpecifier())
+      if (DS.hasTypeSpecifier() || DS.isTypeAltiVecVector())
         goto DoneWithDeclSpec;
 
       CXXScopeSpec SS;
@@ -2119,6 +2122,11 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
       // Check for need to substitute AltiVec keyword tokens.
       if (TryAltiVecToken(DS, Loc, PrevSpec, DiagID, isInvalid))
         break;
+
+      // [AltiVec] 2.2: [If the 'vector' specifier is used] The syntax does not
+      //                allow the use of a typedef name as a type specifier.
+      if (DS.isTypeAltiVecVector())
+        goto DoneWithDeclSpec;
 
       ParsedType TypeRep =
         Actions.getTypeName(*Tok.getIdentifierInfo(),

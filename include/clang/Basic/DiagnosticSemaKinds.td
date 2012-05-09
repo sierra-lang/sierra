@@ -448,7 +448,7 @@ def err_class_extension_after_impl : Error<
   "cannot declare class extension for %0 after class implementation">;
 def note_implementation_declared : Note<
   "class implementation is declared here">;
-def not_while_in_implementation : Note<
+def note_while_in_implementation : Note<
   "detected while default synthesizing properties in class implementation">;
 def note_class_declared : Note<
   "class is declared here">;
@@ -1831,7 +1831,7 @@ def warn_attribute_unknown_visibility : Warning<"unknown visibility '%0'">;
 def warn_attribute_protected_visibility :
   Warning<"target does not support 'protected' visibility; using 'default'">,
   InGroup<DiagGroup<"unsupported-visibility">>;
-def err_mismatched_visibilit: Error<"visibility does not match previous declaration">;
+def err_mismatched_visibility: Error<"visibility does not match previous declaration">;
 def note_previous_attribute : Note<"previous attribute is here">;
 def err_unknown_machine_mode : Error<"unknown machine mode %0">;
 def err_unsupported_machine_mode : Error<"unsupported machine mode %0">;
@@ -2023,7 +2023,9 @@ def note_ovl_candidate_underqualified : Note<
     "candidate template ignored: can't deduce a type for %0 which would "
     "make %2 equal %1">;
 def note_ovl_candidate_substitution_failure : Note<
-    "candidate template ignored: substitution failure %0">;
+    "candidate template ignored: substitution failure%0%1">;
+def note_ovl_candidate_disabled_by_enable_if : Note<
+    "candidate template ignored: disabled by %0%1">;
     
 // Note that we don't treat templates differently for this diagnostic.
 def note_ovl_candidate_arity : Note<"candidate "
@@ -2732,6 +2734,9 @@ def note_explicit_instantiation_definition_here : Note<
   
 // C++ typename-specifiers
 def err_typename_nested_not_found : Error<"no type named %0 in %1">;
+def err_typename_nested_not_found_enable_if : Error<
+  "no type named 'type' in %0; 'enable_if' cannot be used to disable "
+  "this declaration">;
 def err_typename_nested_not_type : Error<
     "typename specifier refers to non-type member %0 in %1">;
 def note_typename_refers_here : Note<
