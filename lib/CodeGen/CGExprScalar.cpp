@@ -2277,6 +2277,9 @@ Value *ScalarExprEmitter::EmitCompare(const BinaryOperator *E,unsigned UICmpOpc,
 
     // If this is a vector comparison, sign extend the result to the appropriate
     // vector integer type and return it (don't convert to bool).
+    //if (LHSTy->isSierraVectorType())
+      //return Builder.CreateZExt(Result, ConvertType(E->getType()), "sext");
+
     if (LHSTy->isVectorType())
       return Builder.CreateSExt(Result, ConvertType(E->getType()), "sext");
 
