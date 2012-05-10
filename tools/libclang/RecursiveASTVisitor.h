@@ -1028,6 +1028,14 @@ DEF_TRAVERSE_TYPELOC(DependentSizedArrayType, {
 
 // FIXME: order? why not size expr first?
 // FIXME: base VectorTypeLoc is unfinished
+DEF_TRAVERSE_TYPELOC(DependentSizedSierraVectorType, {
+    if (TL.getTypePtr()->getSizeExpr())
+      TRY_TO(TraverseStmt(TL.getTypePtr()->getSizeExpr()));
+    TRY_TO(TraverseType(TL.getTypePtr()->getElementType()));
+  })
+
+// FIXME: order? why not size expr first?
+// FIXME: base VectorTypeLoc is unfinished
 DEF_TRAVERSE_TYPELOC(DependentSizedExtVectorType, {
     if (TL.getTypePtr()->getSizeExpr())
       TRY_TO(TraverseStmt(TL.getTypePtr()->getSizeExpr()));
@@ -1036,6 +1044,12 @@ DEF_TRAVERSE_TYPELOC(DependentSizedExtVectorType, {
 
 // FIXME: VectorTypeLoc is unfinished
 DEF_TRAVERSE_TYPELOC(VectorType, {
+    TRY_TO(TraverseType(TL.getTypePtr()->getElementType()));
+  })
+
+// FIXME: size and attributes
+// FIXME: base VectorTypeLoc is unfinished
+DEF_TRAVERSE_TYPELOC(SierraVectorType, {
     TRY_TO(TraverseType(TL.getTypePtr()->getElementType()));
   })
 
