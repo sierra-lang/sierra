@@ -757,6 +757,9 @@ Value *ScalarExprEmitter::EmitScalarConversion(Value *Src, QualType SrcType,
   QualType OrigSrcType = SrcType;
   llvm::Type *SrcTy = Src->getType();
 
+  if (SrcType->isSierraVectorType())
+    return EmitSierraConversion(this->CGF, Src, SrcType, DstType);
+
   // Handle conversions to bool first, they are special: comparisons against 0.
   if (DstType->isBooleanType())
     return EmitConversionToBool(Src, SrcType);
@@ -829,9 +832,6 @@ Value *ScalarExprEmitter::EmitScalarConversion(Value *Src, QualType SrcType,
     unsigned NumElements = DstTy->getVectorNumElements();
     return Builder.CreateVectorSplat(NumElements, Src, "splat");
   }
-
-  if (SrcType->isSierraVectorType())
-    return EmitSierraConversion(this->CGF, Src, SrcType, DstType);
 
   // Allow bitcast from vector to integer/fp of the same size.
   if (isa<llvm::VectorType>(SrcTy) ||
