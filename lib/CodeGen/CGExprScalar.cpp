@@ -550,6 +550,9 @@ Value *ScalarExprEmitter::EmitScalarConversion(Value *Src, QualType SrcType,
 
   llvm::Type *SrcTy = Src->getType();
 
+  if (SrcType->isSierraVectorType())
+    return EmitSierraConversion(this->CGF, Src, SrcType, DstType);
+
   // Floating casts might be a bit special: if we're doing casts to / from half
   // FP, we should go via special intrinsics.
   if (SrcType->isHalfType()) {
@@ -611,9 +614,6 @@ Value *ScalarExprEmitter::EmitScalarConversion(Value *Src, QualType SrcType,
     llvm::Value *Yay = Builder.CreateShuffleVector(UnV, UnV, Mask, "splat");
     return Yay;
   }
-
-  if (SrcType->isSierraVectorType())
-    return EmitSierraConversion(this->CGF, Src, SrcType, DstType);
 
   // Allow bitcast from vector to integer/fp of the same size.
   if (isa<llvm::VectorType>(SrcTy) ||

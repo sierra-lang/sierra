@@ -957,6 +957,9 @@ void CodeGenFunction::EmitStoreOfScalar(llvm::Value *Value, llvm::Value *Addr,
                                         bool isInit) {
   Value = EmitToMemory(Value, Ty);
   
+  if (CurrentMask)
+    llvm::errs() << "TODO: Sierra masked store\n";
+
   llvm::StoreInst *Store = Builder.CreateStore(Value, Addr, Volatile);
   if (Alignment)
     Store->setAlignment(Alignment);
