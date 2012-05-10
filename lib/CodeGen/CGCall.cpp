@@ -1272,6 +1272,7 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
   unsigned SierraSpmd = FI.getSierraSpmd();
   if (SierraSpmd != 1) {
     CurrentMask = AI;
+    AI->setName("current_mask");
     ++AI;
   }
   assert(AI == Fn->arg_end() && "Argument mismatch!");
@@ -2050,14 +2051,17 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
   unsigned SierraSpmd = CallInfo.getSierraSpmd();
   if (SierraSpmd != 1) {
+#if 0
     llvm::Constant** undefs = new llvm::Constant*[SierraSpmd];
     for (size_t i = 0; i < SierraSpmd; ++i)
       undefs[i] = llvm::UndefValue::get(llvm::IntegerType::getInt1Ty(getLLVMContext()));
 
     llvm::ArrayRef<llvm::Constant*> values(undefs, SierraSpmd);
     Args.push_back(llvm::ConstantVector::get(values));
+#endif
+    Args.push_back(CurrentMask);
 
-    delete[] undefs;
+    //delete[] undefs;
   }
 
   // If the callee is a bitcast of a function to a varargs pointer to function
