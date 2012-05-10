@@ -802,6 +802,12 @@ DEF_TRAVERSE_TYPE(DependentSizedArrayType, {
       TRY_TO(TraverseStmt(T->getSizeExpr()));
   })
 
+DEF_TRAVERSE_TYPE(DependentSizedSierraVectorType, {
+    if (T->getSizeExpr())
+      TRY_TO(TraverseStmt(T->getSizeExpr()));
+    TRY_TO(TraverseType(T->getElementType()));
+  })
+
 DEF_TRAVERSE_TYPE(DependentSizedExtVectorType, {
     if (T->getSizeExpr())
       TRY_TO(TraverseStmt(T->getSizeExpr()));
@@ -809,6 +815,10 @@ DEF_TRAVERSE_TYPE(DependentSizedExtVectorType, {
   })
 
 DEF_TRAVERSE_TYPE(VectorType, {
+    TRY_TO(TraverseType(T->getElementType()));
+  })
+
+DEF_TRAVERSE_TYPE(SierraVectorType, {
     TRY_TO(TraverseType(T->getElementType()));
   })
 

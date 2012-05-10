@@ -1270,7 +1270,10 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
   }
 
   unsigned SierraSpmd = FI.getSierraSpmd();
-  if (SierraSpmd != 1) ++AI;
+  if (SierraSpmd != 1) {
+    CurrentMask = AI;
+    ++AI;
+  }
   assert(AI == Fn->arg_end() && "Argument mismatch!");
 }
 
