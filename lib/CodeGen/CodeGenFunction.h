@@ -1171,6 +1171,9 @@ private:
   /// lazily by getUnreachableBlock().
   llvm::BasicBlock *UnreachableBlock;
 
+  /// When generating Sierra code this will hold the current mask
+  llvm::Value *CurrentMask;
+
   /// Counts of the number return expressions in the function.
   unsigned NumReturnExprs;
 

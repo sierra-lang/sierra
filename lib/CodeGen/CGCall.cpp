@@ -2468,6 +2468,11 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
     }
   }
 
+  unsigned SierraSpmd = FI.getSierraSpmd();
+  if (SierraSpmd != 1) {
+    CurrentMask = &FnArgs.back();
+  }
+
   if (getTarget().getCXXABI().areArgsDestroyedLeftToRightInCallee()) {
     for (int I = Args.size() - 1; I >= 0; --I)
       EmitParmDecl(*Args[I], ArgVals[I], I + 1);
