@@ -20,6 +20,7 @@
 #include "CGRecordLayout.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
+#include "CGSierra.h"
 #include "TargetInfo.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
@@ -1409,18 +1410,20 @@ void CodeGenFunction::EmitStoreOfScalar(llvm::Value *Value, Address Addr,
 
   Value = EmitToMemory(Value, Ty);
 
-  if (CurrentMask)
-    llvm::errs() << "TODO: Sierra masked store\n";
-
-  LValue AtomicLValue =
-      LValue::MakeAddr(Addr, Ty, getContext(), AlignSource, TBAAInfo);
-  if (Ty->isAtomicType() ||
-      (!isInit && LValueIsSuitableForInlineAtomic(AtomicLValue))) {
-    EmitAtomicStore(RValue::get(Value), AtomicLValue, isInit);
-    return;
+  llvm::StoreInst *Store;
+  if (CurrentMask) {
+    Store = EmitMaskedStore(Builder, CurrentMask, Value, Addr, Volatile);
+  } else {
+    LValue AtomicLValue =
+        LValue::MakeAddr(Addr, Ty, getContext(), AlignSource, TBAAInfo);
+    if (Ty->isAtomicType() ||
+        (!isInit && LValueIsSuitableForInlineAtomic(AtomicLValue))) {
+      EmitAtomicStore(RValue::get(Value), AtomicLValue, isInit);
+      return;
+    }
+  
+    Store = Builder.CreateStore(Value, Addr, Volatile);
   }
-
-  llvm::StoreInst *Store = Builder.CreateStore(Value, Addr, Volatile);
   if (isNontemporal) {
     llvm::MDNode *Node =
         llvm::MDNode::get(Store->getContext(),
