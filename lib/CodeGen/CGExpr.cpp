@@ -18,6 +18,7 @@
 #include "CGDebugInfo.h"
 #include "CGRecordLayout.h"
 #include "CGObjCRuntime.h"
+#include "CGSierra.h"
 #include "TargetInfo.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclObjC.h"
@@ -956,11 +957,12 @@ void CodeGenFunction::EmitStoreOfScalar(llvm::Value *Value, llvm::Value *Addr,
                                         llvm::MDNode *TBAAInfo,
                                         bool isInit) {
   Value = EmitToMemory(Value, Ty);
-  
-  if (CurrentMask)
-    llvm::errs() << "TODO: Sierra masked store\n";
 
-  llvm::StoreInst *Store = Builder.CreateStore(Value, Addr, Volatile);
+  llvm::StoreInst *Store;
+  if (CurrentMask) {
+    Store = EmitMaskedStore(Builder, CurrentMask, Value, Addr, Volatile);
+  } else
+   Store = Builder.CreateStore(Value, Addr, Volatile);
   if (Alignment)
     Store->setAlignment(Alignment);
   if (TBAAInfo)

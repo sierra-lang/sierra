@@ -2,6 +2,7 @@
 #include "CGSierra.h"
 #include "CodeGenFunction.h"
 #include "llvm/Type.h"
+#include "llvm/DerivedTypes.h"
 #include "llvm/Value.h"
 
 
@@ -22,8 +23,8 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src, QualType Src
   QualType SrcE = SrcType->getAs<SierraVectorType>()->getElementType();
   QualType DstE = DstType->getAs<SierraVectorType>()->getElementType();
 
-  llvm::VectorType* SrcV = cast<llvm::VectorType>(SrcTy);
-  llvm::VectorType* DstV = cast<llvm::VectorType>(DstTy);
+  llvm::VectorType *SrcV = cast<llvm::VectorType>(SrcTy);
+  llvm::VectorType *DstV = cast<llvm::VectorType>(DstTy);
 
   SrcTy = SrcV->getElementType();
   DstTy = DstV->getElementType();
@@ -68,6 +69,24 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src, QualType Src
   //}
 
   return Res;
+}
+
+//------------------------------------------------------------------------------
+
+llvm::StoreInst *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask, 
+                                 llvm::Value *Val, llvm::Value *Ptr, bool Volatile) {
+  //llvm::LLVMContext& Context = Builder.getContext();
+  llvm::VectorType *VMask = llvm::cast<llvm::VectorType>(Mask->getType());
+  llvm::VectorType *VVal  = llvm::cast<llvm::VectorType>( Val->getType());
+  assert(VMask->getNumElements() == VVal->getNumElements());
+  //assert(VMask->getElementType()->isIntegerTy(8) && "wrong mask type");
+  //unsigned NumElems = VMask->getNumElements();
+  //llvm::VectorType *BoolMaskTy = llvm::VectorType::get(llvm::IntegerType::get(Context, 1), NumElems);
+  //llvm::Value *BoolMask =  Builder.CreateTrunc(Mask, BoolMaskTy);
+  llvm::Value *BoolMask =  Mask;
+  llvm::Value *OldVal = Builder.CreateLoad(Ptr);
+  llvm::Value *NewVal = Builder.CreateSelect(BoolMask, Val, OldVal);
+  return Builder.CreateStore(NewVal, Ptr, Volatile);
 }
 
 }  // end namespace CodeGen
