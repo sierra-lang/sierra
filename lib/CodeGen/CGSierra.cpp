@@ -101,6 +101,53 @@ llvm::Value *Mask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8) {
   return Builder.CreateTrunc(Mask8, Mask1Ty);
 }
 
+//------------------------------------------------------------------------------
+void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
+  CGBuilderTy &Builder = CGF.Builder;
+  llvm::BasicBlock *ThenBlock = CGF.createBasicBlock("vectorized-if.then");
+  llvm::BasicBlock *ContBlock = CGF.createBasicBlock("vectorized-if.end");
+  llvm::BasicBlock *ElseBlock = ContBlock;
+  if (S.getElse())
+    ElseBlock = CGF.createBasicBlock("vectorized-if.else");
+
+  llvm::Value* OldMask = CGF.getCurrentMask();
+  llvm::Value* ThenMask = Builder.CreateAnd(OldMask, Mask8ToMask1(Builder, CGF.EmitScalarExpr(S.getCond())));
+  llvm::Value* ElseMask;
+  if (S.getElse())
+    ElseMask = Builder.CreateNot(ThenMask);
+
+  CGF.EmitBlock(ThenBlock); 
+  {
+    CGF.setCurrentMask(ThenMask);
+    CodeGenFunction::RunCleanupsScope ThenScope(CGF);
+    CGF.EmitStmt(S.getThen());
+    CGF.setCurrentMask(OldMask);
+  }
+  if (S.getElse())
+    CGF.EmitBranch(ElseBlock);
+  else
+    CGF.EmitBranch(ContBlock);
+
+  // Emit the 'else' code if present.
+  if (const Stmt *Else = S.getElse()) {
+    CGF.setCurrentMask(ElseMask);
+    CGF.EmitBlock(ElseBlock);
+    {
+      CodeGenFunction::RunCleanupsScope ElseScope(CGF);
+      CGF.EmitStmt(Else);
+      CGF.setCurrentMask(OldMask);
+    }
+    CGF.EmitBranch(ContBlock);
+  }
+
+  // Emit the continuation block for code after the if.
+  CGF.EmitBlock(ContBlock, true);
+
+  return;
+}
+
+//------------------------------------------------------------------------------
+
 }  // end namespace CodeGen
 }  // end namespace clang
 

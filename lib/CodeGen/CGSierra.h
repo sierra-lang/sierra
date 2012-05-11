@@ -10,6 +10,9 @@ namespace llvm {
 }
 
 namespace clang {
+
+class IfStmt;
+
 namespace CodeGen {
 
 class CodeGenFunction;
@@ -22,6 +25,8 @@ llvm::StoreInst *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask,
 
 llvm::Value *Mask1ToMask8(CGBuilderTy &Builder, llvm::Value *Mask1);
 llvm::Value *Mask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8);
+
+void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S);
 
 }  // end namespace CodeGen
 }  // end namespace clang
