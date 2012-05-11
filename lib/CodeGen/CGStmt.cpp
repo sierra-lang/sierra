@@ -13,6 +13,7 @@
 
 #include "CodeGenFunction.h"
 #include "CGDebugInfo.h"
+#include "CGSierra.h"
 #include "CodeGenModule.h"
 #include "TargetInfo.h"
 #include "clang/AST/StmtVisitor.h"
@@ -616,6 +617,50 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
 
   if (S.getConditionVariable())
     EmitAutoVarDecl(*S.getConditionVariable());
+
+
+  if (CurrentMask) {
+    llvm::BasicBlock *ThenBlock = createBasicBlock("vectorized-if.then");
+    llvm::BasicBlock *ContBlock = createBasicBlock("vectorized-if.end");
+    llvm::BasicBlock *ElseBlock = ContBlock;
+    if (S.getElse())
+      ElseBlock = createBasicBlock("vectorized-if.else");
+
+    llvm::Value* OldMask = CurrentMask;
+    llvm::Value* ThenMask = Builder.CreateAnd(OldMask, Mask8ToMask1(Builder, EmitScalarExpr(S.getCond())));
+    llvm::Value* ElseMask;
+    if (S.getElse())
+      ElseMask = Builder.CreateNot(ThenMask);
+
+    EmitBlock(ThenBlock); 
+    {
+      CurrentMask = ThenMask;
+      RunCleanupsScope ThenScope(*this);
+      EmitStmt(S.getThen());
+      CurrentMask = OldMask;
+    }
+    if (S.getElse())
+      EmitBranch(ElseBlock);
+    else
+      EmitBranch(ContBlock);
+
+    // Emit the 'else' code if present.
+    if (const Stmt *Else = S.getElse()) {
+      CurrentMask = ElseMask;
+      EmitBlock(ElseBlock);
+      {
+        RunCleanupsScope ElseScope(*this);
+        EmitStmt(Else);
+        CurrentMask = OldMask;
+      }
+      EmitBranch(ContBlock);
+    }
+
+    // Emit the continuation block for code after the if.
+    EmitBlock(ContBlock, true);
+
+    return;
+  }
 
   // If the condition constant folds and can be elided, try to avoid emitting
   // the condition and the dead arm of the if/else.

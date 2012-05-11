@@ -19,6 +19,10 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, llvm::Value *Src, QualTy
 llvm::StoreInst *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask, 
                                  llvm::Value *Val, llvm::Value *Ptr, bool Volatile);
 
+
+llvm::Value *Mask1ToMask8(CGBuilderTy &Builder, llvm::Value *Mask1);
+llvm::Value *Mask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8);
+
 }  // end namespace CodeGen
 }  // end namespace clang
 

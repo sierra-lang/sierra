@@ -14681,7 +14681,7 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
       QualType T = E->getType();
       unsigned newL = T->getSierraVectorLength();
       assert(oldL == 1 || newL == 1 || oldL == newL);
-      if (newL != 1)
+      if (newL != 1 && oldL != newL)
         scope->setCurrentVectorLength(newL);
 
       return Owned(E);
