@@ -1377,6 +1377,9 @@ public:
 
   const LangOptions &getLangOpts() const { return CGM.getLangOpts(); }
 
+  llvm::Value *getCurrentMask() const { return CurrentMask; }
+  void setCurrentMask(llvm::Value *NewMask) { CurrentMask = NewMask; }
+
   /// Returns a pointer to the function's exception object and selector slot,
   /// which is assigned in every landing pad.
   Address getExceptionSlot();
