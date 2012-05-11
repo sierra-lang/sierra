@@ -75,18 +75,30 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src, QualType Src
 
 llvm::StoreInst *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask, 
                                  llvm::Value *Val, llvm::Value *Ptr, bool Volatile) {
-  //llvm::LLVMContext& Context = Builder.getContext();
   llvm::VectorType *VMask = llvm::cast<llvm::VectorType>(Mask->getType());
   llvm::VectorType *VVal  = llvm::cast<llvm::VectorType>( Val->getType());
   assert(VMask->getNumElements() == VVal->getNumElements());
-  //assert(VMask->getElementType()->isIntegerTy(8) && "wrong mask type");
-  //unsigned NumElems = VMask->getNumElements();
-  //llvm::VectorType *BoolMaskTy = llvm::VectorType::get(llvm::IntegerType::get(Context, 1), NumElems);
-  //llvm::Value *BoolMask =  Builder.CreateTrunc(Mask, BoolMaskTy);
-  llvm::Value *BoolMask =  Mask;
   llvm::Value *OldVal = Builder.CreateLoad(Ptr);
-  llvm::Value *NewVal = Builder.CreateSelect(BoolMask, Val, OldVal);
+  llvm::Value *NewVal = Builder.CreateSelect(Mask, Val, OldVal);
   return Builder.CreateStore(NewVal, Ptr, Volatile);
+}
+
+llvm::Value *Mask1ToMask8(CGBuilderTy &Builder, llvm::Value *Mask1) {
+  llvm::LLVMContext& Context = Builder.getContext();
+  llvm::VectorType *Mask1Ty = llvm::cast<llvm::VectorType>(Mask1->getType());
+  assert(Mask1Ty->getElementType()->isIntegerTy(1) && "wrong mask type");
+  unsigned NumElems = Mask1Ty->getNumElements();
+  llvm::VectorType *Mask8Ty = llvm::VectorType::get(llvm::IntegerType::get(Context, 8), NumElems);
+  return Builder.CreateSExt(Mask1, Mask8Ty);
+}
+
+llvm::Value *Mask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8) {
+  llvm::LLVMContext& Context = Builder.getContext();
+  llvm::VectorType *Mask8Ty = llvm::cast<llvm::VectorType>(Mask8->getType());
+  assert(Mask8Ty->getElementType()->isIntegerTy(8) && "wrong mask type");
+  unsigned NumElems = Mask8Ty->getNumElements();
+  llvm::VectorType *Mask1Ty = llvm::VectorType::get(llvm::IntegerType::get(Context, 1), NumElems);
+  return Builder.CreateTrunc(Mask8, Mask1Ty);
 }
 
 }  // end namespace CodeGen
