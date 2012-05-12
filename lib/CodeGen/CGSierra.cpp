@@ -167,11 +167,13 @@ static llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context, unsigned
 void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
   llvm::LLVMContext &Context = Builder.getContext();
+  llvm::BasicBlock* OldBlock = Builder.GetInsertBlock();
 
   // Emit the header for the loop, which will also become
   // the continue target.
   CodeGenFunction::JumpDest LoopHeader = CGF.getJumpDestInCurrentScope("vectorized-while.cond");
   CGF.EmitBlock(LoopHeader.getBlock());
+  llvm::PHINode* phi = Builder.CreatePHI(CGF.getCurrentMask()->getType(), 2, "loop-mask");
 
   // Create an exit block for when the condition fails, which will
   // also become the break target.
@@ -193,20 +195,25 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
   if (S.getConditionVariable())
     CGF.EmitAutoVarDecl(*S.getConditionVariable());
   
-  llvm::Value *OldMask = CGF.getCurrentMask();
-  llvm::Value *Cond8 = CGF.EmitScalarExpr(S.getCond());
-  llvm::Value *Cond1 = EmitMask8ToMask1(Builder, Cond8);
-  llvm::Value *LoopMask = Builder.CreateAnd(OldMask, Cond1);
-  unsigned NumElems = cast<llvm::VectorType>(Cond1->getType())->getNumElements();
-   
   // As long as at least one lane yields true go to the loop body.
-  llvm::Value *IntCond = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(Context, NumElems*8));
   llvm::BasicBlock *LoopBody = CGF.createBasicBlock("vectorized-while.body");
   llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
+
+  llvm::Value* OldMask = CGF.getCurrentMask();
+
+  llvm::Value *Cond8 = CGF.EmitScalarExpr(S.getCond());
+  unsigned NumElems = cast<llvm::VectorType>(Cond8->getType())->getNumElements();
+  llvm::Value *CondI = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(Context, NumElems*8));
+  llvm::Value *Cond1 = EmitMask8ToMask1(Builder, Cond8);
+  llvm::Value *LoopMask = Builder.CreateAnd(phi, Cond1);
   if (ConditionScope.requiresCleanups())
     ExitBlock = CGF.createBasicBlock("vectorized-while.exit");
 
-  llvm::Value* ScalarCond = Builder.CreateICmpEQ(IntCond, 
+  phi->addIncoming( OldMask, OldBlock);
+  phi->addIncoming(LoopMask, LoopBody);
+  CGF.setCurrentMask(phi);
+
+  llvm::Value* ScalarCond = Builder.CreateICmpNE(CondI, 
       llvm::ConstantInt::get(llvm::IntegerType::get(Context, NumElems*8), 0));
   Builder.CreateCondBr(ScalarCond, LoopBody, ExitBlock);
 
@@ -230,6 +237,8 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
 
   // Branch to the loop header again.
   CGF.EmitBranch(LoopHeader.getBlock());
+
+  CGF.setCurrentMask(OldMask);
 
   // Emit the exit block.
   CGF.EmitBlock(LoopExit.getBlock(), true);
