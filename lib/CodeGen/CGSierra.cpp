@@ -2,6 +2,7 @@
 #include "CGSierra.h"
 #include "CodeGenFunction.h"
 #include "llvm/Type.h"
+#include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Value.h"
 
@@ -83,7 +84,7 @@ llvm::StoreInst *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask,
   return Builder.CreateStore(NewVal, Ptr, Volatile);
 }
 
-llvm::Value *Mask1ToMask8(CGBuilderTy &Builder, llvm::Value *Mask1) {
+llvm::Value *EmitMask1ToMask8(CGBuilderTy &Builder, llvm::Value *Mask1) {
   llvm::LLVMContext& Context = Builder.getContext();
   llvm::VectorType *Mask1Ty = llvm::cast<llvm::VectorType>(Mask1->getType());
   assert(Mask1Ty->getElementType()->isIntegerTy(1) && "wrong mask type");
@@ -92,7 +93,7 @@ llvm::Value *Mask1ToMask8(CGBuilderTy &Builder, llvm::Value *Mask1) {
   return Builder.CreateSExt(Mask1, Mask8Ty);
 }
 
-llvm::Value *Mask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8) {
+llvm::Value *EmitMask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8) {
   llvm::LLVMContext& Context = Builder.getContext();
   llvm::VectorType *Mask8Ty = llvm::cast<llvm::VectorType>(Mask8->getType());
   assert(Mask8Ty->getElementType()->isIntegerTy(8) && "wrong mask type");
@@ -102,6 +103,7 @@ llvm::Value *Mask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8) {
 }
 
 //------------------------------------------------------------------------------
+
 void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
   llvm::BasicBlock *ThenBlock = CGF.createBasicBlock("vectorized-if.then");
@@ -111,7 +113,8 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
     ElseBlock = CGF.createBasicBlock("vectorized-if.else");
 
   llvm::Value* OldMask = CGF.getCurrentMask();
-  llvm::Value* ThenMask = Builder.CreateAnd(OldMask, Mask8ToMask1(Builder, CGF.EmitScalarExpr(S.getCond())));
+  llvm::Value* Cond = EmitMask8ToMask1(Builder, CGF.EmitScalarExpr(S.getCond()));
+  llvm::Value* ThenMask = Builder.CreateAnd(OldMask, Cond);
   llvm::Value* ElseMask;
   if (S.getElse())
     ElseMask = Builder.CreateNot(ThenMask);
@@ -144,6 +147,92 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
   CGF.EmitBlock(ContBlock, true);
 
   return;
+}
+
+//------------------------------------------------------------------------------
+
+static llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context, unsigned NumElems) {
+  llvm::Constant** zeros = new llvm::Constant*[NumElems];
+  for (unsigned i = 0; i < NumElems; ++i)
+    zeros[i] = llvm::ConstantInt::getFalse(Context);
+
+  llvm::ArrayRef<llvm::Constant*> values(zeros, NumElems);
+  llvm::Constant *result = llvm::ConstantVector::get(values);
+  delete[] zeros;
+  return result;
+}
+
+//------------------------------------------------------------------------------
+
+void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
+  CGBuilderTy &Builder = CGF.Builder;
+  llvm::LLVMContext &Context = Builder.getContext();
+
+  // Emit the header for the loop, which will also become
+  // the continue target.
+  CodeGenFunction::JumpDest LoopHeader = CGF.getJumpDestInCurrentScope("vectorized-while.cond");
+  CGF.EmitBlock(LoopHeader.getBlock());
+
+  // Create an exit block for when the condition fails, which will
+  // also become the break target.
+  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope("vectorized-while.end");
+
+  // TODO this is not working ATM
+  // Store the blocks to use for break and continue.
+  //CGF.BreakContinueStack.push_back(BreakContinue(LoopExit, LoopHeader));
+
+  // C++ [stmt.while]p2:
+  //   When the condition of a while statement is a declaration, the
+  //   scope of the variable that is declared extends from its point
+  //   of declaration (3.3.2) to the end of the while statement.
+  //   [...]
+  //   The object created in a condition is destroyed and created
+  //   with each iteration of the loop.
+  CodeGenFunction::RunCleanupsScope ConditionScope(CGF);
+
+  if (S.getConditionVariable())
+    CGF.EmitAutoVarDecl(*S.getConditionVariable());
+  
+  llvm::Value *OldMask = CGF.getCurrentMask();
+  llvm::Value *Cond8 = CGF.EmitScalarExpr(S.getCond());
+  llvm::Value *Cond1 = EmitMask8ToMask1(Builder, Cond8);
+  llvm::Value *LoopMask = Builder.CreateAnd(OldMask, Cond1);
+  unsigned NumElems = cast<llvm::VectorType>(Cond1->getType())->getNumElements();
+   
+  // As long as at least one lane yields true go to the loop body.
+  llvm::Value *IntCond = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(Context, NumElems*8));
+  llvm::BasicBlock *LoopBody = CGF.createBasicBlock("vectorized-while.body");
+  llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
+  if (ConditionScope.requiresCleanups())
+    ExitBlock = CGF.createBasicBlock("vectorized-while.exit");
+
+  llvm::Value* ScalarCond = Builder.CreateICmpEQ(IntCond, 
+      llvm::ConstantInt::get(llvm::IntegerType::get(Context, NumElems*8), 0));
+  Builder.CreateCondBr(ScalarCond, LoopBody, ExitBlock);
+
+  if (ExitBlock != LoopExit.getBlock()) {
+    CGF.EmitBlock(ExitBlock);
+    CGF.EmitBranchThroughCleanup(LoopExit);
+  }
+ 
+  // Emit the loop body.  We have to emit this in a cleanup scope
+  // because it might be a singleton DeclStmt.
+  {
+    CodeGenFunction::RunCleanupsScope BodyScope(CGF);
+    CGF.EmitBlock(LoopBody);
+    CGF.EmitStmt(S.getBody());
+  }
+
+  //BreakContinueStack.pop_back();
+
+  // Immediately force cleanup.
+  ConditionScope.ForceCleanup();
+
+  // Branch to the loop header again.
+  CGF.EmitBranch(LoopHeader.getBlock());
+
+  // Emit the exit block.
+  CGF.EmitBlock(LoopExit.getBlock(), true);
 }
 
 //------------------------------------------------------------------------------

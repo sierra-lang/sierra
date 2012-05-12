@@ -12,6 +12,7 @@ namespace llvm {
 namespace clang {
 
 class IfStmt;
+class WhileStmt;
 
 namespace CodeGen {
 
@@ -23,10 +24,11 @@ llvm::StoreInst *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask,
                                  llvm::Value *Val, llvm::Value *Ptr, bool Volatile);
 
 
-llvm::Value *Mask1ToMask8(CGBuilderTy &Builder, llvm::Value *Mask1);
-llvm::Value *Mask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8);
+llvm::Value *EmitMask1ToMask8(CGBuilderTy &Builder, llvm::Value *Mask1);
+llvm::Value *EmitMask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8);
 
 void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S);
+void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S);
 
 }  // end namespace CodeGen
 }  // end namespace clang
