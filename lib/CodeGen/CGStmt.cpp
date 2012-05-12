@@ -618,7 +618,6 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
   if (S.getConditionVariable())
     EmitAutoVarDecl(*S.getConditionVariable());
 
-
   if (CurrentMask) 
     return EmitSierraIfStmt(*this, S);
 
@@ -690,6 +689,9 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
 
 void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
                                     ArrayRef<const Attr *> WhileAttrs) {
+  if (CurrentMask)
+    return EmitSierraWhileStmt(*this, S);
+
   // Emit the header for the loop, which will also become
   // the continue target.
   JumpDest LoopHeader = getJumpDestInCurrentScope("while.cond");
