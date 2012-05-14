@@ -126,7 +126,7 @@ class TranslationUnitSaveError(Exception):
                             "value supported." % enumeration)
 
         self.save_error = enumeration
-        Exception.__init__(self, message)
+        Exception.__init__(self, 'Error %d: %s' % (enumeration, message))
 
 ### Structures and Utility Classes ###
 
@@ -1024,6 +1024,28 @@ class Cursor(Structure):
         return self._type
 
     @property
+    def canonical(self):
+        """Return the canonical Cursor corresponding to this Cursor.
+
+        The canonical cursor is the cursor which is representative for the
+        underlying entity. For example, if you have multiple forward
+        declarations for the same class, the canonical cursor for the forward
+        declarations will be identical.
+        """
+        if not hasattr(self, '_canonical'):
+            self._canonical = Cursor_canonical(self)
+
+        return self._canonical
+
+    @property
+    def result_type(self):
+        """Retrieve the Type of the result for this Cursor."""
+        if not hasattr(self, '_result_type'):
+            self._result_type = Type_get_result(self.type)
+
+        return self._result_type
+
+    @property
     def underlying_typedef_type(self):
         """Return the underlying type of a typedef declaration.
 
@@ -1739,6 +1761,9 @@ class TranslationUnit(ClangObject):
         options is a bitwise or of TranslationUnit.PARSE_XXX flags which will
         control parsing behavior.
 
+        index is an Index instance to utilize. If not provided, a new Index
+        will be created for this TranslationUnit.
+
         To parse source from the filesystem, the filename of the file to parse
         is specified by the filename argument. Or, filename could be None and
         the args list would contain the filename(s) to parse.
@@ -1925,7 +1950,7 @@ class TranslationUnit(ClangObject):
             raise TranslationUnitSaveError(result,
                 'Error saving TranslationUnit.')
 
-    def codeComplete(self, path, line, column, unsaved_files=[], options=0):
+    def codeComplete(self, path, line, column, unsaved_files=None, options=0):
         """
         Code complete in this translation unit.
 
@@ -2138,6 +2163,11 @@ Cursor_ref = lib.clang_getCursorReferenced
 Cursor_ref.argtypes = [Cursor]
 Cursor_ref.restype = Cursor
 Cursor_ref.errcheck = Cursor.from_result
+
+Cursor_canonical = lib.clang_getCanonicalCursor
+Cursor_canonical.argtypes = [Cursor]
+Cursor_canonical.restype = Cursor
+Cursor_canonical.errcheck = Cursor.from_result
 
 Cursor_type = lib.clang_getCursorType
 Cursor_type.argtypes = [Cursor]

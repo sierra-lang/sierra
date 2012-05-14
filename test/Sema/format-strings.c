@@ -500,6 +500,10 @@ void pr9751() {
   printf(kFormat17, (int[]){0}); // expected-warning{{format specifies type 'unsigned short' but the argument}}
 
   printf("%a", (long double)0); // expected-warning{{format specifies type 'double' but the argument has type 'long double'}}
+
+  // Test braced char[] initializers.
+  const char kFormat18[] = { "%lld" }; // expected-note{{format string is defined here}}}
+  printf(kFormat18, 0); // expected-warning{{format specifies type}}
 }
 
 // PR 9466: clang: doesn't know about %Lu, %Ld, and %Lx 
@@ -535,4 +539,21 @@ void test_unused_system_args(int x) {
 void pr12761(char c) {
   // This should not warn even with -fno-signed-char.
   printf("%hhx", c);
+}
+
+
+// Test that we correctly merge the format in both orders.
+extern void test14_foo(const char *, const char *, ...)
+     __attribute__((__format__(__printf__, 1, 3)));
+extern void test14_foo(const char *, const char *, ...)
+     __attribute__((__format__(__scanf__, 2, 3)));
+
+extern void test14_bar(const char *, const char *, ...)
+     __attribute__((__format__(__scanf__, 2, 3)));
+extern void test14_bar(const char *, const char *, ...)
+     __attribute__((__format__(__printf__, 1, 3)));
+
+void test14_zed(int *p) {
+  test14_foo("%", "%d", p); // expected-warning{{incomplete format specifier}}
+  test14_bar("%", "%d", p); // expected-warning{{incomplete format specifier}}
 }
