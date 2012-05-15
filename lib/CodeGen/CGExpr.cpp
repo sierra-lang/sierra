@@ -956,7 +956,7 @@ void CodeGenFunction::EmitStoreOfScalar(llvm::Value *Value, llvm::Value *Addr,
   Value = EmitToMemory(Value, Ty);
 
   llvm::StoreInst *Store;
-  if (CurrentMask) {
+  if (Value->getType()->isVectorTy() && CurrentMask) {
     Store = EmitMaskedStore(Builder, CurrentMask, Value, Addr, Volatile);
   } else
    Store = Builder.CreateStore(Value, Addr, Volatile);
