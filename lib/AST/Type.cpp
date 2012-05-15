@@ -1875,7 +1875,9 @@ bool Type::isArithmeticType() const {
 }
 
 Type::ScalarTypeKind Type::getScalarTypeKind() const {
-  assert(isScalarType());
+  assert(isScalarType() 
+         || (isSierraVectorType() 
+             && getAs<SierraVectorType>()->getElementType()->isScalarType()));
 
   const Type *T = CanonicalType.getTypePtr();
   if (const BuiltinType *BT = dyn_cast<BuiltinType>(T)) {

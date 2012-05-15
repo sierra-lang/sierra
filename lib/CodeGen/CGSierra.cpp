@@ -151,6 +151,17 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
 
 //------------------------------------------------------------------------------
 
+static llvm::Constant *CreateAllOnesVector(llvm::LLVMContext &Context, unsigned NumElems) {
+  llvm::Constant** ones = new llvm::Constant*[NumElems];
+  for (unsigned i = 0; i < NumElems; ++i)
+    ones[i] = llvm::ConstantInt::getTrue(Context);
+
+  llvm::ArrayRef<llvm::Constant*> values(ones, NumElems);
+  llvm::Constant *result = llvm::ConstantVector::get(values);
+  delete[] ones;
+  return result;
+}
+
 static llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context, unsigned NumElems) {
   llvm::Constant** zeros = new llvm::Constant*[NumElems];
   for (unsigned i = 0; i < NumElems; ++i)
@@ -168,6 +179,13 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
   llvm::LLVMContext &Context = Builder.getContext();
   llvm::BasicBlock* OldBlock = Builder.GetInsertBlock();
+
+  unsigned NumElems = S.getCond()->getType()->getAs<SierraVectorType>()->getNumElements();
+  bool noCurrentMask = false;
+  if (!CGF.getCurrentMask()) {
+    noCurrentMask = true;
+    CGF.setCurrentMask(CreateAllOnesVector(Context, NumElems));
+  }
 
   // Emit the header for the loop, which will also become
   // the continue target.
@@ -202,7 +220,6 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
   llvm::Value* OldMask = CGF.getCurrentMask();
 
   llvm::Value *Cond8 = CGF.EmitScalarExpr(S.getCond());
-  unsigned NumElems = cast<llvm::VectorType>(Cond8->getType())->getNumElements();
   llvm::Value *CondI = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(Context, NumElems*8));
   llvm::Value *Cond1 = EmitMask8ToMask1(Builder, Cond8);
   llvm::Value *LoopMask = Builder.CreateAnd(phi, Cond1);
@@ -211,7 +228,7 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
 
   phi->addIncoming( OldMask, OldBlock);
   phi->addIncoming(LoopMask, LoopBody);
-  CGF.setCurrentMask(phi);
+  CGF.setCurrentMask(LoopMask);
 
   llvm::Value* ScalarCond = Builder.CreateICmpNE(CondI, 
       llvm::ConstantInt::get(llvm::IntegerType::get(Context, NumElems*8), 0));
@@ -238,7 +255,10 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
   // Branch to the loop header again.
   CGF.EmitBranch(LoopHeader.getBlock());
 
-  CGF.setCurrentMask(OldMask);
+  if (noCurrentMask)
+    CGF.setCurrentMask(0);
+  else
+    CGF.setCurrentMask(OldMask);
 
   // Emit the exit block.
   CGF.EmitBlock(LoopExit.getBlock(), true);

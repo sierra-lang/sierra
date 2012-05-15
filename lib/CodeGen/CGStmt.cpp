@@ -689,7 +689,7 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
 
 void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
                                     ArrayRef<const Attr *> WhileAttrs) {
-  if (CurrentMask)
+  if (S.getCond()->getType()->isSierraVectorType())
     return EmitSierraWhileStmt(*this, S);
 
   // Emit the header for the loop, which will also become
