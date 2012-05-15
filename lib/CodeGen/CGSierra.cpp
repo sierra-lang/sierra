@@ -113,7 +113,8 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
     ElseBlock = CGF.createBasicBlock("vectorized-if.else");
 
   llvm::Value* OldMask = CGF.getCurrentMask();
-  llvm::Value* Cond = EmitMask8ToMask1(Builder, CGF.EmitScalarExpr(S.getCond()));
+  llvm::Value* Cond = //EmitMask8ToMask1(Builder, 
+                                       CGF.EmitScalarExpr(S.getCond());
   llvm::Value* ThenMask = Builder.CreateAnd(OldMask, Cond);
   llvm::Value* ElseMask;
   if (S.getElse())
@@ -180,7 +181,8 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
   llvm::LLVMContext &Context = Builder.getContext();
   llvm::BasicBlock* OldBlock = Builder.GetInsertBlock();
 
-  unsigned NumElems = S.getCond()->getType()->getAs<SierraVectorType>()->getNumElements();
+  unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
+  assert(NumElems > 1);
   bool noCurrentMask = false;
   if (!CGF.getCurrentMask()) {
     noCurrentMask = true;
@@ -219,10 +221,10 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
 
   llvm::Value* OldMask = CGF.getCurrentMask();
 
-  llvm::Value *Cond8 = CGF.EmitScalarExpr(S.getCond());
+  llvm::Value *Cond = CGF.EmitScalarExpr(S.getCond());
+  llvm::Value *LoopMask = Builder.CreateAnd(phi, Cond);
+  llvm::Value *Cond8 = EmitMask1ToMask8(Builder, LoopMask);
   llvm::Value *CondI = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(Context, NumElems*8));
-  llvm::Value *Cond1 = EmitMask8ToMask1(Builder, Cond8);
-  llvm::Value *LoopMask = Builder.CreateAnd(phi, Cond1);
   if (ConditionScope.requiresCleanups())
     ExitBlock = CGF.createBasicBlock("vectorized-while.exit");
 

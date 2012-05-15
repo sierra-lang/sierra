@@ -555,10 +555,12 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
     const VectorType *VT = cast<VectorType>(Ty);
     QualType ElemT = VT->getElementType();
     unsigned NumElems = VT->getNumElements();
+#if 0
     if (ElemT->isBooleanType())
       ResultType = llvm::VectorType::get(
         llvm::IntegerType::getInt8Ty(getLLVMContext()), NumElems);
     else 
+#endif
       ResultType = llvm::VectorType::get(ConvertType(ElemT), NumElems);
     break;
   }
