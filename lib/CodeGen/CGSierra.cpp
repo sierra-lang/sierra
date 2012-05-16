@@ -237,27 +237,8 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
 
   llvm::Value *Cond = CGF.EmitScalarExpr(S.getCond());
   llvm::Value *LoopMask = Builder.CreateAnd(phi, Cond);
-#define MOVMSK
-#ifdef PTEST
-  assert(NumElems == 4);
-  llvm::Function* ptest = llvm::Intrinsic::getDeclaration(
-    Builder.GetInsertBlock()->getParent()->getParent(), /* module */
-    llvm::Intrinsic::x86_sse41_ptestz);
-  llvm::Value *Cond4x32 = Builder.CreateSExt(LoopMask, llvm::VectorType::get(Builder.getInt32Ty(), 4));
-  llvm::Value *Cond2x64 = Builder.CreateBitCast(Cond4x32, llvm::VectorType::get(Builder.getInt64Ty(), 2));
-  llvm::Value *CondI = Builder.CreateCall2(ptest, Cond2x64, CreateAllOnesVectorPTest(Context, 2));
-#elif defined MOVMSK
-  assert(NumElems == 4);
-  llvm::Function* movmsk = llvm::Intrinsic::getDeclaration(
-    Builder.GetInsertBlock()->getParent()->getParent(), /* module */
-    llvm::Intrinsic::x86_sse_movmsk_ps);
-  llvm::Value *Cond4x32 = Builder.CreateSExt(LoopMask, llvm::VectorType::get(Builder.getInt32Ty(), 4));
-  llvm::Value *Cond4xF = Builder.CreateBitCast(Cond4x32, llvm::VectorType::get(Builder.getFloatTy(), 4));
-  llvm::Value *CondI = Builder.CreateCall(movmsk, Cond4xF);
-#else
   llvm::Value *Cond8 = EmitMask1ToMask8(Builder, LoopMask);
   llvm::Value *CondI = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(Context, NumElems*8));
-#endif
   if (ConditionScope.requiresCleanups())
     ExitBlock = CGF.createBasicBlock("vectorized-while.exit");
 
@@ -265,12 +246,8 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
   phi->addIncoming(LoopMask, LoopBody);
   CGF.setCurrentMask(LoopMask);
 
-#ifdef PTEST
-  llvm::Value* ScalarCond = Builder.CreateICmpEQ
-#else
-  llvm::Value* ScalarCond = Builder.CreateICmpNE
-#endif
-      (CondI, llvm::ConstantInt::get(llvm::IntegerType::get(Context, NumElems*8), 0));
+  llvm::Value* ScalarCond = Builder.CreateICmpNE(
+    CondI, llvm::ConstantInt::get(llvm::IntegerType::get(Context, NumElems*8), 0));
   Builder.CreateCondBr(ScalarCond, LoopBody, ExitBlock);
 
   if (ExitBlock != LoopExit.getBlock()) {
