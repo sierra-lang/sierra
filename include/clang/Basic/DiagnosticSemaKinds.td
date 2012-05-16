@@ -685,6 +685,8 @@ def err_incomplete_synthesized_property : Error<
 
 def error_property_ivar_type : Error<
   "type of property %0 (%1) does not match type of ivar %2 (%3)">;
+def error_property_accessor_type : Error<
+  "type of property %0 (%1) does not match type of accessor %2 (%3)">;
 def error_ivar_in_superclass_use : Error<
   "property %0 attempting to use ivar %1 declared in super class %2">;
 def error_weak_property : Error<
@@ -5229,6 +5231,8 @@ def warn_case_value_overflow : Warning<
   "overflow converting case value to switch condition type (%0 to %1)">,
   InGroup<DiagGroup<"switch">>;
 def err_duplicate_case : Error<"duplicate case value '%0'">;
+def err_duplicate_case_differing_expr : Error<
+  "duplicate case value: '%0' and '%1' both equal '%2'">;
 def warn_case_empty_range : Warning<"empty case range specified">;
 def warn_missing_case_for_condition :
   Warning<"no case matching constant switch condition '%0'">;

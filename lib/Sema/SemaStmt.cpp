@@ -30,6 +30,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 using namespace clang;
 using namespace sema;
@@ -768,8 +769,30 @@ Sema::ActOnFinishSwitchStmt(SourceLocation SwitchLoc, Stmt *Switch,
 
         if (i != 0 && CaseVals[i].first == CaseVals[i-1].first) {
           // If we have a duplicate, report it.
-          Diag(CaseVals[i].second->getLHS()->getLocStart(),
-               diag::err_duplicate_case) << CaseVals[i].first.toString(10);
+          // First, determine if either case value has a name
+          StringRef PrevString, CurrString;
+          Expr *PrevCase = CaseVals[i-1].second->getLHS()->IgnoreParenCasts();
+          Expr *CurrCase = CaseVals[i].second->getLHS()->IgnoreParenCasts();
+          if (DeclRefExpr *DeclRef = dyn_cast<DeclRefExpr>(PrevCase)) {
+            PrevString = DeclRef->getDecl()->getName();
+          }
+          if (DeclRefExpr *DeclRef = dyn_cast<DeclRefExpr>(CurrCase)) {
+            CurrString = DeclRef->getDecl()->getName();
+          }
+          llvm::SmallString<16> CaseValStr;
+          CaseVals[i-1].first.toString(CaseValStr);
+
+          if (PrevString == CurrString)
+            Diag(CaseVals[i].second->getLHS()->getLocStart(),
+                 diag::err_duplicate_case) <<
+                 (PrevString.empty() ? CaseValStr.str() : PrevString);
+          else
+            Diag(CaseVals[i].second->getLHS()->getLocStart(),
+                 diag::err_duplicate_case_differing_expr) <<
+                 (PrevString.empty() ? CaseValStr.str() : PrevString) <<
+                 (CurrString.empty() ? CaseValStr.str() : CurrString) <<
+                 CaseValStr;
+
           Diag(CaseVals[i-1].second->getLHS()->getLocStart(),
                diag::note_duplicate_case_prev);
           // FIXME: We really want to remove the bogus case stmt from the
