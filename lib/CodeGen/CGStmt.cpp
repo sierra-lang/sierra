@@ -618,7 +618,7 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
   if (S.getConditionVariable())
     EmitAutoVarDecl(*S.getConditionVariable());
 
-  if (CurrentMask) 
+  if (S.getCond()->getType()->isSierraVectorType()) 
     return EmitSierraIfStmt(*this, S);
 
   // If the condition constant folds and can be elided, try to avoid emitting
