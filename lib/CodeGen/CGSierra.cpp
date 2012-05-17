@@ -105,8 +105,59 @@ llvm::Value *EmitMask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8) {
 
 //------------------------------------------------------------------------------
 
+#if 0
+
+static llvm::Constant *CreateAllOnesVectorPTest(llvm::LLVMContext &Context, unsigned NumElems) {
+  llvm::Constant** ones = new llvm::Constant*[NumElems];
+  for (unsigned i = 0; i < NumElems; ++i)
+    ones[i] = llvm::ConstantInt::getIntegerValue(
+      llvm::IntegerType::get(Context, 64), 
+      llvm::APInt::getAllOnesValue(64));
+
+  llvm::ArrayRef<llvm::Constant*> values(ones, NumElems);
+  llvm::Constant *result = llvm::ConstantVector::get(values);
+  delete[] ones;
+  return result;
+}
+
+static llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context, unsigned NumElems) {
+  llvm::Constant** zeros = new llvm::Constant*[NumElems];
+  for (unsigned i = 0; i < NumElems; ++i)
+    zeros[i] = llvm::ConstantInt::getFalse(Context);
+
+  llvm::ArrayRef<llvm::Constant*> values(zeros, NumElems);
+  llvm::Constant *result = llvm::ConstantVector::get(values);
+  delete[] zeros;
+  return result;
+}
+
+#endif
+
+static llvm::Constant *CreateAllOnesVector(llvm::LLVMContext &Context, unsigned NumElems) {
+  llvm::Constant** ones = new llvm::Constant*[NumElems];
+  for (unsigned i = 0; i < NumElems; ++i)
+    ones[i] = llvm::ConstantInt::getTrue(Context);
+
+  llvm::ArrayRef<llvm::Constant*> values(ones, NumElems);
+  llvm::Constant *result = llvm::ConstantVector::get(values);
+  delete[] ones;
+  return result;
+}
+
+//------------------------------------------------------------------------------
+
 void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
+  llvm::LLVMContext &Context = Builder.getContext();
+
+  unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
+  assert(NumElems > 1);
+  bool noCurrentMask = false;
+  if (!CGF.getCurrentMask()) {
+    noCurrentMask = true;
+    CGF.setCurrentMask(CreateAllOnesVector(Context, NumElems));
+  }
+
   llvm::BasicBlock *ThenBlock = CGF.createBasicBlock("vectorized-if.then");
   llvm::BasicBlock *ContBlock = CGF.createBasicBlock("vectorized-if.end");
   llvm::BasicBlock *ElseBlock = ContBlock;
@@ -145,47 +196,13 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
     CGF.EmitBranch(ContBlock);
   }
 
+  if (noCurrentMask)
+    CGF.setCurrentMask(0);
+  else
+    CGF.setCurrentMask(OldMask);
+
   // Emit the continuation block for code after the if.
   CGF.EmitBlock(ContBlock, true);
-
-  return;
-}
-
-//------------------------------------------------------------------------------
-
-static llvm::Constant *CreateAllOnesVectorPTest(llvm::LLVMContext &Context, unsigned NumElems) {
-  llvm::Constant** ones = new llvm::Constant*[NumElems];
-  for (unsigned i = 0; i < NumElems; ++i)
-    ones[i] = llvm::ConstantInt::getIntegerValue(
-      llvm::IntegerType::get(Context, 64), 
-      llvm::APInt::getAllOnesValue(64));
-
-  llvm::ArrayRef<llvm::Constant*> values(ones, NumElems);
-  llvm::Constant *result = llvm::ConstantVector::get(values);
-  delete[] ones;
-  return result;
-}
-
-static llvm::Constant *CreateAllOnesVector(llvm::LLVMContext &Context, unsigned NumElems) {
-  llvm::Constant** ones = new llvm::Constant*[NumElems];
-  for (unsigned i = 0; i < NumElems; ++i)
-    ones[i] = llvm::ConstantInt::getTrue(Context);
-
-  llvm::ArrayRef<llvm::Constant*> values(ones, NumElems);
-  llvm::Constant *result = llvm::ConstantVector::get(values);
-  delete[] ones;
-  return result;
-}
-
-static llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context, unsigned NumElems) {
-  llvm::Constant** zeros = new llvm::Constant*[NumElems];
-  for (unsigned i = 0; i < NumElems; ++i)
-    zeros[i] = llvm::ConstantInt::getFalse(Context);
-
-  llvm::ArrayRef<llvm::Constant*> values(zeros, NumElems);
-  llvm::Constant *result = llvm::ConstantVector::get(values);
-  delete[] zeros;
-  return result;
 }
 
 //------------------------------------------------------------------------------
