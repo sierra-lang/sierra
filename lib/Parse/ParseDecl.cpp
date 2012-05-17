@@ -742,7 +742,7 @@ void Parser::ParseLexedAttributes(ParsingClass &Class) {
   if (!AlreadyHasClassScope)
     Actions.ActOnStartDelayedMemberDeclarations(getCurScope(),
                                                 Class.TagOrTemplate);
-  {
+  if (!Class.LateParsedDeclarations.empty()) {
     // Allow 'this' within late-parsed attributes.
     Sema::CXXThisScopeRAII ThisScope(Actions, Class.TagOrTemplate, 
                                      /*TypeQuals=*/0);
@@ -1051,6 +1051,7 @@ Parser::DeclGroupPtrTy Parser::ParseSimpleDeclaration(StmtVector &Stmts,
   // C99 6.7.2.3p6: Handle "struct-or-union identifier;", "enum { X };"
   // declaration-specifiers init-declarator-list[opt] ';'
   if (Tok.is(tok::semi)) {
+    DeclEnd = Tok.getLocation();
     if (RequireSemi) ConsumeToken();
     Decl *TheDecl = Actions.ParsedFreeStandingDeclSpec(getCurScope(), AS_none,
                                                        DS);

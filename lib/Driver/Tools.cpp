@@ -756,7 +756,7 @@ void Clang::AddARMTargetArgs(const ArgList &Args,
       CmdArgs.push_back("-mno-global-merge");
   }
 
-  if (Args.hasArg(options::OPT_no_implicit_float))
+  if (Args.hasArg(options::OPT_mno_implicit_float))
     CmdArgs.push_back("-no-implicit-float");
 }
 
@@ -4135,7 +4135,6 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
   Args.AddAllArgs(CmdArgs, options::OPT_t);
   Args.AddAllArgs(CmdArgs, options::OPT_Z_Flag);
   Args.AddAllArgs(CmdArgs, options::OPT_u_Group);
-  Args.AddAllArgs(CmdArgs, options::OPT_A);
   Args.AddLastArg(CmdArgs, options::OPT_e);
   Args.AddAllArgs(CmdArgs, options::OPT_m_Separate);
   Args.AddAllArgs(CmdArgs, options::OPT_r);
@@ -4149,8 +4148,7 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
   CmdArgs.push_back("-o");
   CmdArgs.push_back(Output.getFilename());
 
-  if (!Args.hasArg(options::OPT_A) &&
-      !Args.hasArg(options::OPT_nostdlib) &&
+  if (!Args.hasArg(options::OPT_nostdlib) &&
       !Args.hasArg(options::OPT_nostartfiles)) {
     // Derived from startfile spec.
     if (Args.hasArg(options::OPT_dynamiclib)) {
@@ -4295,8 +4293,7 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
     getDarwinToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
   }
 
-  if (!Args.hasArg(options::OPT_A) &&
-      !Args.hasArg(options::OPT_nostdlib) &&
+  if (!Args.hasArg(options::OPT_nostdlib) &&
       !Args.hasArg(options::OPT_nostartfiles)) {
     // endfile_spec is empty.
   }
