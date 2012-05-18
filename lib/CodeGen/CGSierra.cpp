@@ -211,20 +211,14 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
   llvm::LLVMContext &Context = Builder.getContext();
   llvm::BasicBlock* OldBlock = Builder.GetInsertBlock();
-
   unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
-  assert(NumElems > 1);
-  bool noCurrentMask = false;
-  if (!CGF.getCurrentMask()) {
-    noCurrentMask = true;
-    CGF.setCurrentMask(CreateAllOnesVector(Context, NumElems));
-  }
 
   // Emit the header for the loop, which will also become
   // the continue target.
   CodeGenFunction::JumpDest LoopHeader = CGF.getJumpDestInCurrentScope("vectorized-while.cond");
   CGF.EmitBlock(LoopHeader.getBlock());
-  llvm::PHINode* phi = Builder.CreatePHI(CGF.getCurrentMask()->getType(), 2, "loop-mask");
+  llvm::VectorType* MaskTy = llvm::VectorType::get(llvm::IntegerType::getInt1Ty(Context), NumElems);
+  llvm::PHINode* phi = Builder.CreatePHI(MaskTy, 2, "loop-mask");
 
   // Create an exit block for when the condition fails, which will
   // also become the break target.
@@ -250,9 +244,16 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
   llvm::BasicBlock *LoopBody = CGF.createBasicBlock("vectorized-while.body");
   llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
 
-  llvm::Value* OldMask = CGF.getCurrentMask();
-
   llvm::Value *Cond = CGF.EmitScalarExpr(S.getCond());
+
+  assert(NumElems > 1);
+  bool noCurrentMask = false;
+  if (!CGF.getCurrentMask()) {
+    noCurrentMask = true;
+    CGF.setCurrentMask(CreateAllOnesVector(Context, NumElems));
+  }
+
+  llvm::Value* OldMask = CGF.getCurrentMask();
   llvm::Value *LoopMask = Builder.CreateAnd(phi, Cond);
   llvm::Value *Cond8 = EmitMask1ToMask8(Builder, LoopMask);
   llvm::Value *CondI = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(Context, NumElems*8));
