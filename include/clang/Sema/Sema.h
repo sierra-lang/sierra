@@ -2403,7 +2403,10 @@ public:
   };
 
   FullExprArg MakeFullExpr(Expr *Arg) {
-    return FullExprArg(ActOnFinishFullExpr(Arg).release());
+    return MakeFullExpr(Arg, Arg ? Arg->getExprLoc() : SourceLocation());
+  }
+  FullExprArg MakeFullExpr(Expr *Arg, SourceLocation CC) {
+    return FullExprArg(ActOnFinishFullExpr(Arg, CC).release());
   }
 
   StmtResult ActOnExprStmt(FullExprArg Expr);
@@ -3796,7 +3799,11 @@ public:
   Stmt *MaybeCreateStmtWithCleanups(Stmt *SubStmt);
   ExprResult MaybeCreateExprWithCleanups(ExprResult SubExpr);
 
-  ExprResult ActOnFinishFullExpr(Expr *Expr);
+  ExprResult ActOnFinishFullExpr(Expr *Expr) {
+    return ActOnFinishFullExpr(Expr, Expr ? Expr->getExprLoc()
+                                          : SourceLocation());
+  }
+  ExprResult ActOnFinishFullExpr(Expr *Expr, SourceLocation CC);
   StmtResult ActOnFinishFullStmt(Stmt *Stmt);
 
   // Marks SS invalid if it represents an incomplete type.
@@ -4097,6 +4104,7 @@ public:
                                          SourceLocation AtLoc,
                                          SourceLocation ProtoLoc,
                                          SourceLocation LParenLoc,
+                                         SourceLocation ProtoIdLoc,
                                          SourceLocation RParenLoc);
 
   //===--------------------------------------------------------------------===//

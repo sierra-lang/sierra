@@ -200,6 +200,38 @@ QualType CheckSierraVectorOperands(Sema &S, ExprResult &LHS, ExprResult &RHS,
 
 //------------------------------------------------------------------------------
 
+/// getSierraVectorType - Return the unique reference to an extended vector type of
+/// the specified element type and size. VectorType must be a built-in type.
+QualType ASTContext::getSierraVectorType(QualType vecType, unsigned NumElts) const {
+  //assert(vecType->isBuiltinType() || vecType->isDependentType());
+
+  // Check if we've already instantiated a vector of this type.
+  llvm::FoldingSetNodeID ID;
+  VectorType::Profile(ID, vecType, NumElts, Type::SierraVector,
+                      VectorType::GenericVector);
+  void *InsertPos = 0;
+  if (VectorType *VTP = VectorTypes.FindNodeOrInsertPos(ID, InsertPos))
+    return QualType(VTP, 0);
+
+  // If the element type isn't canonical, this won't be a canonical type either,
+  // so fill in the canonical type field.
+  QualType Canonical;
+  if (!vecType.isCanonical()) {
+    Canonical = getSierraVectorType(getCanonicalType(vecType), NumElts);
+
+    // Get the new insert position for the node we care about.
+    VectorType *NewIP = VectorTypes.FindNodeOrInsertPos(ID, InsertPos);
+    assert(NewIP == 0 && "Shouldn't be in the map!"); (void)NewIP;
+  }
+  SierraVectorType *New = new (*this, TypeAlignment)
+    SierraVectorType(vecType, NumElts, Canonical);
+  VectorTypes.InsertNode(New, InsertPos);
+  Types.push_back(New);
+  return QualType(New, 0);
+}
+
+//------------------------------------------------------------------------------
+
 /// \brief Build an sierra vector type.
 ///
 /// Run the required checks for the sierra vector type.
@@ -207,7 +239,7 @@ QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize,
                                      SourceLocation AttrLoc) {
   // TODO allow more types
   if (!T->isDependentType() &&
-      !T->isIntegerType() && !T->isRealFloatingType()) {
+      !T->isIntegerType() && !T->isRealFloatingType() && !T->isPointerType()) {
     S.Diag(AttrLoc, diag::err_attribute_invalid_vector_type) << T;
     return QualType();
   }
@@ -253,6 +285,8 @@ QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize,
   return S.Context.getDependentSizedSierraVectorType(T, ArraySize, AttrLoc);
 }
 
+//------------------------------------------------------------------------------
+
 void HandleSierraVectorAttr(Sema &S, QualType& CurType, const AttributeList &Attr) {
   if (!S.getLangOpts().SIERRA) {
     S.Diag(Attr.getLoc(), diag::err_sierra_attr_not_enabled) << "sierra_vector";
@@ -288,6 +322,8 @@ void HandleSierraVectorAttr(Sema &S, QualType& CurType, const AttributeList &Att
   if (!T.isNull())
     CurType = T;
 }
+
+//------------------------------------------------------------------------------
 
 bool HandleSierraSpmdAttr(Sema &S, const FunctionType *FunT, 
                           const AttributeList &Attr, unsigned &SpmdSize) {
@@ -345,5 +381,7 @@ bool HandleSierraSpmdAttr(Sema &S, const FunctionType *FunT,
   S.getCurScope()->setCurrentVectorLength(SpmdSize);
   return true;
 }
+
+//------------------------------------------------------------------------------
 
 } // end namespace clang

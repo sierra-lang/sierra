@@ -654,6 +654,17 @@ private:
   /// to the semicolon, consumes that extra token.
   bool ExpectAndConsumeSemi(unsigned DiagID);
 
+  /// \brief The kind of extra semi diagnostic to emit. 
+  enum ExtraSemiKind {
+    OutsideFunction = 0,
+    InsideStruct = 1,
+    InstanceVariableList = 2,
+    AfterDefinition = 3
+  };
+
+  /// \brief Consume any extra semi-colons until the end of the line.
+  void ConsumeExtraSemi(ExtraSemiKind Kind, const char* DiagMsg = "");
+
   //===--------------------------------------------------------------------===//
   // Scope manipulation
 
@@ -1742,7 +1753,8 @@ private:
   /// BracedCastResult.
   /// Doesn't consume tokens.
   TPResult
-  isCXXDeclarationSpecifier(TPResult BracedCastResult = TPResult::False());
+  isCXXDeclarationSpecifier(TPResult BracedCastResult = TPResult::False(),
+                            bool *HasMissingTypename = 0);
 
   // "Tentative parsing" functions, used for disambiguation. If a parsing error
   // is encountered they will return TPResult::Error().
@@ -1751,13 +1763,13 @@ private:
   // that more tentative parsing is necessary for disambiguation.
   // They all consume tokens, so backtracking should be used after calling them.
 
-  TPResult TryParseDeclarationSpecifier();
+  TPResult TryParseDeclarationSpecifier(bool *HasMissingTypename = 0);
   TPResult TryParseSimpleDeclaration(bool AllowForRangeDecl);
   TPResult TryParseTypeofSpecifier();
   TPResult TryParseProtocolQualifiers();
   TPResult TryParseInitDeclaratorList();
   TPResult TryParseDeclarator(bool mayBeAbstract, bool mayHaveIdentifier=true);
-  TPResult TryParseParameterDeclarationClause();
+  TPResult TryParseParameterDeclarationClause(bool *InvalidAsDeclaration = 0);
   TPResult TryParseFunctionDeclarator();
   TPResult TryParseBracketDeclarator();
 
