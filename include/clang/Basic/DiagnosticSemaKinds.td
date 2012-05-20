@@ -593,7 +593,7 @@ def warn_objc_property_default_assign_on_object : Warning<
   "default property attribute 'assign' not appropriate for non-GC object">,
   InGroup<ObjCPropertyNoAttribute>;
 def warn_property_attr_mismatch : Warning<
-  "property attribute in continuation class does not match the primary class">;
+  "property attribute in class extension does not match the primary class">;
 def warn_objc_property_copy_missing_on_block : Warning<
     "'copy' attribute must be specified for the block property "
     "when -fobjc-gc-only is specified">;
@@ -634,16 +634,16 @@ def warn_default_atomic_custom_getter_setter : Warning<
   "(property should be marked 'atomic' if this is intended)">,
   InGroup<CustomAtomic>, DefaultIgnore;
 def err_use_continuation_class : Error<
-  "illegal redeclaration of property in continuation class %0"
+  "illegal redeclaration of property in class extension %0"
   " (attribute must be 'readwrite', while its primary must be 'readonly')">;
 def err_type_mismatch_continuation_class : Error<
-  "type of property %0 in continuation class does not match "
+  "type of property %0 in class extension does not match "
   "property type in primary class">;
 def err_use_continuation_class_redeclaration_readwrite : Error<
-  "illegal redeclaration of 'readwrite' property in continuation class %0"
+  "illegal redeclaration of 'readwrite' property in class extension %0"
   " (perhaps you intended this to be a 'readwrite' redeclaration of a "
   "'readonly' public property?)">;
-def err_continuation_class : Error<"continuation class has no primary class">;
+def err_continuation_class : Error<"class extension has no primary class">;
 def err_property_type : Error<"property cannot have array or function type %0">;
 def error_missing_property_context : Error<
   "missing context for property implementation declaration">;
@@ -711,6 +711,12 @@ def warn_undeclared_selector : Warning<
   "undeclared selector %0">, InGroup<UndeclaredSelector>, DefaultIgnore;
 def warn_implicit_atomic_property : Warning<
   "property is assumed atomic by default">, InGroup<ImplicitAtomic>, DefaultIgnore;
+def note_auto_readonly_iboutlet_fixup_suggest : Note<
+  "readonly IBOutlet property should be changed to be readwrite">;
+def warn_auto_readonly_iboutlet_property : Warning<
+  "readonly IBOutlet property when auto-synthesized may "
+  "not work correctly with 'nib' loader">,
+  InGroup<DiagGroup<"readonly-iboutlet-property">>;
 def warn_auto_implicit_atomic_property : Warning<
   "property is assumed atomic when auto-synthesizing the property">, 
   InGroup<ImplicitAtomic>, DefaultIgnore;
@@ -2361,6 +2367,8 @@ def note_template_decl_here : Note<"template is declared here">;
 def note_member_of_template_here : Note<"member is declared here">;
 def err_template_arg_must_be_type : Error<
   "template argument for template type parameter must be a type">;
+def err_template_arg_must_be_type_suggest : Error<
+  "template argument for template type parameter must be a type; did you forget 'typename'?">;
 def err_template_arg_must_be_expr : Error<
   "template argument for non-type template parameter must be an expression">;
 def err_template_arg_nontype_ambig : Error<
@@ -3815,7 +3823,7 @@ def note_indirection_through_null : Note<
   "consider using __builtin_trap() or qualifying pointer with 'volatile'">;
 def warn_pointer_indirection_from_incompatible_type : Warning<
   "dereference of type %1 that was reinterpret_cast from type %0 has undefined "
-  "behavior.">,
+  "behavior">,
   InGroup<DiagGroup<"undefined-reinterpret-cast">>, DefaultIgnore;
 
 def err_objc_object_assignment : Error<
@@ -4120,7 +4128,7 @@ def err_bad_cxx_cast_member_pointer_size : Error<
 def err_bad_reinterpret_cast_reference : Error<
   "reinterpret_cast of a %0 to %1 needs its address which is not allowed">;
 def warn_undefined_reinterpret_cast : Warning<
-  "reinterpret_cast from %0 to %1 has undefined behavior.">,
+  "reinterpret_cast from %0 to %1 has undefined behavior">,
   InGroup<DiagGroup<"undefined-reinterpret-cast">>, DefaultIgnore;
 
 // These messages don't adhere to the pattern.
@@ -4934,9 +4942,9 @@ def err_operator_new_delete_invalid_result_type : Error<
 def err_operator_new_delete_dependent_result_type : Error<
   "%0 cannot have a dependent return type; use %1 instead">;
 def err_operator_new_delete_too_few_parameters : Error<
-  "%0 must have at least one parameter.">;
+  "%0 must have at least one parameter">;
 def err_operator_new_delete_template_too_few_parameters : Error<
-  "%0 template must have at least two parameters.">;
+  "%0 template must have at least two parameters">;
 
 def err_operator_new_dependent_param_type : Error<
   "%0 cannot take a dependent type as first parameter; "
