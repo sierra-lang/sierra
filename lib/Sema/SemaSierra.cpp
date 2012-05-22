@@ -319,8 +319,9 @@ QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize,
 
     // uniform special case
     if (VecS == 1)
-      return QualType();
+      return T;
 
+#if 0
     unsigned CurS = S.getCurScope()->getCurrentVectorLength();
     // TODO polymorphism
     if (CurS != 1 && CurS != VecS) {
@@ -328,6 +329,7 @@ QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize,
         << CurS << VecS;
       return QualType();
     }
+#endif
 
     QualType res = S.Context.getSierraVectorType(T, VecS);
     return res;
