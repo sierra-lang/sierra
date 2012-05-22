@@ -576,8 +576,10 @@ llvm::DIType CGDebugInfo::CreatePointerLikeType(unsigned Tag,
                                                 const Type *Ty, 
                                                 QualType PointeeTy,
                                                 llvm::DIFile Unit) {
-  if (Tag == llvm::dwarf::DW_TAG_reference_type)
-    return DBuilder.createReferenceType(CreatePointeeType(PointeeTy, Unit));
+  if (Tag == llvm::dwarf::DW_TAG_reference_type ||
+      Tag == llvm::dwarf::DW_TAG_rvalue_reference_type)
+    return DBuilder.createReferenceType(Tag,
+                                        CreatePointeeType(PointeeTy, Unit));
                                     
   // Bit size, align and offset of the type.
   // Size is always the size of a pointer. We can't use getTypeSize here
@@ -1477,25 +1479,21 @@ llvm::DIType CGDebugInfo::CreateType(const ArrayType *Ty,
   // obvious/recursive way?
   SmallVector<llvm::Value *, 8> Subscripts;
   QualType EltTy(Ty, 0);
-  if (Ty->isIncompleteArrayType())
+  while ((Ty = dyn_cast<ArrayType>(EltTy))) {
+    int64_t UpperBound = 0;
+    int64_t LowerBound = 0;
+    if (const ConstantArrayType *CAT = dyn_cast<ConstantArrayType>(Ty)) {
+      if (CAT->getSize().getZExtValue())
+        UpperBound = CAT->getSize().getZExtValue() - 1;
+    } else
+      // This is an unbounded array. Use Low = 1, Hi = 0 to express such 
+      // arrays.
+      LowerBound = 1;
+    
+    // FIXME: Verify this is right for VLAs.
+    Subscripts.push_back(DBuilder.getOrCreateSubrange(LowerBound,
+                                                      UpperBound));
     EltTy = Ty->getElementType();
-  else {
-    while ((Ty = dyn_cast<ArrayType>(EltTy))) {
-      int64_t UpperBound = 0;
-      int64_t LowerBound = 0;
-      if (const ConstantArrayType *CAT = dyn_cast<ConstantArrayType>(Ty)) {
-        if (CAT->getSize().getZExtValue())
-          UpperBound = CAT->getSize().getZExtValue() - 1;
-      } else
-        // This is an unbounded array. Use Low = 1, Hi = 0 to express such 
-        // arrays.
-        LowerBound = 1;
-
-      // FIXME: Verify this is right for VLAs.
-      Subscripts.push_back(DBuilder.getOrCreateSubrange(LowerBound,
-                                                        UpperBound));
-      EltTy = Ty->getElementType();
-    }
   }
 
   llvm::DIArray SubscriptArray = DBuilder.getOrCreateArray(Subscripts);
@@ -2240,14 +2238,14 @@ void CGDebugInfo::EmitDeclare(const VarDecl *VD, unsigned Tag,
     // If Storage is an aggregate returned as 'sret' then let debugger know
     // about this.
     if (Arg->hasStructRetAttr())
-      Ty = DBuilder.createReferenceType(Ty);
+      Ty = DBuilder.createReferenceType(llvm::dwarf::DW_TAG_reference_type, Ty);
     else if (CXXRecordDecl *Record = VD->getType()->getAsCXXRecordDecl()) {
       // If an aggregate variable has non trivial destructor or non trivial copy
       // constructor than it is pass indirectly. Let debug info know about this
       // by using reference of the aggregate type as a argument type.
       if (!Record->hasTrivialCopyConstructor() ||
           !Record->hasTrivialDestructor())
-        Ty = DBuilder.createReferenceType(Ty);
+        Ty = DBuilder.createReferenceType(llvm::dwarf::DW_TAG_reference_type, Ty);
     }
   }
       

@@ -18,6 +18,8 @@
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ASTMutationListener.h"
+#include "clang/Lex/Lexer.h"
+#include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallString.h"
 
@@ -198,6 +200,37 @@ makePropertyAttributesAsWritten(unsigned Attributes) {
     attributesAsWritten |= ObjCPropertyDecl::OBJC_PR_atomic;
   
   return (ObjCPropertyDecl::PropertyAttributeKind)attributesAsWritten;
+}
+
+static bool LocPropertyAttribute( ASTContext &Context, const char *attrName, 
+                                 SourceLocation LParenLoc, SourceLocation &Loc) {
+  if (LParenLoc.isMacroID())
+    return false;
+  
+  SourceManager &SM = Context.getSourceManager();
+  std::pair<FileID, unsigned> locInfo = SM.getDecomposedLoc(LParenLoc);
+  // Try to load the file buffer.
+  bool invalidTemp = false;
+  StringRef file = SM.getBufferData(locInfo.first, &invalidTemp);
+  if (invalidTemp)
+    return false;
+  const char *tokenBegin = file.data() + locInfo.second;
+  
+  // Lex from the start of the given location.
+  Lexer lexer(SM.getLocForStartOfFile(locInfo.first),
+              Context.getLangOpts(),
+              file.begin(), tokenBegin, file.end());
+  Token Tok;
+  do {
+    lexer.LexFromRawLexer(Tok);
+    if (Tok.is(tok::raw_identifier) &&
+        StringRef(Tok.getRawIdentifierData(), Tok.getLength()) == attrName) {
+      Loc = Tok.getLocation();
+      return true;
+    }
+  } while (Tok.isNot(tok::r_paren));
+  return false;
+  
 }
 
 Decl *
@@ -628,6 +661,27 @@ Decl *Sema::ActOnPropertyImplDecl(Scope *S,
         return 0;
       }
     }
+    
+    if (Synthesize&&
+        (PIkind & ObjCPropertyDecl::OBJC_PR_readonly) &&
+        property->hasAttr<IBOutletAttr>() &&
+        !AtLoc.isValid()) {
+      unsigned rwPIKind = (PIkind | ObjCPropertyDecl::OBJC_PR_readwrite);
+      rwPIKind &= (~ObjCPropertyDecl::OBJC_PR_readonly);
+      Diag(IC->getLocation(), diag::warn_auto_readonly_iboutlet_property);
+      Diag(property->getLocation(), diag::note_property_declare);
+      SourceLocation readonlyLoc;
+      if (LocPropertyAttribute(Context, "readonly", 
+                               property->getLParenLoc(), readonlyLoc)) {
+        SourceLocation endLoc = 
+          readonlyLoc.getLocWithOffset(strlen("readonly")-1);
+        SourceRange ReadonlySourceRange(readonlyLoc, endLoc);
+        Diag(property->getLocation(), 
+             diag::note_auto_readonly_iboutlet_fixup_suggest) <<
+        FixItHint::CreateReplacement(ReadonlySourceRange, "readwrite");
+      }
+    }
+        
   } else if ((CatImplClass = dyn_cast<ObjCCategoryImplDecl>(ClassImpDecl))) {
     if (Synthesize) {
       Diag(AtLoc, diag::error_synthesize_category_decl);
