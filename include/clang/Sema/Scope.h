@@ -218,7 +218,7 @@ public:
 
   unsigned getCurrentVectorLength() const { return CurrentVectorLength; }
   void setCurrentVectorLength(unsigned L) { 
-    assert((CurrentVectorLength == 1 || L == 1) && "vector length mismatch");
+    //assert((CurrentVectorLength == 1 || L == 1) && "vector length mismatch");
     CurrentVectorLength = L; 
   }
 

@@ -14672,6 +14672,7 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
       if (getLangOpts().SIERRA) 
         allowed = oldL == 1 ? 0 : oldL;
 
+      allowed = 0; // HACK!!!!
       ExprResult ERes = CheckCXXBooleanCondition(E, IsConstexpr, allowed); // C++ 6.4p4
 
       if (ERes.isInvalid())
@@ -14680,7 +14681,7 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
       E = ERes.get();
       QualType T = E->getType();
       unsigned newL = T->getSierraVectorLength();
-      assert(oldL == 1 || newL == 1 || oldL == newL);
+      //assert(oldL == 1 || newL == 1 || oldL == newL);
       if (newL != 1 && oldL != newL)
         scope->setCurrentVectorLength(newL);
 
