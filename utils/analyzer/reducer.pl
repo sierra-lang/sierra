@@ -10,7 +10,7 @@ die "$prog: [error] cannot read file $file\n" if (! -r $file);
 my $magic = shift @ARGV;
 die "$prog: [error] no error string specified\n" if (! defined $magic);
 
-# Create a backup of the fuke.
+# Create a backup of the file.
 my $dir = tempdir( CLEANUP => 1 );
 print "$prog: created temporary directory '$dir'\n";
 my $srcFile = "$dir/$file";
@@ -24,7 +24,7 @@ my $reduceOut = "$dir/reduceOut";
 my $command;
 if (scalar(@ARGV) > 0) { $command = \@ARGV; }
 else {
-  my $compiler = "/Users/kremenek/llvm-cmake-release/bin/clang";
+  my $compiler = "clang";
   $command = [$compiler, "-fsyntax-only", "-Wfatal-errors", "-Wno-deprecated-declarations", "-Wimplicit-function-declaration"];
 }
 push @$command, $srcFile;
@@ -49,8 +49,8 @@ close(OUT);
 `chmod +x $scriptFile`;
 
 print "$prog: starting reduction\n";
-sub multidelta {
-    my $level = shift @_;
+sub multidelta($) {
+    my ($level) = @_;
     system("multidelta -level=$level $scriptFile $srcFile");
 }
 
