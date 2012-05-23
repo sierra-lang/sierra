@@ -5280,6 +5280,10 @@ namespace {
       assert(Chunk.Kind == DeclaratorChunk::Pipe);
       TL.setKWLoc(Chunk.Loc);
     }
+    void VisitSierraVectorTypeLoc(SierraVectorTypeLoc& TL) {
+      //assert(Chunk.Kind == DeclaratorChunk::???);
+      TL.setNameLoc(Chunk.Loc);
+    }
 
     void VisitTypeLoc(TypeLoc TL) {
       llvm_unreachable("unsupported TypeLoc kind in declarator!");
