@@ -3139,6 +3139,10 @@ namespace {
       TL.setLParenLoc(Chunk.Loc);
       TL.setRParenLoc(Chunk.EndLoc);
     }
+    void VisitSierraVectorTypeLoc(SierraVectorTypeLoc& TL) {
+      //assert(Chunk.Kind == DeclaratorChunk::???);
+      TL.setNameLoc(Chunk.Loc);
+    }
 
     void VisitTypeLoc(TypeLoc TL) {
       llvm_unreachable("unsupported TypeLoc kind in declarator!");
