@@ -267,7 +267,7 @@ def CUDAConstant : InheritableAttr {
   let Spellings = ["constant"];
 }
 
-def CUDADevice : Attr {
+def CUDADevice : InheritableAttr {
   let Spellings = ["device"];
 }
 
@@ -275,7 +275,7 @@ def CUDAGlobal : InheritableAttr {
   let Spellings = ["global"];
 }
 
-def CUDAHost : Attr {
+def CUDAHost : InheritableAttr {
   let Spellings = ["host"];
 }
 
@@ -308,14 +308,6 @@ def Destructor : InheritableAttr {
   let Args = [IntArgument<"Priority">];
 }
 
-def DLLExport : InheritableAttr {
-  let Spellings = ["dllexport"];
-}
-
-def DLLImport : InheritableAttr {
-  let Spellings = ["dllimport"];
-}
-
 def SierraSpmd : InheritableAttr {
   let Spellings = ["sierra_spmd"];
   let Subjects = [Function];
@@ -346,10 +338,6 @@ def FastCall : InheritableAttr {
 def Final : InheritableAttr { 
   let Spellings = [];
   let SemaHandler = 0;
-}
-
-def MsStruct : InheritableAttr {
-  let Spellings = ["__ms_struct__"];
 }
 
 def Format : InheritableAttr {
@@ -827,4 +815,42 @@ def SharedLocksRequired : InheritableAttr {
   let Args = [VariadicExprArgument<"Args">];
   let LateParsed = 1;
   let TemplateDependent = 1;
+}
+
+// Microsoft-related attributes
+
+def MsStruct : InheritableAttr {
+  let Spellings = ["__ms_struct__"];
+}
+
+def DLLExport : InheritableAttr {
+  let Spellings = ["dllexport"];
+}
+
+def DLLImport : InheritableAttr {
+  let Spellings = ["dllimport"];
+}
+
+def Win64 : InheritableAttr {
+  let Spellings = ["__w64"];
+}
+
+def Ptr32 : InheritableAttr {
+  let Spellings = ["__ptr32"];
+}
+
+def Ptr64 : InheritableAttr {
+  let Spellings = ["__ptr64"];
+}
+
+def SingleInheritance : InheritableAttr {
+  let Spellings = ["__single_inheritance"];
+}
+
+def MultipleInheritance : InheritableAttr {
+  let Spellings = ["__multiple_inheritance"];
+}
+
+def VirtualInheritance : InheritableAttr {
+  let Spellings = ["__virtual_inheritance"];
 }

@@ -1630,7 +1630,8 @@ def warn_attribute_wrong_decl_type : Warning<
   "variables and functions|functions and methods|parameters|"
   "functions, methods and blocks|functions, methods, and parameters|"
   "classes|variables|methods|variables, functions and labels|"
-  "fields and global variables|structs}1">;
+  "fields and global variables|structs|"
+  "variables, functions and tag types}1">;
 def err_attribute_wrong_decl_type : Error<
   "%0 attribute only applies to %select{functions|unions|"
   "variables and functions|functions and methods|parameters|"
@@ -4393,6 +4394,9 @@ def err_invalid_declarator_in_function : Error<
   "definition or redeclaration of %0 not allowed inside a function">;
 def err_not_tag_in_scope : Error<
   "no %select{struct|union|class|enum}0 named %1 in %2">;
+
+def err_no_typeid_with_fno_rtti : Error<
+  "cannot use typeid with -fno-rtti">;
 
 def err_cannot_form_pointer_to_member_of_reference_type : Error<
   "cannot form a pointer-to-member to member %0 of reference type %1">;

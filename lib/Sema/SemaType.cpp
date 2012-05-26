@@ -3139,6 +3139,10 @@ namespace {
       TL.setLParenLoc(Chunk.Loc);
       TL.setRParenLoc(Chunk.EndLoc);
     }
+    void VisitSierraVectorTypeLoc(SierraVectorTypeLoc& TL) {
+      //assert(Chunk.Kind == DeclaratorChunk::???);
+      TL.setNameLoc(Chunk.Loc);
+    }
 
     void VisitTypeLoc(TypeLoc TL) {
       llvm_unreachable("unsupported TypeLoc kind in declarator!");
@@ -4048,6 +4052,13 @@ static void processTypeAttrs(TypeProcessingState &state, QualType &type,
       break;
     case AttributeList::AT_opencl_image_access:
       HandleOpenCLImageAccessAttribute(type, attr, state.getSema());
+      attr.setUsedAsTypeAttr();
+      break;
+
+    case AttributeList::AT_w64:
+    case AttributeList::AT_ptr32:
+    case AttributeList::AT_ptr64:
+      // FIXME: don't ignore these
       attr.setUsedAsTypeAttr();
       break;
 
