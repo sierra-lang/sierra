@@ -626,6 +626,9 @@ def warn_missing_explicit_synthesis : Warning <
 def warn_property_getter_owning_mismatch : Warning<
   "property declared as returning non-retained objects"
   "; getter returning retained objects">;
+def error_property_setter_ambiguous_use : Error<
+  "synthesized properties '%0' and '%1' both claim setter %2 -"
+  " use of this setter will cause unexpected behavior">;
 def err_ownin_getter_rule : Error<
   "property's synthesized getter follows Cocoa naming"
   " convention for returning 'owned' objects">;
@@ -1174,19 +1177,21 @@ def warn_uninit_self_reference_in_init : Warning<
   "variable %0 is uninitialized when used within its own initialization">,
   InGroup<Uninitialized>;
 def warn_uninit_var : Warning<
-  "variable %0 is uninitialized when used here">,
+  "variable %0 is uninitialized when %select{used here|captured by block}1">,
   InGroup<Uninitialized>, DefaultIgnore;
-def warn_maybe_uninit_var :
-  Warning<"variable %0 may be uninitialized when used here">,
-    InGroup<UninitializedMaybe>, DefaultIgnore;
-def note_uninit_var_def : Note<
-  "variable %0 is declared here">;
-def warn_uninit_var_captured_by_block : Warning<
-  "variable %0 is uninitialized when captured by block">,
-  InGroup<Uninitialized>, DefaultIgnore;
-def warn_maybe_uninit_var_captured_by_block : Warning<
-  "variable %0 may be uninitialized when captured by block">,
+def warn_sometimes_uninit_var : Warning<
+  "variable %0 is %select{used|captured}1 uninitialized whenever "
+  "%select{'%3' condition is %select{true|false}4|"
+  "'%3' loop %select{is entered|exits because its condition is false}4|"
+  "'%3' loop %select{condition is true|exits because its condition is false}4|"
+  "switch %3 is taken}2">, InGroup<UninitializedSometimes>, DefaultIgnore;
+def warn_maybe_uninit_var : Warning<
+  "variable %0 may be uninitialized when "
+  "%select{used here|captured by block}1">,
   InGroup<UninitializedMaybe>, DefaultIgnore;
+def note_uninit_var_def : Note<"variable %0 is declared here">;
+def note_uninit_var_use : Note<
+  "%select{uninitialized use occurs|variable is captured by block}0 here">;
 def warn_uninit_byref_blockvar_captured_by_block : Warning<
   "block pointer variable %0 is uninitialized when captured by block">,
   InGroup<Uninitialized>, DefaultIgnore;
@@ -1194,6 +1199,9 @@ def note_block_var_fixit_add_initialization : Note<
   "maybe you meant to use __block %0">;
 def note_var_fixit_add_initialization : Note<
   "initialize the variable %0 to silence this warning">;
+def note_uninit_fixit_remove_cond : Note<
+  "remove the %select{'%1' if its condition|condition if it}0 "
+  "is always %select{false|true}2">;
 def err_init_incomplete_type : Error<"initialization of incomplete type %0">;
 
 def err_temp_copy_no_viable : Error<
@@ -1483,6 +1491,8 @@ def err_attribute_argument_outof_range : Error<
 def err_init_priority_object_attr : Error<
   "can only use 'init_priority' attribute on file-scope definitions "
   "of objects of class type">;
+def err_attribute_argument_duplicate: Error<
+  "'%0' attribute parameter %1 is duplicated">;
 def err_attribute_argument_n_not_int : Error<
   "'%0' attribute requires parameter %1 to be an integer constant">;
 def err_attribute_argument_n_not_string : Error<
@@ -3038,7 +3048,7 @@ def err_misplaced_ivar : Error<
   "ivars may not be placed in %select{categories|class extension}0">;
 def warn_ivars_in_interface : Warning<
   "declaration of ivars in the interface is deprecated">,
-  InGroup<DiagGroup<"interface-ivars">>, DefaultIgnore;
+  InGroup<DiagGroup<"objc-interface-ivars">>, DefaultIgnore;
 def ext_enum_value_not_int : Extension<
   "ISO C restricts enumerator values to range of 'int' (%0 is too "
   "%select{small|large}1)">;
@@ -4728,6 +4738,10 @@ def warn_unused_call : Warning<
 def warn_unused_result : Warning<
   "ignoring return value of function declared with warn_unused_result "
   "attribute">, InGroup<DiagGroup<"unused-result">>;
+def warn_unused_volatile : Warning<
+  "expression result unused; assign into a variable to force a volatile load">,
+  InGroup<DiagGroup<"unused-volatile-lvalue">>;
+
 def warn_unused_comparison : Warning<
   "%select{equality|inequality}0 comparison result unused">,
   InGroup<UnusedComparison>;
