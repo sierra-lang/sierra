@@ -104,7 +104,7 @@ namespace {
     KEYC11 = 0x400,
     KEYARC = 0x800,
     KEYALL = 0x0fff,
-    KEYNOMS = 0x1000
+    KEYNOMS = 0x1000,
     KEYSIERRA = 0x2000,
   };
 }

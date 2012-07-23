@@ -106,8 +106,8 @@ static void diagnoseBadTypeAttribute(Sema &S, const AttributeList &attr,
     case AttributeList::AT_ThisCall: \
     case AttributeList::AT_Pascal: \
     case AttributeList::AT_Regparm: \
-    case AttributeList::AT_Pcs \
-    case AttributeList::AT_sierra_spmd:
+    case AttributeList::AT_Pcs: \
+    case AttributeList::AT_SierraSpmd
 
 namespace {
   /// An object which stores processing state for the entire
@@ -2819,15 +2819,11 @@ static AttributeList::Kind getAttrListKind(AttributedType::Kind kind) {
   case AttributedType::attr_neon_vector_type:
     return AttributeList::AT_NeonVectorType;
   case AttributedType::attr_neon_polyvector_type:
-<<<<<<< HEAD
-    return AttributeList::AT_neon_polyvector_type;
-  case AttributedType::attr_sierra_vector:
-    return AttributeList::AT_sierra_vector;
-  case AttributedType::attr_sierra_spmd:
-    return AttributeList::AT_sierra_spmd;
-=======
     return AttributeList::AT_NeonPolyVectorType;
->>>>>>> clang/master
+  case AttributedType::attr_sierra_vector:
+    return AttributeList::AT_SierraVectorType;
+  case AttributedType::attr_sierra_spmd:
+    return AttributeList::AT_SierraSpmd;
   case AttributedType::attr_objc_gc:
     return AttributeList::AT_ObjCGC;
   case AttributedType::attr_objc_ownership:
@@ -3741,7 +3737,7 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state,
     return true;
   }
 
-  if (attr.getKind() == AttributeList::AT_sierra_spmd) {
+  if (attr.getKind() == AttributeList::AT_SierraSpmd) {
     unsigned SpmdSize;
 
     if (HandleSierraSpmdAttr(S, unwrapped.get(), attr, SpmdSize)) {
@@ -4034,15 +4030,11 @@ static void processTypeAttrs(TypeProcessingState &state, QualType &type,
       HandleVectorSizeAttr(type, attr, state.getSema());
       attr.setUsedAsTypeAttr();
       break;
-<<<<<<< HEAD
-    case AttributeList::AT_sierra_vector:
+    case AttributeList::AT_SierraVectorType:
       HandleSierraVectorAttr(state.getSema(), type, attr);
       attr.setUsedAsTypeAttr();
       break;
-    case AttributeList::AT_ext_vector_type:
-=======
     case AttributeList::AT_ExtVectorType:
->>>>>>> clang/master
       if (state.getDeclarator().getDeclSpec().getStorageClassSpec()
             != DeclSpec::SCS_typedef)
         HandleExtVectorTypeAttr(type, attr, state.getSema());

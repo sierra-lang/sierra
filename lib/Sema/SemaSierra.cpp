@@ -2,6 +2,7 @@
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/SemaSierra.h"
 #include "clang/AST/OperationKinds.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/Sema/SemaDiagnostic.h"
 
 namespace clang {

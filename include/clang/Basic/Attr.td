@@ -322,13 +322,12 @@ def Destructor : InheritableAttr {
 }
 
 def SierraSpmd : InheritableAttr {
-  let Spellings = ["sierra_spmd"];
+  let Spellings = [GNU<"sierra_spmd">];
   let Subjects = [Function];
-  let Namespaces = ["", "std"];
 }
 
 def SierraVectorType : Attr {
-  let Spellings = ["sierra_vector"];
+  let Spellings = [GNU<"sierra_vector">];
   let Args = [ExprArgument<"NumElements">];
   let ASTNode = 0;
 }
