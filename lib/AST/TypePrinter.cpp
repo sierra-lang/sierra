@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
@@ -227,9 +228,17 @@ bool TypePrinter::canPrefixQualifiers(const Type *T,
   return CanPrefixQualifiers;
 }
 
-void TypePrinter::printBefore(QualType t, raw_ostream &OS) {
-  SplitQualType split = t.split();
-  printBefore(split.Ty, split.Quals, OS);
+void TypePrinter::printBefore(QualType T, raw_ostream &OS) {
+  SplitQualType Split = T.split();
+
+  // If we have cv1 T, where T is substituted for cv2 U, only print cv1 - cv2
+  // at this level.
+  Qualifiers Quals = Split.Quals;
+  if (const SubstTemplateTypeParmType *Subst =
+        dyn_cast<SubstTemplateTypeParmType>(Split.Ty))
+    Quals -= QualType(Subst, 0).getQualifiers();
+
+  printBefore(Split.Ty, Quals, OS);
 }
 
 /// \brief Prints the part of the type string before an identifier, e.g. for
@@ -451,12 +460,12 @@ void TypePrinter::printVariableArrayAfter(const VariableArrayType *T,
     AppendTypeQualList(OS, T->getIndexTypeCVRQualifiers());
     OS << ' ';
   }
-  
+
   if (T->getSizeModifier() == VariableArrayType::Static)
     OS << "static";
   else if (T->getSizeModifier() == VariableArrayType::Star)
     OS << '*';
-  
+
   if (T->getSizeExpr())
     T->getSizeExpr()->printPretty(OS, 0, Policy);
   OS << ']';
@@ -1276,6 +1285,7 @@ TemplateSpecializationType::PrintTemplateArgumentList(
   if (!SkipBrackets)
     OS << '<';
   
+  bool needSpace = false;
   for (unsigned Arg = 0; Arg < NumArgs; ++Arg) {
     if (Arg > 0)
       OS << ", ";
@@ -1298,9 +1308,17 @@ TemplateSpecializationType::PrintTemplateArgumentList(
     // to avoid printing the diagraph '<:'.
     if (!Arg && !ArgString.empty() && ArgString[0] == ':')
       OS << ' ';
-    
+
     OS << ArgString;
+
+    needSpace = (!ArgString.empty() && ArgString.back() == '>');
   }
+
+  // If the last character of our string is '>', add another space to
+  // keep the two '>''s separate tokens. We don't *have* to do this in
+  // C++0x, but it's still good hygiene.
+  if (needSpace)
+    OS << ' ';
 
   if (!SkipBrackets)
     OS << '>';
@@ -1312,6 +1330,8 @@ PrintTemplateArgumentList(raw_ostream &OS,
                           const TemplateArgumentLoc *Args, unsigned NumArgs,
                           const PrintingPolicy &Policy) {
   OS << '<';
+
+  bool needSpace = false;
   for (unsigned Arg = 0; Arg < NumArgs; ++Arg) {
     if (Arg > 0)
       OS << ", ";
@@ -1334,10 +1354,18 @@ PrintTemplateArgumentList(raw_ostream &OS,
     // to avoid printing the diagraph '<:'.
     if (!Arg && !ArgString.empty() && ArgString[0] == ':')
       OS << ' ';
-    
+
     OS << ArgString;
+
+    needSpace = (!ArgString.empty() && ArgString.back() == '>');
   }
   
+  // If the last character of our string is '>', add another space to
+  // keep the two '>''s separate tokens. We don't *have* to do this in
+  // C++0x, but it's still good hygiene.
+  if (needSpace)
+    OS << ' ';
+
   OS << '>';
 }
 
@@ -1560,7 +1588,7 @@ void Qualifiers::print(raw_ostream &OS, const PrintingPolicy& Policy,
         OS << ' ';
       addSpace = true;
     }
-    
+
     switch (lifetime) {
     case Qualifiers::OCL_None: llvm_unreachable("none but true");
     case Qualifiers::OCL_ExplicitNone: OS << "__unsafe_unretained"; break;

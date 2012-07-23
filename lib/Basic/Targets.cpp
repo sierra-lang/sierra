@@ -575,10 +575,58 @@ class PPCTargetInfo : public TargetInfo {
   static const Builtin::Info BuiltinInfo[];
   static const char * const GCCRegNames[];
   static const TargetInfo::GCCRegAlias GCCRegAliases[];
+  std::string CPU;
 public:
   PPCTargetInfo(const std::string& triple) : TargetInfo(triple) {
     LongDoubleWidth = LongDoubleAlign = 128;
     LongDoubleFormat = &llvm::APFloat::PPCDoubleDouble;
+  }
+
+  /// \brief Flags for architecture specific defines.
+  typedef enum {
+    ArchDefineNone  = 0,
+    ArchDefineName  = 1 << 0, // <name> is substituted for arch name.
+    ArchDefinePpcgr = 1 << 1,
+    ArchDefinePpcsq = 1 << 2,
+    ArchDefine440   = 1 << 3,
+    ArchDefine603   = 1 << 4,
+    ArchDefine604   = 1 << 5,
+    ArchDefinePwr4  = 1 << 6,
+    ArchDefinePwr6  = 1 << 7
+  } ArchDefineTypes;
+
+  virtual bool setCPU(const std::string &Name) {
+    bool CPUKnown = llvm::StringSwitch<bool>(Name)
+      .Case("generic", true)
+      .Case("440", true)
+      .Case("450", true)
+      .Case("601", true)
+      .Case("602", true)
+      .Case("603", true)
+      .Case("603e", true)
+      .Case("603ev", true)
+      .Case("604", true)
+      .Case("604e", true)
+      .Case("620", true)
+      .Case("g3", true)
+      .Case("7400", true)
+      .Case("g4", true)
+      .Case("7450", true)
+      .Case("g4+", true)
+      .Case("750", true)
+      .Case("970", true)
+      .Case("g5", true)
+      .Case("a2", true)
+      .Case("pwr6", true)
+      .Case("pwr7", true)
+      .Case("ppc", true)
+      .Case("ppc64", true)
+      .Default(false);
+
+    if (CPUKnown)
+      CPU = Name;
+
+    return CPUKnown;
   }
 
   virtual void getTargetBuiltins(const Builtin::Info *&Records,
@@ -744,6 +792,47 @@ void PPCTargetInfo::getTargetDefines(const LangOptions &Opts,
     Builder.defineMacro("__VEC__", "10206");
     Builder.defineMacro("__ALTIVEC__");
   }
+
+  // CPU identification.
+  ArchDefineTypes defs = (ArchDefineTypes)llvm::StringSwitch<int>(CPU)
+    .Case("440",   ArchDefineName)
+    .Case("450",   ArchDefineName | ArchDefine440)
+    .Case("601",   ArchDefineName)
+    .Case("602",   ArchDefineName | ArchDefinePpcgr)
+    .Case("603",   ArchDefineName | ArchDefinePpcgr)
+    .Case("603e",  ArchDefineName | ArchDefine603 | ArchDefinePpcgr)
+    .Case("603ev", ArchDefineName | ArchDefine603 | ArchDefinePpcgr)
+    .Case("604",   ArchDefineName | ArchDefinePpcgr)
+    .Case("604e",  ArchDefineName | ArchDefine604 | ArchDefinePpcgr)
+    .Case("620",   ArchDefineName | ArchDefinePpcgr)
+    .Case("7400",  ArchDefineName | ArchDefinePpcgr)
+    .Case("7450",  ArchDefineName | ArchDefinePpcgr)
+    .Case("750",   ArchDefineName | ArchDefinePpcgr)
+    .Case("970",   ArchDefineName | ArchDefinePwr4 | ArchDefinePpcgr
+                     | ArchDefinePpcsq)
+    .Case("pwr6",  ArchDefinePwr6 | ArchDefinePpcgr | ArchDefinePpcsq)
+    .Case("pwr7",  ArchDefineName | ArchDefinePwr6 | ArchDefinePpcgr
+                     | ArchDefinePpcsq)
+    .Default(ArchDefineNone);
+
+  if (defs & ArchDefineName)
+    Builder.defineMacro(Twine("_ARCH_", StringRef(CPU).upper()));
+  if (defs & ArchDefinePpcgr)
+    Builder.defineMacro("_ARCH_PPCGR");
+  if (defs & ArchDefinePpcsq)
+    Builder.defineMacro("_ARCH_PPCSQ");
+  if (defs & ArchDefine440)
+    Builder.defineMacro("_ARCH_440");
+  if (defs & ArchDefine603)
+    Builder.defineMacro("_ARCH_603");
+  if (defs & ArchDefine604)
+    Builder.defineMacro("_ARCH_604");
+  if (defs & (ArchDefinePwr4 | ArchDefinePwr6))
+    Builder.defineMacro("_ARCH_PWR4");
+  if (defs & ArchDefinePwr6) {
+    Builder.defineMacro("_ARCH_PWR5");
+    Builder.defineMacro("_ARCH_PWR6");
+  }
 }
 
 bool PPCTargetInfo::hasFeature(StringRef Feature) const {
@@ -880,15 +969,9 @@ public:
     }
   }
 
-  virtual const char *getVAListDeclaration() const {
+  virtual BuiltinVaListKind getBuiltinVaListKind() const {
     // This is the ELF definition, and is overridden by the Darwin sub-target
-    return "typedef struct __va_list_tag {"
-           "  unsigned char gpr;"
-           "  unsigned char fpr;"
-           "  unsigned short reserved;"
-           "  void* overflow_arg_area;"
-           "  void* reg_save_area;"
-           "} __builtin_va_list[1];";
+    return TargetInfo::PowerABIBuiltinVaList;
   }
 };
 } // end anonymous namespace.
@@ -909,8 +992,8 @@ public:
       LongDoubleFormat = &llvm::APFloat::IEEEdouble;
     }
   }
-  virtual const char *getVAListDeclaration() const {
-    return "typedef char* __builtin_va_list;";
+  virtual BuiltinVaListKind getBuiltinVaListKind() const {
+    return TargetInfo::CharPtrBuiltinVaList;
   }
 };
 } // end anonymous namespace.
@@ -929,8 +1012,8 @@ public:
     DescriptionString = "E-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-"
                         "i64:32:64-f32:32:32-f64:64:64-v128:128:128-n32";
   }
-  virtual const char *getVAListDeclaration() const {
-    return "typedef char* __builtin_va_list;";
+  virtual BuiltinVaListKind getBuiltinVaListKind() const {
+    return TargetInfo::CharPtrBuiltinVaList;
   }
 };
 
@@ -966,6 +1049,7 @@ namespace {
       AddrSpaceMap = &NVPTXAddrSpaceMap;
       // Define available target features
       // These must be defined in sorted order!
+      NoAsmVariants = true;
     }
     virtual void getTargetDefines(const LangOptions &Opts,
                                   MacroBuilder &Builder) const {
@@ -998,9 +1082,9 @@ namespace {
       // FIXME: Is this really right?
       return "";
     }
-    virtual const char *getVAListDeclaration() const {
+    virtual BuiltinVaListKind getBuiltinVaListKind() const {
       // FIXME: implement
-      return "typedef char* __builtin_va_list;";
+      return TargetInfo::CharPtrBuiltinVaList;
     }
     virtual bool setCPU(const std::string &Name) {
       return Name == "sm_10" || Name == "sm_13" || Name == "sm_20";
@@ -1089,8 +1173,8 @@ public:
     return Feature == "mblaze";
   }
   
-  virtual const char *getVAListDeclaration() const {
-    return "typedef char* __builtin_va_list;";
+  virtual BuiltinVaListKind getBuiltinVaListKind() const {
+    return TargetInfo::CharPtrBuiltinVaList;
   }
   virtual const char *getTargetPrefix() const {
     return "mblaze";
@@ -1238,11 +1322,16 @@ class X86TargetInfo : public TargetInfo {
   } MMX3DNowLevel;
 
   bool HasAES;
+  bool HasPCLMUL;
   bool HasLZCNT;
+  bool HasRDRND;
   bool HasBMI;
   bool HasBMI2;
   bool HasPOPCNT;
+  bool HasSSE4a;
   bool HasFMA4;
+  bool HasFMA;
+  bool HasXOP;
 
   /// \brief Enumeration of all of the X86 CPUs supported by Clang.
   ///
@@ -1387,8 +1476,9 @@ class X86TargetInfo : public TargetInfo {
 public:
   X86TargetInfo(const std::string& triple)
     : TargetInfo(triple), SSELevel(NoSSE), MMX3DNowLevel(NoMMX3DNow),
-      HasAES(false), HasLZCNT(false), HasBMI(false), HasBMI2(false),
-      HasPOPCNT(false), HasFMA4(false), CPU(CK_Generic) {
+      HasAES(false), HasPCLMUL(false), HasLZCNT(false), HasRDRND(false),
+      HasBMI(false), HasBMI2(false), HasPOPCNT(false), HasSSE4a(false),
+      HasFMA4(false), HasFMA(false), HasXOP(false), CPU(CK_Generic) {
     BigEndian = false;
     LongDoubleFormat = &llvm::APFloat::x87DoubleExtended;
   }
@@ -1570,13 +1660,17 @@ void X86TargetInfo::getDefaultFeatures(llvm::StringMap<bool> &Features) const {
   Features["sse42"] = false;
   Features["sse4a"] = false;
   Features["aes"] = false;
+  Features["pclmul"] = false;
   Features["avx"] = false;
   Features["avx2"] = false;
   Features["lzcnt"] = false;
+  Features["rdrand"] = false;
   Features["bmi"] = false;
   Features["bmi2"] = false;
   Features["popcnt"] = false;
   Features["fma4"] = false;
+  Features["fma"] = false;
+  Features["xop"] = false;
 
   // FIXME: This *really* should not be here.
 
@@ -1630,21 +1724,30 @@ void X86TargetInfo::getDefaultFeatures(llvm::StringMap<bool> &Features) const {
   case CK_Corei7:
     setFeatureEnabled(Features, "mmx", true);
     setFeatureEnabled(Features, "sse4", true);
-    setFeatureEnabled(Features, "aes", true);
     break;
   case CK_Corei7AVX:
+    setFeatureEnabled(Features, "mmx", true);
+    setFeatureEnabled(Features, "avx", true);
+    setFeatureEnabled(Features, "aes", true);
+    setFeatureEnabled(Features, "pclmul", true);
+    break;
   case CK_CoreAVXi:
     setFeatureEnabled(Features, "mmx", true);
     setFeatureEnabled(Features, "avx", true);
     setFeatureEnabled(Features, "aes", true);
+    setFeatureEnabled(Features, "pclmul", true);
+    setFeatureEnabled(Features, "rdrnd", true);
     break;
   case CK_CoreAVX2:
     setFeatureEnabled(Features, "mmx", true);
     setFeatureEnabled(Features, "avx2", true);
     setFeatureEnabled(Features, "aes", true);
+    setFeatureEnabled(Features, "pclmul", true);
     setFeatureEnabled(Features, "lzcnt", true);
+    setFeatureEnabled(Features, "rdrnd", true);
     setFeatureEnabled(Features, "bmi", true);
     setFeatureEnabled(Features, "bmi2", true);
+    setFeatureEnabled(Features, "fma", true);
     break;
   case CK_K6:
   case CK_WinChipC6:
@@ -1688,11 +1791,13 @@ void X86TargetInfo::getDefaultFeatures(llvm::StringMap<bool> &Features) const {
   case CK_BTVER1:
     setFeatureEnabled(Features, "ssse3", true);
     setFeatureEnabled(Features, "sse4a", true);
+    break;
   case CK_BDVER1:
   case CK_BDVER2:
     setFeatureEnabled(Features, "avx", true);
-    setFeatureEnabled(Features, "sse4a", true);
+    setFeatureEnabled(Features, "xop", true);
     setFeatureEnabled(Features, "aes", true);
+    setFeatureEnabled(Features, "pclmul", true);
     break;
   case CK_C3_2:
     setFeatureEnabled(Features, "mmx", true);
@@ -1707,7 +1812,8 @@ bool X86TargetInfo::setFeatureEnabled(llvm::StringMap<bool> &Features,
   // FIXME: This *really* should not be here.  We need some way of translating
   // options into llvm subtarget features.
   if (!Features.count(Name) &&
-      (Name != "sse4" && Name != "sse4.2" && Name != "sse4.1"))
+      (Name != "sse4" && Name != "sse4.2" && Name != "sse4.1" &&
+       Name != "rdrnd"))
     return false;
 
   // FIXME: this should probably use a switch with fall through.
@@ -1737,7 +1843,9 @@ bool X86TargetInfo::setFeatureEnabled(llvm::StringMap<bool> &Features,
     else if (Name == "3dnowa")
       Features["mmx"] = Features["3dnow"] = Features["3dnowa"] = true;
     else if (Name == "aes")
-      Features["aes"] = true;
+      Features["sse"] = Features["sse2"] = Features["aes"] = true;
+    else if (Name == "pclmul")
+      Features["sse"] = Features["sse2"] = Features["pclmul"] = true;
     else if (Name == "avx")
       Features["mmx"] = Features["sse"] = Features["sse2"] = Features["sse3"] =
         Features["ssse3"] = Features["sse41"] = Features["sse42"] =
@@ -1746,15 +1854,27 @@ bool X86TargetInfo::setFeatureEnabled(llvm::StringMap<bool> &Features,
       Features["mmx"] = Features["sse"] = Features["sse2"] = Features["sse3"] =
         Features["ssse3"] = Features["sse41"] = Features["sse42"] =
         Features["popcnt"] = Features["avx"] = Features["avx2"] = true;
+    else if (Name == "fma")
+      Features["mmx"] = Features["sse"] = Features["sse2"] = Features["sse3"] =
+        Features["ssse3"] = Features["sse41"] = Features["sse42"] =
+        Features["popcnt"] = Features["avx"] = Features["fma"] = true;
     else if (Name == "fma4")
         Features["mmx"] = Features["sse"] = Features["sse2"] = Features["sse3"] =
         Features["ssse3"] = Features["sse41"] = Features["sse42"] =
-        Features["popcnt"] = Features["avx"] = Features["fma4"] = true;
+        Features["popcnt"] = Features["avx"] = Features["sse4a"] =
+        Features["fma4"] = true;
+    else if (Name == "xop")
+        Features["mmx"] = Features["sse"] = Features["sse2"] = Features["sse3"] =
+        Features["ssse3"] = Features["sse41"] = Features["sse42"] =
+        Features["popcnt"] = Features["avx"] = Features["sse4a"] =
+        Features["fma4"] = Features["xop"] = true;
     else if (Name == "sse4a")
       Features["mmx"] = Features["sse"] = Features["sse2"] = Features["sse3"] =
-        Features["lzcnt"] = Features["popcnt"] = Features["sse4a"] = true;
+        Features["sse4a"] = true;
     else if (Name == "lzcnt")
       Features["lzcnt"] = true;
+    else if (Name == "rdrnd")
+      Features["rdrand"] = true;
     else if (Name == "bmi")
       Features["bmi"] = true;
     else if (Name == "bmi2")
@@ -1767,33 +1887,50 @@ bool X86TargetInfo::setFeatureEnabled(llvm::StringMap<bool> &Features,
     else if (Name == "sse")
       Features["sse"] = Features["sse2"] = Features["sse3"] =
         Features["ssse3"] = Features["sse41"] = Features["sse42"] =
-        Features["sse4a"] = false;
+        Features["sse4a"] = Features["avx"] = Features["avx2"] =
+        Features["fma"] = Features["fma4"] = Features["aes"] =
+        Features["pclmul"] = Features["xop"] = false;
     else if (Name == "sse2")
       Features["sse2"] = Features["sse3"] = Features["ssse3"] =
-        Features["sse41"] = Features["sse42"] = Features["sse4a"] = false;
+        Features["sse41"] = Features["sse42"] = Features["sse4a"] =
+        Features["avx"] = Features["avx2"] = Features["fma"] =
+        Features["fma4"] = Features["aes"] = Features["pclmul"] =
+        Features["xop"] = false;
     else if (Name == "sse3")
       Features["sse3"] = Features["ssse3"] = Features["sse41"] =
-        Features["sse42"] = Features["sse4a"] = false;
+        Features["sse42"] = Features["sse4a"] = Features["avx"] =
+        Features["avx2"] = Features["fma"] = Features["fma4"] =
+        Features["xop"] = false;
     else if (Name == "ssse3")
-      Features["ssse3"] = Features["sse41"] = Features["sse42"] = false;
+      Features["ssse3"] = Features["sse41"] = Features["sse42"] =
+        Features["avx"] = Features["avx2"] = Features["fma"] = false;
     else if (Name == "sse4" || Name == "sse4.1")
-      Features["sse41"] = Features["sse42"] = false;
+      Features["sse41"] = Features["sse42"] = Features["avx"] =
+        Features["avx2"] = Features["fma"] = false;
     else if (Name == "sse4.2")
-      Features["sse42"] = false;
+      Features["sse42"] = Features["avx"] = Features["avx2"] =
+        Features["fma"] = false;
     else if (Name == "3dnow")
       Features["3dnow"] = Features["3dnowa"] = false;
     else if (Name == "3dnowa")
       Features["3dnowa"] = false;
     else if (Name == "aes")
       Features["aes"] = false;
+    else if (Name == "pclmul")
+      Features["pclmul"] = false;
     else if (Name == "avx")
-      Features["avx"] = Features["avx2"] = Features["fma4"] = false;
+      Features["avx"] = Features["avx2"] = Features["fma"] =
+        Features["fma4"] = Features["xop"] = false;
     else if (Name == "avx2")
       Features["avx2"] = false;
+    else if (Name == "fma")
+      Features["fma"] = false;
     else if (Name == "sse4a")
-      Features["sse4a"] = false;
+      Features["sse4a"] = Features["fma4"] = Features["xop"] = false;
     else if (Name == "lzcnt")
       Features["lzcnt"] = false;
+    else if (Name == "rdrnd")
+      Features["rdrand"] = false;
     else if (Name == "bmi")
       Features["bmi"] = false;
     else if (Name == "bmi2")
@@ -1801,7 +1938,9 @@ bool X86TargetInfo::setFeatureEnabled(llvm::StringMap<bool> &Features,
     else if (Name == "popcnt")
       Features["popcnt"] = false;
     else if (Name == "fma4")
-      Features["fma4"] = false;
+      Features["fma4"] = Features["xop"] = false;
+    else if (Name == "xop")
+      Features["xop"] = false;
   }
 
   return true;
@@ -1823,8 +1962,18 @@ void X86TargetInfo::HandleTargetFeatures(std::vector<std::string> &Features) {
       continue;
     }
 
+    if (Feature == "pclmul") {
+      HasPCLMUL = true;
+      continue;
+    }
+
     if (Feature == "lzcnt") {
       HasLZCNT = true;
+      continue;
+    }
+
+    if (Feature == "rdrand") {
+      HasRDRND = true;
       continue;
     }
 
@@ -1843,8 +1992,23 @@ void X86TargetInfo::HandleTargetFeatures(std::vector<std::string> &Features) {
       continue;
     }
 
+    if (Feature == "sse4a") {
+      HasSSE4a = true;
+      continue;
+    }
+
     if (Feature == "fma4") {
       HasFMA4 = true;
+      continue;
+    }
+
+    if (Feature == "fma") {
+      HasFMA = true;
+      continue;
+    }
+
+    if (Feature == "xop") {
+      HasXOP = true;
       continue;
     }
 
@@ -2030,8 +2194,14 @@ void X86TargetInfo::getTargetDefines(const LangOptions &Opts,
   if (HasAES)
     Builder.defineMacro("__AES__");
 
+  if (HasPCLMUL)
+    Builder.defineMacro("__PCLMUL__");
+
   if (HasLZCNT)
     Builder.defineMacro("__LZCNT__");
+
+  if (HasRDRND)
+    Builder.defineMacro("__RDRND__");
 
   if (HasBMI)
     Builder.defineMacro("__BMI__");
@@ -2042,8 +2212,17 @@ void X86TargetInfo::getTargetDefines(const LangOptions &Opts,
   if (HasPOPCNT)
     Builder.defineMacro("__POPCNT__");
 
+  if (HasSSE4a)
+    Builder.defineMacro("__SSE4A__");
+
   if (HasFMA4)
     Builder.defineMacro("__FMA4__");
+
+  if (HasFMA)
+    Builder.defineMacro("__FMA__");
+
+  if (HasXOP)
+    Builder.defineMacro("__XOP__");
 
   // Each case falls through to the previous one here.
   switch (SSELevel) {
@@ -2108,11 +2287,14 @@ bool X86TargetInfo::hasFeature(StringRef Feature) const {
       .Case("avx2", SSELevel >= AVX2)
       .Case("bmi", HasBMI)
       .Case("bmi2", HasBMI2)
+      .Case("fma", HasFMA)
       .Case("fma4", HasFMA4)
       .Case("lzcnt", HasLZCNT)
+      .Case("rdrnd", HasRDRND)
       .Case("mm3dnow", MMX3DNowLevel >= AMD3DNow)
       .Case("mm3dnowa", MMX3DNowLevel >= AMD3DNowAthlon)
       .Case("mmx", MMX3DNowLevel >= MMX)
+      .Case("pclmul", HasPCLMUL)
       .Case("popcnt", HasPOPCNT)
       .Case("sse", SSELevel >= SSE1)
       .Case("sse2", SSELevel >= SSE2)
@@ -2120,9 +2302,11 @@ bool X86TargetInfo::hasFeature(StringRef Feature) const {
       .Case("ssse3", SSELevel >= SSSE3)
       .Case("sse41", SSELevel >= SSE41)
       .Case("sse42", SSELevel >= SSE42)
+      .Case("sse4a", HasSSE4a)
       .Case("x86", true)
       .Case("x86_32", PointerWidth == 32)
       .Case("x86_64", PointerWidth == 64)
+      .Case("xop", HasXOP)
       .Default(false);
 }
 
@@ -2218,8 +2402,8 @@ public:
     // MaxAtomicInlineWidth. (cmpxchg8b is an i586 instruction.)
     MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 64;
   }
-  virtual const char *getVAListDeclaration() const {
-    return "typedef char* __builtin_va_list;";
+  virtual BuiltinVaListKind getBuiltinVaListKind() const {
+    return TargetInfo::CharPtrBuiltinVaList;
   }
 
   int getEHDataRegisterNumber(unsigned RegNo) const {
@@ -2264,6 +2448,7 @@ public:
     LongDoubleWidth = 128;
     LongDoubleAlign = 128;
     SuitableAlign = 128;
+    MaxVectorAlign = 256;
     SizeType = UnsignedLong;
     IntPtrType = SignedLong;
     DescriptionString = "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-"
@@ -2478,14 +2663,8 @@ public:
     MaxAtomicPromoteWidth = 128;
     MaxAtomicInlineWidth = 64;
   }
-  virtual const char *getVAListDeclaration() const {
-    return "typedef struct __va_list_tag {"
-           "  unsigned gp_offset;"
-           "  unsigned fp_offset;"
-           "  void* overflow_arg_area;"
-           "  void* reg_save_area;"
-           "} __va_list_tag;"
-           "typedef __va_list_tag __builtin_va_list[1];";
+  virtual BuiltinVaListKind getBuiltinVaListKind() const {
+    return TargetInfo::X86_64ABIBuiltinVaList;
   }
 
   int getEHDataRegisterNumber(unsigned RegNo) const {
@@ -2519,8 +2698,8 @@ public:
     WindowsTargetInfo<X86_64TargetInfo>::getTargetDefines(Opts, Builder);
     Builder.defineMacro("_WIN64");
   }
-  virtual const char *getVAListDeclaration() const {
-    return "typedef char* __builtin_va_list;";
+  virtual BuiltinVaListKind getBuiltinVaListKind() const {
+    return TargetInfo::CharPtrBuiltinVaList;
   }
 };
 } // end anonymous namespace
@@ -2577,6 +2756,7 @@ public:
   DarwinX86_64TargetInfo(const std::string& triple)
       : DarwinTargetInfo<X86_64TargetInfo>(triple) {
     Int64Type = SignedLongLong;
+    MaxVectorAlign = 256;
   }
 };
 } // end anonymous namespace
@@ -2851,8 +3031,8 @@ public:
     NumRecords = clang::ARM::LastTSBuiltin-Builtin::FirstTSBuiltin;
   }
   virtual bool isCLZForZeroUndef() const { return false; }
-  virtual const char *getVAListDeclaration() const {
-    return "typedef void* __builtin_va_list;";
+  virtual BuiltinVaListKind getBuiltinVaListKind() const {
+    return TargetInfo::VoidPtrBuiltinVaList;
   }
   virtual void getGCCRegNames(const char * const *&Names,
                               unsigned &NumNames) const;
@@ -3032,8 +3212,8 @@ public:
     return Feature == "hexagon";
   }
   
-  virtual const char *getVAListDeclaration() const {
-    return "typedef char* __builtin_va_list;";
+  virtual BuiltinVaListKind getBuiltinVaListKind() const {
+    return TargetInfo::CharPtrBuiltinVaList;
   }
   virtual void getGCCRegNames(const char * const *&Names,
                               unsigned &NumNames) const;
@@ -3159,7 +3339,6 @@ class SparcV8TargetInfo : public TargetInfo {
 public:
   SparcV8TargetInfo(const std::string& triple) : TargetInfo(triple) {
     // FIXME: Support Sparc quad-precision long double?
-    BigEndian = false;
     DescriptionString = "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-"
                         "i64:64:64-f32:32:32-f64:64:64-v64:64:64-n32";
   }
@@ -3200,8 +3379,8 @@ public:
                                  unsigned &NumRecords) const {
     // FIXME: Implement!
   }
-  virtual const char *getVAListDeclaration() const {
-    return "typedef void* __builtin_va_list;";
+  virtual BuiltinVaListKind getBuiltinVaListKind() const {
+    return TargetInfo::VoidPtrBuiltinVaList;
   }
   virtual void getGCCRegNames(const char * const *&Names,
                               unsigned &NumNames) const;
@@ -3344,9 +3523,9 @@ namespace {
       // FIXME: Is this really right?
       return "";
     }
-    virtual const char *getVAListDeclaration() const {
+    virtual BuiltinVaListKind getBuiltinVaListKind() const {
       // FIXME: implement
-      return "typedef char* __builtin_va_list;";
+      return TargetInfo::CharPtrBuiltinVaList;
    }
   };
 
@@ -3428,8 +3607,8 @@ namespace {
     virtual const char *getClobbers() const {
       return "";
     }
-    virtual const char *getVAListDeclaration() const {
-      return "typedef void* __builtin_va_list;";
+    virtual BuiltinVaListKind getBuiltinVaListKind() const {
+      return TargetInfo::VoidPtrBuiltinVaList;
     }
     virtual void getGCCRegNames(const char * const *&Names,
                                 unsigned &NumNames) const {}
@@ -3444,9 +3623,15 @@ namespace {
 
 namespace {
 class MipsTargetInfoBase : public TargetInfo {
+  static const Builtin::Info BuiltinInfo[];
   std::string CPU;
-  bool SoftFloat;
-  bool SingleFloat;
+  bool IsMips16;
+  enum MipsFloatABI {
+    HardFloat, SingleFloat, SoftFloat
+  } FloatABI;
+  enum DspRevEnum {
+    NoDSP, DSP1, DSP2
+  } DspRev;
 
 protected:
   std::string ABI;
@@ -3457,7 +3642,9 @@ public:
                      const std::string& CPUStr)
     : TargetInfo(triple),
       CPU(CPUStr),
-      SoftFloat(false), SingleFloat(false),
+      IsMips16(false),
+      FloatABI(HardFloat),
+      DspRev(NoDSP),
       ABI(ABIStr)
   {}
 
@@ -3474,14 +3661,35 @@ public:
 
   virtual void getArchDefines(const LangOptions &Opts,
                               MacroBuilder &Builder) const {
-    if (SoftFloat)
-      Builder.defineMacro("__mips_soft_float", Twine(1));
-    else if (SingleFloat)
-      Builder.defineMacro("__mips_single_float", Twine(1));
-    else if (!SoftFloat && !SingleFloat)
+    switch (FloatABI) {
+    case HardFloat:
       Builder.defineMacro("__mips_hard_float", Twine(1));
-    else
-      llvm_unreachable("Invalid float ABI for Mips.");
+      break;
+    case SingleFloat:
+      Builder.defineMacro("__mips_hard_float", Twine(1));
+      Builder.defineMacro("__mips_single_float", Twine(1));
+      break;
+    case SoftFloat:
+      Builder.defineMacro("__mips_soft_float", Twine(1));
+      break;
+    }
+
+    if (IsMips16)
+      Builder.defineMacro("__mips16", Twine(1));
+
+    switch (DspRev) {
+    default:
+      break;
+    case DSP1:
+      Builder.defineMacro("__mips_dsp_rev", Twine(1));
+      Builder.defineMacro("__mips_dsp", Twine(1));
+      break;
+    case DSP2:
+      Builder.defineMacro("__mips_dsp_rev", Twine(2));
+      Builder.defineMacro("__mips_dspr2", Twine(1));
+      Builder.defineMacro("__mips_dsp", Twine(1));
+      break;
+    }
 
     Builder.defineMacro("_MIPS_SZPTR", Twine(getPointerWidth(0)));
     Builder.defineMacro("_MIPS_SZINT", Twine(getIntWidth()));
@@ -3492,13 +3700,14 @@ public:
                                 MacroBuilder &Builder) const = 0;
   virtual void getTargetBuiltins(const Builtin::Info *&Records,
                                  unsigned &NumRecords) const {
-    // FIXME: Implement!
+    Records = BuiltinInfo;
+    NumRecords = clang::Mips::LastTSBuiltin - Builtin::FirstTSBuiltin;
   }
   virtual bool hasFeature(StringRef Feature) const {
     return Feature == "mips";
   }
-  virtual const char *getVAListDeclaration() const {
-    return "typedef void* __builtin_va_list;";
+  virtual BuiltinVaListKind getBuiltinVaListKind() const {
+    return TargetInfo::VoidPtrBuiltinVaList;
   }
   virtual void getGCCRegNames(const char * const *&Names,
                               unsigned &NumNames) const {
@@ -3552,7 +3761,8 @@ public:
     if (Name == "soft-float" || Name == "single-float" ||
         Name == "o32" || Name == "n32" || Name == "n64" || Name == "eabi" ||
         Name == "mips32" || Name == "mips32r2" ||
-        Name == "mips64" || Name == "mips64r2") {
+        Name == "mips64" || Name == "mips64r2" ||
+        Name == "mips16" || Name == "dsp" || Name == "dspr2") {
       Features[Name] = Enabled;
       return true;
     }
@@ -3560,25 +3770,37 @@ public:
   }
 
   virtual void HandleTargetFeatures(std::vector<std::string> &Features) {
-    SoftFloat = false;
-    SingleFloat = false;
+    IsMips16 = false;
+    FloatABI = HardFloat;
+    DspRev = NoDSP;
 
     for (std::vector<std::string>::iterator it = Features.begin(),
          ie = Features.end(); it != ie; ++it) {
-      if (*it == "+single-float") {
-        SingleFloat = true;
-        break;
-      }
-
-      if (*it == "+soft-float") {
-        SoftFloat = true;
-        // This option is front-end specific.
-        // Do not need to pass it to the backend.
-        Features.erase(it);
-        break;
-      }
+      if (*it == "+single-float")
+        FloatABI = SingleFloat;
+      else if (*it == "+soft-float")
+        FloatABI = SoftFloat;
+      else if (*it == "+mips16")
+        IsMips16 = true;
+      else if (*it == "+dsp")
+        DspRev = std::max(DspRev, DSP1);
+      else if (*it == "+dspr2")
+        DspRev = std::max(DspRev, DSP2);
     }
+
+    // Remove front-end specific option.
+    std::vector<std::string>::iterator it =
+      std::find(Features.begin(), Features.end(), "+soft-float");
+    if (it != Features.end())
+      Features.erase(it);
   }
+};
+
+const Builtin::Info MipsTargetInfoBase::BuiltinInfo[] = {
+#define BUILTIN(ID, TYPE, ATTRS) { #ID, TYPE, ATTRS, 0, ALL_LANGUAGES },
+#define LIBBUILTIN(ID, TYPE, ATTRS, HEADER) { #ID, TYPE, ATTRS, HEADER,\
+                                              ALL_LANGUAGES },
+#include "clang/Basic/BuiltinsMips.def"
 };
 
 class Mips32TargetInfoBase : public MipsTargetInfoBase {
@@ -3871,8 +4093,8 @@ public:
   virtual void getTargetBuiltins(const Builtin::Info *&Records,
                                  unsigned &NumRecords) const {
   }
-  virtual const char *getVAListDeclaration() const {
-    return "typedef int __builtin_va_list[4];";
+  virtual BuiltinVaListKind getBuiltinVaListKind() const {
+    return TargetInfo::PNaClABIBuiltinVaList;
   }
   virtual void getGCCRegNames(const char * const *&Names,
                               unsigned &NumNames) const;

@@ -199,7 +199,7 @@ typedef struct IONotificationPort * IONotificationPortRef;
 typedef void (*IOServiceMatchingCallback)(  void * refcon,  io_iterator_t iterator );
 io_service_t IOServiceGetMatchingService(  mach_port_t masterPort,  CFDictionaryRef matching );
 kern_return_t IOServiceGetMatchingServices(  mach_port_t masterPort,  CFDictionaryRef matching,  io_iterator_t * existing );
-kern_return_t IOServiceAddNotification(  mach_port_t masterPort,  const io_name_t notificationType,  CFDictionaryRef matching,  mach_port_t wakePort,  uintptr_t reference,  io_iterator_t * notification ) __attribute__((deprecated));
+kern_return_t IOServiceAddNotification(  mach_port_t masterPort,  const io_name_t notificationType,  CFDictionaryRef matching,  mach_port_t wakePort,  uintptr_t reference,  io_iterator_t * notification ) __attribute__((deprecated)); // expected-note {{'IOServiceAddNotification' declared here}}
 kern_return_t IOServiceAddMatchingNotification(  IONotificationPortRef notifyPort,  const io_name_t notificationType,  CFDictionaryRef matching,         IOServiceMatchingCallback callback,         void * refCon,  io_iterator_t * notification );
 CFMutableDictionaryRef IOServiceMatching(  const char * name );
 CFMutableDictionaryRef IOServiceNameMatching(  const char * name );
@@ -753,7 +753,7 @@ typedef CFTypeRef OtherRef;
 @end
 
 //===----------------------------------------------------------------------===//
-//<rdar://problem/6320065> false positive - init method returns an object
+// <rdar://problem/6320065> false positive - init method returns an object
 // owned by caller
 //===----------------------------------------------------------------------===//
 
@@ -1452,8 +1452,7 @@ void test_blocks_1_indirect_release_via_call(void) {
 }
 
 void test_blocks_1_indirect_retain_via_call(void) {
-  // Eventually this should be reported as a leak.
-  NSNumber *number = [[NSNumber alloc] initWithInt:5]; // no-warning
+  NSNumber *number = [[NSNumber alloc] initWithInt:5]; // expected-warning {{leak}}
   ^(NSObject *o){ [o retain]; }(number);
 }
 

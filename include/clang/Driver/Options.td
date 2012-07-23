@@ -33,11 +33,13 @@ def d_Group               : OptionGroup<"<d group>">;
 def f_Group               : OptionGroup<"<f group>">, Group<CompileOnly_Group>;
 def f_clang_Group         : OptionGroup<"<f (clang-only) group>">, Group<CompileOnly_Group>;
 def g_Group               : OptionGroup<"<g group>">;
+def g_flags_Group         : OptionGroup<"<g flags group>">;
 def i_Group               : OptionGroup<"<i group>">, Group<CompileOnly_Group>;
 def clang_i_Group         : OptionGroup<"<clang i group>">, Group<i_Group>;
 def m_Group               : OptionGroup<"<m group>">, Group<CompileOnly_Group>;
 def m_x86_Features_Group  : OptionGroup<"<m x86 features group>">, Group<m_Group>;
 def m_hexagon_Features_Group  : OptionGroup<"<m hexagon features group>">, Group<m_Group>;
+def opencl_Group          : OptionGroup<"<opencl group>">;
 def u_Group               : OptionGroup<"<u group>">;
 
 def pedantic_Group        : OptionGroup<"<pedantic group>">,
@@ -246,6 +248,8 @@ def bind__at__load : Flag<"-bind_at_load">;
 def bundle__loader : Separate<"-bundle_loader">;
 def bundle : Flag<"-bundle">;
 def b : JoinedOrSeparate<"-b">, Flags<[Unsupported]>;
+def cl_kernel_arg_info : Flag<"-cl-kernel-arg-info">, Flags<[CC1Option]>, Group<opencl_Group>,
+HelpText<"OpenCL only. This option allows the compiler to store information about the arguments of a kernel(s)"> ;
 def client__name : JoinedOrSeparate<"-client_name">;
 def combine : Flag<"-combine">, Flags<[DriverOption, Unsupported]>;
 def compatibility__version : JoinedOrSeparate<"-compatibility_version">;
@@ -357,6 +361,9 @@ def fdiagnostics_show_note_include_stack : Flag<"-fdiagnostics-show-note-include
     Group<f_Group>,  Flags<[CC1Option]>, HelpText<"Display include stacks for diagnostic notes">;
 def fdiagnostics_format_EQ : Joined<"-fdiagnostics-format=">, Group<f_clang_Group>;
 def fdiagnostics_show_category_EQ : Joined<"-fdiagnostics-show-category=">, Group<f_clang_Group>;
+def fdiagnostics_show_template_tree : Flag<"-fdiagnostics-show-template-tree">,
+    Group<f_Group>, Flags<[CC1Option]>,
+    HelpText<"Print a template comparison tree for differing templates">;
 def fdollars_in_identifiers : Flag<"-fdollars-in-identifiers">, Group<f_Group>,
   HelpText<"Allow '$' in identifiers">, Flags<[CC1Option]>;
 def fdwarf2_cfi_asm : Flag<"-fdwarf2-cfi-asm">, Group<f_Group>;
@@ -364,6 +371,9 @@ def fno_dwarf2_cfi_asm : Flag<"-fno-dwarf2-cfi-asm">, Group<f_Group>,  Flags<[CC
 def fdwarf_directory_asm : Flag<"-fdwarf-directory-asm">, Group<f_Group>;
 def fno_dwarf_directory_asm : Flag<"-fno-dwarf-directory-asm">, Group<f_Group>, Flags<[CC1Option]>;
 def felide_constructors : Flag<"-felide-constructors">, Group<f_Group>;
+def fno_elide_type : Flag<"-fno-elide-type">, Group<f_Group>,
+    Flags<[CC1Option]>,
+    HelpText<"Do not elide types when printing diagnostics">;
 def feliminate_unused_debug_symbols : Flag<"-feliminate-unused-debug-symbols">, Group<f_Group>;
 def femit_all_decls : Flag<"-femit-all-decls">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Emit all declarations, even if unused">;
@@ -390,7 +400,7 @@ def fassociative_math : Flag<"-fassociative-math">, Group<f_Group>;
 def fno_associative_math : Flag<"-fno-associative-math">, Group<f_Group>;
 def freciprocal_math : Flag<"-freciprocal-math">, Group<f_Group>;
 def fno_reciprocal_math : Flag<"-fno-reciprocal-math">, Group<f_Group>;
-def ffinite_math_only : Flag<"-ffinite-math-only">, Group<f_Group>;
+def ffinite_math_only : Flag<"-ffinite-math-only">, Group<f_Group>, Flags<[CC1Option]>;
 def fno_finite_math_only : Flag<"-fno-finite-math-only">, Group<f_Group>;
 def fsigned_zeros : Flag<"-fsigned-zeros">, Group<f_Group>;
 def fno_signed_zeros : Flag<"-fno-signed-zeros">, Group<f_Group>;
@@ -403,9 +413,16 @@ def fhonor_infinites : Flag<"-fhonor-infinites">, Alias<fhonor_infinities>;
 def fno_honor_infinites : Flag<"-fno-honor-infinites">, Alias<fno_honor_infinities>;
 def ftrapping_math : Flag<"-ftrapping-math">, Group<f_Group>;
 def fno_trapping_math : Flag<"-fno-trapping-math">, Group<f_Group>;
+def ffp_contract : Joined<"-ffp-contract=">, Group<f_Group>,
+  Flags<[CC1Option]>, HelpText<"Form fused FP ops (e.g. FMAs): fast (everywhere)"
+  " | on (according to FP_CONTRACT pragma, default) | off (never fuse)">;
 
 def ffor_scope : Flag<"-ffor-scope">, Group<f_Group>;
 def fno_for_scope : Flag<"-fno-for-scope">, Group<f_Group>;
+
+def frewrite_includes : Flag<"-frewrite-includes">, Group<f_Group>,
+  Flags<[CC1Option]>;
+def fno_rewrite_includes : Flag<"-fno-rewrite-includes">, Group<f_Group>;
 
 def ffreestanding : Flag<"-ffreestanding">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Assert that the compilation takes place in a freestanding environment">;
@@ -414,7 +431,7 @@ def fgnu_keywords : Flag<"-fgnu-keywords">, Group<f_Group>, Flags<[CC1Option]>,
 def fgnu89_inline : Flag<"-fgnu89-inline">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Use the gnu89 inline semantics">;
 def fno_gnu89_inline : Flag<"-fno-gnu89-inline">, Group<f_Group>;
-def fgnu_runtime : Flag<"-fgnu-runtime">, Group<f_Group>, Flags<[CC1Option]>,
+def fgnu_runtime : Flag<"-fgnu-runtime">, Group<f_Group>,
   HelpText<"Generate output compatible with the standard GNU Objective-C runtime">;
 def fheinous_gnu_extensions : Flag<"-fheinous-gnu-extensions">, Flags<[CC1Option]>;
 def filelist : Separate<"-filelist">, Flags<[LinkerInput]>;
@@ -437,6 +454,8 @@ def fmerge_all_constants : Flag<"-fmerge-all-constants">, Group<f_Group>;
 def fmessage_length_EQ : Joined<"-fmessage-length=">, Group<f_Group>;
 def fms_extensions : Flag<"-fms-extensions">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Accept some non-standard constructs supported by the Microsoft compiler">;
+def fenable_experimental_ms_inline_asm : Flag<"-fenable-experimental-ms-inline-asm">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Enable support for Microsoft style inine assembly">;
 def fms_compatibility : Flag<"-fms-compatibility">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Enable Microsoft compatibility mode">;
 def fmsc_version : Joined<"-fmsc-version=">, Group<f_Group>, Flags<[CC1Option]>,
@@ -561,6 +580,8 @@ def fno_objc_infer_related_result_type : Flag<
 def fobjc_link_runtime: Flag<"-fobjc-link-runtime">, Group<f_Group>;
 
 // Objective-C ABI options.
+def fobjc_runtime_EQ : Joined<"-fobjc-runtime=">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Specify the target Objective-C runtime kind and version">;
 def fobjc_abi_version_EQ : Joined<"-fobjc-abi-version=">, Group<f_Group>;
 def fobjc_nonfragile_abi_version_EQ : Joined<"-fobjc-nonfragile-abi-version=">, Group<f_Group>;
 def fobjc_nonfragile_abi : Flag<"-fobjc-nonfragile-abi">, Group<f_Group>;
@@ -635,6 +656,7 @@ def Wframe_larger_than_EQ : Joined<"-Wframe-larger-than=">, Alias<Wframe_larger_
 def fterminated_vtables : Flag<"-fterminated-vtables">, Alias<fapple_kext>;
 def fthreadsafe_statics : Flag<"-fthreadsafe-statics">, Group<f_Group>;
 def ftime_report : Flag<"-ftime-report">, Group<f_Group>, Flags<[CC1Option]>;
+def ftlsmodel_EQ : Joined<"-ftls-model=">, Group<f_Group>, Flags<[CC1Option]>;
 def ftrapv : Flag<"-ftrapv">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Trap on integer overflow">;
 def ftrapv_handler_EQ : Joined<"-ftrapv-handler=">, Group<f_Group>,
@@ -665,21 +687,34 @@ def ffunction_sections: Flag <"-ffunction-sections">, Group<f_Group>,
 def fdata_sections : Flag <"-fdata-sections">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Place each data in its own section (ELF Only)">;
 def f : Joined<"-f">, Group<f_Group>;
-def g0 : Flag<"-g0">, Group<g_Group>;
-def g2 : Flag<"-g2">, Group<g_Group>;
-def g3 : Flag<"-g3">, Group<g_Group>;
-def gdwarf2 : Flag<"-gdwarf-2">, Group<g_Group>;
-def gfull : Flag<"-gfull">, Group<g_Group>;
-def ggdb : Flag<"-ggdb">, Group<g_Group>;
-def gstabs : Flag<"-gstabs">, Group<g_Group>;
-def gstabsplus : Flag<"-gstabs+">, Group<g_Group>;
-def gstabs1 : Flag<"-gstabs1">, Group<g_Group>;
-def gstabs2 : Flag<"-gstabs2">, Group<g_Group>;
-def gused : Flag<"-gused">, Group<g_Group>;
-def g_Flag : Flag<"-g">, Group<g_Group>, HelpText<"Generate source level debug information">,
-    Flags<[CC1Option]>;
+def g_Flag : Flag<"-g">, Group<g_Group>,
+  HelpText<"Generate source level debug information">, Flags<[CC1Option]>;
 def gline_tables_only : Flag<"-gline-tables-only">, Group<g_Group>,
   HelpText<"Emit debug line number tables only">, Flags<[CC1Option]>;
+def g0 : Flag<"-g0">, Group<g_Group>;
+def g1 : Flag<"-g1">, Group<g_Group>;
+def g2 : Flag<"-g2">, Group<g_Group>;
+def g3 : Flag<"-g3">, Group<g_Group>;
+def ggdb : Flag<"-ggdb">, Group<g_Group>;
+def ggdb0 : Flag<"-ggdb0">, Group<g_Group>;
+def ggdb1 : Flag<"-ggdb1">, Group<g_Group>;
+def ggdb2 : Flag<"-ggdb2">, Group<g_Group>;
+def ggdb3 : Flag<"-ggdb3">, Group<g_Group>;
+def gdwarf_2 : Flag<"-gdwarf-2">, Group<g_Group>;
+def gdwarf_3 : Flag<"-gdwarf-3">, Group<g_Group>;
+def gdwarf_4 : Flag<"-gdwarf-4">, Group<g_Group>;
+def gfull : Flag<"-gfull">, Group<g_Group>;
+def gused : Flag<"-gused">, Group<g_Group>;
+def gstabs : Joined<"-gstabs">, Group<g_Group>, Flags<[Unsupported]>;
+def gcoff : Joined<"-gcoff">, Group<g_Group>, Flags<[Unsupported]>;
+def gxcoff : Joined<"-gxcoff">, Group<g_Group>, Flags<[Unsupported]>;
+def gvms : Joined<"-gvms">, Group<g_Group>, Flags<[Unsupported]>;
+def gtoggle : Flag<"-gtoggle">, Group<g_flags_Group>, Flags<[Unsupported]>;
+def grecord_gcc_switches : Flag<"-grecord-gcc-switches">, Group<g_flags_Group>;
+def gno_record_gcc_switches : Flag<"-gno-record-gcc-switches">,
+  Group<g_flags_Group>;
+def gstrict_dwarf : Flag<"-gstrict-dwarf">, Group<g_flags_Group>;
+def gno_strict_dwarf : Flag<"-gno-strict-dwarf">, Group<g_flags_Group>;
 def headerpad__max__install__names : Joined<"-headerpad_max_install_names">;
 def help : Flag<"-help">, Flags<[CC1Option]>,
   HelpText<"Display available options">;
@@ -729,6 +764,7 @@ def m3dnow : Flag<"-m3dnow">, Group<m_x86_Features_Group>;
 def m64 : Flag<"-m64">, Group<m_Group>, Flags<[DriverOption]>;
 def mabi_EQ : Joined<"-mabi=">, Group<m_Group>;
 def march_EQ : Joined<"-march=">, Group<m_Group>;
+def maltivec : Flag<"-maltivec">, Alias<faltivec>;
 def mcmodel_EQ : Joined<"-mcmodel=">, Group<m_Group>;
 def mconstant_cfstrings : Flag<"-mconstant-cfstrings">, Group<clang_ignored_m_Group>;
 def mcpu_EQ : Joined<"-mcpu=">, Group<m_Group>;
@@ -777,11 +813,15 @@ def mno_ssse3 : Flag<"-mno-ssse3">, Group<m_x86_Features_Group>;
 def mno_aes : Flag<"-mno-aes">, Group<m_x86_Features_Group>;
 def mno_avx : Flag<"-mno-avx">, Group<m_x86_Features_Group>;
 def mno_avx2 : Flag<"-mno-avx2">, Group<m_x86_Features_Group>;
+def mno_pclmul : Flag<"-mno-pclmul">, Group<m_x86_Features_Group>;
 def mno_lzcnt : Flag<"-mno-lzcnt">, Group<m_x86_Features_Group>;
+def mno_rdrnd : Flag<"-mno-rdrnd">, Group<m_x86_Features_Group>;
 def mno_bmi : Flag<"-mno-bmi">, Group<m_x86_Features_Group>;
 def mno_bmi2 : Flag<"-mno-bmi2">, Group<m_x86_Features_Group>;
 def mno_popcnt : Flag<"-mno-popcnt">, Group<m_x86_Features_Group>;
 def mno_fma4 : Flag<"-mno-fma4">, Group<m_x86_Features_Group>;
+def mno_fma : Flag<"-mno-fma">, Group<m_x86_Features_Group>;
+def mno_xop : Flag<"-mno-xop">, Group<m_x86_Features_Group>;
 
 def mno_thumb : Flag<"-mno-thumb">, Group<m_Group>;
 def marm : Flag<"-marm">, Alias<mno_thumb>;
@@ -813,11 +853,21 @@ def mssse3 : Flag<"-mssse3">, Group<m_x86_Features_Group>;
 def maes : Flag<"-maes">, Group<m_x86_Features_Group>;
 def mavx : Flag<"-mavx">, Group<m_x86_Features_Group>;
 def mavx2 : Flag<"-mavx2">, Group<m_x86_Features_Group>;
+def mpclmul : Flag<"-mpclmul">, Group<m_x86_Features_Group>;
 def mlzcnt : Flag<"-mlzcnt">, Group<m_x86_Features_Group>;
+def mrdrnd : Flag<"-mrdrnd">, Group<m_x86_Features_Group>;
 def mbmi : Flag<"-mbmi">, Group<m_x86_Features_Group>;
 def mbmi2 : Flag<"-mbmi2">, Group<m_x86_Features_Group>;
 def mpopcnt : Flag<"-mpopcnt">, Group<m_x86_Features_Group>;
 def mfma4 : Flag<"-mfma4">, Group<m_x86_Features_Group>;
+def mfma : Flag<"-mfma">, Group<m_x86_Features_Group>;
+def mxop : Flag<"-mxop">, Group<m_x86_Features_Group>;
+def mips16 : Flag<"-mips16">, Group<m_Group>;
+def mno_mips16 : Flag<"-mno-mips16">, Group<m_Group>;
+def mdsp : Flag<"-mdsp">, Group<m_Group>;
+def mno_dsp : Flag<"-mno-dsp">, Group<m_Group>;
+def mdspr2 : Flag<"-mdspr2">, Group<m_Group>;
+def mno_dspr2 : Flag<"-mno-dspr2">, Group<m_Group>;
 def mthumb : Flag<"-mthumb">, Group<m_Group>;
 def mtune_EQ : Joined<"-mtune=">, Group<m_Group>;
 def multi__module : Flag<"-multi_module">;
@@ -831,6 +881,7 @@ def no_canonical_prefixes : Flag<"-no-canonical-prefixes">, Flags<[HelpHidden]>,
 def no_cpp_precomp : Flag<"-no-cpp-precomp">, Group<clang_ignored_f_Group>;
 def no_integrated_as : Flag<"-no-integrated-as">, Flags<[DriverOption]>;
 def no_integrated_cpp : Flag<"-no-integrated-cpp">, Flags<[DriverOption]>;
+def no_pedantic : Flag<"-no-pedantic">, Group<pedantic_Group>;
 def no__dead__strip__inits__and__terms : Flag<"-no_dead_strip_inits_and_terms">;
 def nobuiltininc : Flag<"-nobuiltininc">, Flags<[CC1Option]>,
   HelpText<"Disable builtin #include directories">;
@@ -1033,6 +1084,7 @@ def _machine_EQ : Joined<"--machine=">, Alias<m_Joined>;
 def _machine : Separate<"--machine">, Alias<m_Joined>;
 def _no_integrated_cpp : Flag<"--no-integrated-cpp">, Alias<no_integrated_cpp>;
 def _no_line_commands : Flag<"--no-line-commands">, Alias<P>;
+def _no_pedantic : Flag<"--no-pedantic">, Alias<no_pedantic>;
 def _no_standard_includes : Flag<"--no-standard-includes">, Alias<nostdinc>;
 def _no_standard_libraries : Flag<"--no-standard-libraries">, Alias<nostdlib>;
 def _no_undefined : Flag<"--no-undefined">, Flags<[LinkerInput]>;
@@ -1102,6 +1154,7 @@ def _write_dependencies : Flag<"--write-dependencies">, Alias<MD>;
 def _write_user_dependencies : Flag<"--write-user-dependencies">, Alias<MMD>;
 def _ : Joined<"--">, Flags<[Unsupported]>;
 def mieee_rnd_near : Flag<"-mieee-rnd-near">, Group<m_hexagon_Features_Group>;
+def serialize_diags : Separate<"-serialize-diagnostics">, Alias<_serialize_diags>;
 
 // Special internal option to handle -Xlinker --no-demangle.
 def Z_Xlinker__no_demangle : Flag<"-Z-Xlinker-no-demangle">,

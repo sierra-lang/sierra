@@ -15,6 +15,7 @@
 #ifndef LLVM_CLANG_GR_SVALBUILDER
 #define LLVM_CLANG_GR_SVALBUILDER
 
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
@@ -78,7 +79,7 @@ public:
     // FIXME: Remove the second disjunct when we support symbolic
     // truncation/extension.
     return (Context.getCanonicalType(Ty1) == Context.getCanonicalType(Ty2) ||
-            (Ty2->isIntegerType() && Ty2->isIntegerType()));
+            (Ty1->isIntegerType() && Ty2->isIntegerType()));
   }
 
   SVal evalCast(SVal val, QualType castTy, QualType originalType);
@@ -182,6 +183,12 @@ public:
                                             const LocationContext *LCtx,
                                             QualType type,
                                             unsigned visitCount);
+  /// \brief Conjure a symbol representing heap allocated memory region.
+  ///
+  /// Note, the expression should represent a location.
+  DefinedOrUnknownSVal getConjuredHeapSymbolVal(const Expr *E,
+                                                const LocationContext *LCtx,
+                                                unsigned Count);
 
   DefinedOrUnknownSVal getDerivedRegionValueSymbolVal(
       SymbolRef parentSymbol, const TypedValueRegion *region);
@@ -304,6 +311,13 @@ public:
     return loc::ConcreteInt(BasicVals.getValue(integer));
   }
 
+  /// Return a memory region for the 'this' object reference.
+  loc::MemRegionVal getCXXThis(const CXXMethodDecl *D,
+                               const StackFrameContext *SFC);
+
+  /// Return a memory region for the 'this' object reference.
+  loc::MemRegionVal getCXXThis(const CXXRecordDecl *D,
+                               const StackFrameContext *SFC);
 };
 
 SValBuilder* createSimpleSValBuilder(llvm::BumpPtrAllocator &alloc,

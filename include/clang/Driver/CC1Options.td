@@ -196,6 +196,8 @@ def mrelocation_model : Separate<"-mrelocation-model">,
   HelpText<"The relocation model to use">;
 def munwind_tables : Flag<"-munwind-tables">,
   HelpText<"Generate unwinding tables for all functions">;
+def fuse_init_array : Flag<"-fuse-init-array">,
+  HelpText<"Use .init_array instead of .ctors">;
 def mconstructor_aliases : Flag<"-mconstructor-aliases">,
   HelpText<"Emit complete constructors and destructors as aliases when possible">;
 def mlink_bitcode_file : Separate<"-mlink-bitcode-file">,
@@ -267,6 +269,8 @@ def code_completion_patterns : Flag<"-code-completion-patterns">,
   HelpText<"Include code patterns in code-completion results">;
 def no_code_completion_globals : Flag<"-no-code-completion-globals">,
   HelpText<"Do not include global declarations in code-completion results.">;
+def code_completion_brief_comments : Flag<"-code-completion-brief-comments">,
+  HelpText<"Include brief documentation comments in code-completion results.">;
 def disable_free : Flag<"-disable-free">,
   HelpText<"Disable freeing of memory on exit">;
 def load : Separate<"-load">, MetaVarName<"<dsopath>">,
@@ -384,18 +388,12 @@ def fconstant_string_class : Separate<"-fconstant-string-class">,
   HelpText<"Specify the class to use for constant Objective-C string objects.">;
 def fobjc_arc_cxxlib_EQ : Joined<"-fobjc-arc-cxxlib=">,
   HelpText<"Objective-C++ Automatic Reference Counting standard library kind">;
-def fobjc_runtime_has_arc : Flag<"-fobjc-runtime-has-arc">,
-  HelpText<"The target Objective-C runtime provides ARC entrypoints">;
 def fobjc_runtime_has_weak : Flag<"-fobjc-runtime-has-weak">,
   HelpText<"The target Objective-C runtime supports ARC weak operations">;
-def fobjc_runtime_has_terminate : Flag<"-fobjc-runtime-has-terminate">,
-  HelpText<"The target Objective-C runtime provides an objc_terminate entrypoint">;
 def fobjc_dispatch_method_EQ : Joined<"-fobjc-dispatch-method=">,
   HelpText<"Objective-C dispatch method to use">;
 def fobjc_default_synthesize_properties : Flag<"-fobjc-default-synthesize-properties">,
   HelpText<"enable the default synthesis of Objective-C properties">;
-def fobjc_fragile_abi : Flag<"-fobjc-fragile-abi">,
-  HelpText<"Use Objective-C's fragile ABI">;
 def pic_level : Separate<"-pic-level">,
   HelpText<"Value for __PIC__">;
 def pie_level : Separate<"-pie-level">,
@@ -435,7 +433,7 @@ def fdebugger_support : Flag<"-fdebugger-support">,
 def fdebugger_cast_result_to_id : Flag<"-fdebugger-cast-result-to-id">,
   HelpText<"Enable casting unknown expression results to id">;
 def fdebugger_objc_literal : Flag<"-fdebugger-objc-literal">,
-  HelpText<"Enable special debugger support for objective-C subscripting and literals">;
+  HelpText<"Enable special debugger support for Objective-C subscripting and literals">;
 def fdeprecated_macro : Flag<"-fdeprecated-macro">,
   HelpText<"Defines the __DEPRECATED macro">;
 def fno_deprecated_macro : Flag<"-fno-deprecated-macro">,
@@ -471,6 +469,14 @@ def internal_externc_isystem : JoinedOrSeparate<"-internal-externc-isystem">,
            "implicit extern \"C\" semantics; these are assumed to not be "
            "user-provided and are used to model system and standard headers' "
            "paths.">;
+def isystem_prefix : JoinedOrSeparate<"-isystem-prefix">,
+  MetaVarName<"<prefix>">,
+  HelpText<"Treat all #include paths starting with <prefix> as including a "
+           "system header.">;
+def ino_system_prefix : JoinedOrSeparate<"-ino-system-prefix">,
+  MetaVarName<"<prefix>">,
+  HelpText<"Treat all #include paths starting with <prefix> as not including a "
+           "system header.">;
 
 //===----------------------------------------------------------------------===//
 // Preprocessor Options

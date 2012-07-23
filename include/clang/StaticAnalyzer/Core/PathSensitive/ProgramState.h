@@ -35,7 +35,7 @@ class ASTContext;
 
 namespace ento {
 
-class CallOrObjCMessage;
+class CallEvent;
 
 typedef ConstraintManager* (*ConstraintManagerCreator)(ProgramStateManager&,
                                                        SubEngine&);
@@ -49,7 +49,6 @@ template <typename T> struct ProgramStatePartialTrait;
 
 template <typename T> struct ProgramStateTrait {
   typedef typename T::data_type data_type;
-  static inline void *GDMIndex() { return &T::TagInt; }
   static inline void *MakeVoidPtr(data_type D) { return (void*) D; }
   static inline data_type MakeData(void *const* P) {
     return P ? (data_type) *P : (data_type) 0;
@@ -220,12 +219,12 @@ public:
                                const Expr *E, unsigned BlockCount,
                                const LocationContext *LCtx,
                                StoreManager::InvalidatedSymbols *IS = 0,
-                               const CallOrObjCMessage *Call = 0) const;
+                               const CallEvent *Call = 0) const;
 
   /// enterStackFrame - Returns the state for entry to the given stack frame,
   ///  preserving the current state.
-  ProgramStateRef enterStackFrame(const LocationContext *callerCtx,
-                                      const StackFrameContext *calleeCtx) const;
+  ProgramStateRef enterStackFrame(const CallEvent &Call,
+                                  const StackFrameContext *CalleeCtx) const;
 
   /// Get the lvalue for a variable reference.
   Loc getLValue(const VarDecl *D, const LocationContext *LC) const;
@@ -382,7 +381,7 @@ private:
                         const Expr *E, unsigned BlockCount,
                         const LocationContext *LCtx,
                         StoreManager::InvalidatedSymbols &IS,
-                        const CallOrObjCMessage *Call) const;
+                        const CallEvent *Call) const;
 };
 
 //===----------------------------------------------------------------------===//

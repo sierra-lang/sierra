@@ -189,6 +189,12 @@ static ControlFlowKind CheckFallThrough(AnalysisDeclContext &AC) {
         continue;
       }
     }
+    if (isa<MSAsmStmt>(S)) {
+      // TODO: Verify this is correct.
+      HasFakeEdge = true;
+      HasLiveReturn = true;
+      continue;
+    }
     if (isa<CXXTryStmt>(S)) {
       HasAbnormalEdge = true;
       continue;
@@ -814,11 +820,15 @@ namespace {
   };
 }
 
-static void DiagnoseSwitchLabelsFallthrough(Sema &S, AnalysisDeclContext &AC) {
+static void DiagnoseSwitchLabelsFallthrough(Sema &S, AnalysisDeclContext &AC,
+                                            bool PerFunction) {
   FallthroughMapper FM(S);
   FM.TraverseStmt(AC.getBody());
 
   if (!FM.foundSwitchStatements())
+    return;
+
+  if (PerFunction && FM.getFallthroughStmts().empty())
     return;
 
   CFG *Cfg = AC.getCFG();
@@ -838,7 +848,9 @@ static void DiagnoseSwitchLabelsFallthrough(Sema &S, AnalysisDeclContext &AC) {
     if (!FM.checkFallThroughIntoBlock(B, AnnotatedCnt))
       continue;
 
-    S.Diag(Label->getLocStart(), diag::warn_unannotated_fallthrough);
+    S.Diag(Label->getLocStart(),
+        PerFunction ? diag::warn_unannotated_fallthrough_per_function
+                    : diag::warn_unannotated_fallthrough);
 
     if (!AnnotatedCnt) {
       SourceLocation L = Label->getLocStart();
@@ -1049,6 +1061,9 @@ class ThreadSafetyReporter : public clang::thread_safety::ThreadSafetyHandler {
       case LEK_LockedAtEndOfFunction:
         DiagID = diag::warn_no_unlock;
         break;
+      case LEK_NotLockedAtEndOfFunction:
+        DiagID = diag::warn_expecting_locked;
+        break;
     }
     if (LocEndOfScope.isInvalid())
       LocEndOfScope = FunEndLocation;
@@ -1205,6 +1220,7 @@ AnalysisBasedWarnings::IssueWarnings(sema::AnalysisBasedWarnings::Policy P,
   else {
     AC.getCFGBuildOptions()
       .setAlwaysAdd(Stmt::BinaryOperatorClass)
+      .setAlwaysAdd(Stmt::CompoundAssignOperatorClass)
       .setAlwaysAdd(Stmt::BlockExprClass)
       .setAlwaysAdd(Stmt::CStyleCastExprClass)
       .setAlwaysAdd(Stmt::DeclRefExprClass)
@@ -1324,9 +1340,14 @@ AnalysisBasedWarnings::IssueWarnings(sema::AnalysisBasedWarnings::Policy P,
     }
   }
 
-  if (Diags.getDiagnosticLevel(diag::warn_unannotated_fallthrough,
-                              D->getLocStart()) != DiagnosticsEngine::Ignored) {
-    DiagnoseSwitchLabelsFallthrough(S, AC);
+  bool FallThroughDiagFull =
+      Diags.getDiagnosticLevel(diag::warn_unannotated_fallthrough,
+                               D->getLocStart()) != DiagnosticsEngine::Ignored;
+  bool FallThroughDiagPerFunction =
+      Diags.getDiagnosticLevel(diag::warn_unannotated_fallthrough_per_function,
+                               D->getLocStart()) != DiagnosticsEngine::Ignored;
+  if (FallThroughDiagFull || FallThroughDiagPerFunction) {
+    DiagnoseSwitchLabelsFallthrough(S, AC, !FallThroughDiagFull);
   }
 
   // Collect statistics about the CFG if it was built.

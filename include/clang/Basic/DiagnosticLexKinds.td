@@ -64,9 +64,12 @@ def ext_token_used : Extension<"extension used">,
 def warn_cxx11_keyword : Warning<"'%0' is a keyword in C++11">,
   InGroup<CXX11Compat>, DefaultIgnore;
 
-def warn_unterminated_string : ExtWarn<"missing terminating '\"' character">;
-def warn_unterminated_char : ExtWarn<"missing terminating ' character">;
-def err_empty_character : Error<"empty character constant">;
+def ext_unterminated_string : ExtWarn<"missing terminating '\"' character">,
+  InGroup<InvalidPPToken>;
+def ext_unterminated_char : ExtWarn<"missing terminating ' character">,
+  InGroup<InvalidPPToken>;
+def ext_empty_character : ExtWarn<"empty character constant">,
+  InGroup<InvalidPPToken>;
 def err_unterminated_block_comment : Error<"unterminated /* comment">;
 def err_invalid_character_to_charify : Error<
   "invalid argument to convert to character">;
@@ -252,7 +255,7 @@ def ext_pp_comma_expr : Extension<"comma operator in operand of #if">;
 def ext_pp_bad_vaargs_use : Extension<
   "__VA_ARGS__ can only appear in the expansion of a C99 variadic macro">;
 def ext_pp_macro_redef : ExtWarn<"%0 macro redefined">;
-def ext_variadic_macro : Extension<"variadic macros were introduced in C99">,
+def ext_variadic_macro : Extension<"variadic macros are a C99 feature">,
   InGroup<VariadicMacros>;
 def warn_cxx98_compat_variadic_macro : Warning<
   "variadic macros are incompatible with C++98">,
@@ -265,15 +268,19 @@ def ext_embedded_directive : Extension<
   "embedding a directive within macro arguments has undefined behavior">,
   InGroup<DiagGroup<"embedded-directive">>;
 def ext_missing_varargs_arg : Extension<
-  "varargs argument missing, but tolerated as an extension">;
+  "must specify at least one argument for '...' parameter of variadic macro">,
+  InGroup<GNU>;
 def ext_empty_fnmacro_arg : Extension<
-  "empty macro arguments were standardized in C99">;
+  "empty macro arguments are a C99 feature">, InGroup<C99>;
 def warn_cxx98_compat_empty_fnmacro_arg : Warning<
-  "empty macro argument list is incompatible with C++98">,
+  "empty macro arguments are incompatible with C++98">,
   InGroup<CXX98CompatPedantic>, DefaultIgnore;
+def note_macro_here : Note<"macro %0 defined here">;
 
 def err_pp_invalid_directive : Error<"invalid preprocessing directive">;
 def err_pp_file_not_found : Error<"'%0' file not found">, DefaultFatal;
+def err_pp_file_not_found_not_fatal : Error<
+  "'%0' file not found with <angled> include; use \"quotes\" instead">;
 def err_pp_error_opening_file : Error<
   "error opening file '%0': %1">, DefaultFatal;
 def err_pp_empty_filename : Error<"empty filename">;
@@ -395,7 +402,7 @@ def err_paste_at_start : Error<
   "'##' cannot appear at start of macro expansion">;
 def err_paste_at_end : Error<"'##' cannot appear at end of macro expansion">;
 def ext_paste_comma : Extension<
-  "Use of comma pasting extension is non-portable">;
+  "token pasting of ',' and __VA_ARGS__ is a GNU extension">, InGroup<GNU>;
 def err_unterm_macro_invoc : Error<
   "unterminated function-like macro invocation">;
 def err_too_many_args_in_macro_invoc : Error<
@@ -413,6 +420,9 @@ def err_pp_illegal_floating_literal : Error<
   "floating point literal in preprocessor expression">;
 def err_pp_line_requires_integer : Error<
   "#line directive requires a positive integer argument">;
+def ext_pp_line_zero : Extension<
+  "#line directive with zero argument is a GNU extension">, 
+  InGroup<GNU>;
 def err_pp_line_invalid_filename : Error<
   "invalid filename for #line directive">;
 def warn_pp_line_decimal : Warning<

@@ -235,6 +235,8 @@ CGBitFieldInfo CGBitFieldInfo::MakeInfo(CodeGenTypes &Types,
                                uint64_t FieldSize,
                                uint64_t ContainingTypeSizeInBits,
                                unsigned ContainingTypeAlign) {
+  assert(ContainingTypeAlign && "Expected alignment to be specified");
+
   llvm::Type *Ty = Types.ConvertTypeForMem(FD->getType());
   CharUnits TypeSizeInBytes =
     CharUnits::fromQuantity(Types.getTargetData().getTypeAllocSize(Ty));
@@ -538,7 +540,7 @@ void CGRecordLayoutBuilder::LayoutUnion(const RecordDecl *D) {
        fieldEnd = D->field_end(); field != fieldEnd; ++field, ++fieldNo) {
     assert(layout.getFieldOffset(fieldNo) == 0 &&
           "Union field offset did not start at the beginning of record!");
-    llvm::Type *fieldType = LayoutUnionField(&*field, layout);
+    llvm::Type *fieldType = LayoutUnionField(*field, layout);
 
     if (!fieldType)
       continue;
@@ -818,7 +820,7 @@ bool CGRecordLayoutBuilder::LayoutFields(const RecordDecl *D) {
     if (IsMsStruct) {
       // Zero-length bitfields following non-bitfield members are
       // ignored:
-      const FieldDecl *FD = &*Field;
+      const FieldDecl *FD = *Field;
       if (Types.getContext().ZeroBitfieldFollowsNonBitfield(FD, LastFD)) {
         --FieldNo;
         continue;
@@ -826,7 +828,7 @@ bool CGRecordLayoutBuilder::LayoutFields(const RecordDecl *D) {
       LastFD = FD;
     }
     
-    if (!LayoutField(&*Field, Layout.getFieldOffset(FieldNo))) {
+    if (!LayoutField(*Field, Layout.getFieldOffset(FieldNo))) {
       assert(!Packed &&
              "Could not layout fields even with a packed LLVM struct!");
       return false;
@@ -1061,7 +1063,7 @@ CGRecordLayout *CodeGenTypes::ComputeRecordLayout(const RecordDecl *D,
   const FieldDecl *LastFD = 0;
   bool IsMsStruct = D->hasAttr<MsStructAttr>();
   for (unsigned i = 0, e = AST_RL.getFieldCount(); i != e; ++i, ++it) {
-    const FieldDecl *FD = &*it;
+    const FieldDecl *FD = *it;
 
     // For non-bit-fields, just check that the LLVM struct offset matches the
     // AST offset.
@@ -1122,7 +1124,7 @@ void CGRecordLayout::print(raw_ostream &OS) const {
     const RecordDecl *RD = it->first->getParent();
     unsigned Index = 0;
     for (RecordDecl::field_iterator
-           it2 = RD->field_begin(); &*it2 != it->first; ++it2)
+           it2 = RD->field_begin(); *it2 != it->first; ++it2)
       ++Index;
     BFIs.push_back(std::make_pair(Index, &it->second));
   }

@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 %s -triple=x86_64-apple-darwin10 -emit-llvm -o - | FileCheck %s
-// RUN: %clang_cc1 %s -triple=x86_64-apple-darwin10 -fvisibility hidden -emit-llvm -o - | FileCheck %s -check-prefix=CHECK-HIDDEN
+// RUN: %clang_cc1 %s -std=c++11 -triple=x86_64-apple-darwin10 -emit-llvm -o - | FileCheck %s
+// RUN: %clang_cc1 %s -std=c++11 -triple=x86_64-apple-darwin10 -fvisibility hidden -emit-llvm -o - | FileCheck %s -check-prefix=CHECK-HIDDEN
 
 #define HIDDEN __attribute__((visibility("hidden")))
 #define PROTECTED __attribute__((visibility("protected")))
@@ -77,6 +77,25 @@ namespace test41 {
   }
   // CHECK: @_ZN6test413barE = external hidden global
   // CHECK-HIDDEN: @_ZN6test413barE = external hidden global
+}
+
+namespace test48 {
+  // Test that we use the visibility of struct foo when instantiating the
+  // template. Note that is a case where we disagree with gcc, it produces
+  // a default symbol.
+  struct HIDDEN foo {
+  };
+  DEFAULT foo x;
+
+  struct bar {
+    template<foo *z>
+    struct zed {
+    };
+  };
+
+  bar::zed<&x> y;
+  // CHECK: _ZN6test481yE = hidden global
+  // CHECK-HIDDEN: _ZN6test481yE = hidden global
 }
 
 // CHECK: @_ZN5Test425VariableInHiddenNamespaceE = hidden global i32 10
@@ -880,4 +899,181 @@ namespace test47 {
   }
   // CHECK: define internal void @_ZN6test473foo3barINS_12_GLOBAL__N_13zedEEEvv
   // CHECK-HIDDEN: define internal void @_ZN6test473foo3barINS_12_GLOBAL__N_13zedEEEvv
+}
+
+namespace test49 {
+  // Test that we use the visibility of struct foo when instantiating the
+  // template. Note that is a case where we disagree with gcc, it produces
+  // a default symbol.
+
+  struct HIDDEN foo {
+  };
+
+  DEFAULT foo x;
+
+  struct bar {
+    template<foo *z>
+    void zed() {
+    }
+  };
+
+  template void bar::zed<&x>();
+  // CHECK: define weak_odr hidden void @_ZN6test493bar3zedIXadL_ZNS_1xEEEEEvv
+  // CHECK-HIDDEN: define weak_odr hidden void @_ZN6test493bar3zedIXadL_ZNS_1xEEEEEvv
+}
+
+namespace test50 {
+  // Test that we use the visibility of struct foo when instantiating the
+  // template. Note that is a case where we disagree with gcc, it produces
+  // a default symbol.
+
+  struct HIDDEN foo {
+  };
+  DEFAULT foo x;
+  template<foo *z>
+  struct DEFAULT bar {
+    void zed() {
+    }
+  };
+  template void bar<&x>::zed();
+  // CHECK: define weak_odr hidden void @_ZN6test503barIXadL_ZNS_1xEEEE3zedEv
+  // CHECK-HIDDEN: define weak_odr hidden void @_ZN6test503barIXadL_ZNS_1xEEEE3zedEv
+}
+
+namespace test51 {
+  // Test that we use the visibility of struct foo when instantiating the
+  // template. Note that is a case where we disagree with gcc, it produces
+  // a default symbol.
+
+  struct HIDDEN foo {
+  };
+  DEFAULT foo x;
+  template<foo *z>
+  void DEFAULT zed() {
+  }
+  template void zed<&x>();
+  // CHECK: define weak_odr hidden void @_ZN6test513zedIXadL_ZNS_1xEEEEEvv
+  // CHECK-HIDDEN: define weak_odr hidden void @_ZN6test513zedIXadL_ZNS_1xEEEEEvv
+}
+
+namespace test52 {
+  // Test that we use the linkage of struct foo when instantiating the
+  // template. Note that is a case where we disagree with gcc, it produces
+  // an external symbol.
+
+  namespace {
+    struct foo {
+    };
+  }
+  template<foo *x>
+  void zed() {
+  }
+  void f() {
+    zed<nullptr>();
+  }
+  // CHECK: define internal void @_ZN6test523zedILPNS_12_GLOBAL__N_13fooE0EEEvv
+  // CHECK-HIDDEN: define internal void @_ZN6test523zedILPNS_12_GLOBAL__N_13fooE0EEEvv
+}
+
+namespace test53 {
+  template<typename _Tp > struct vector   {
+    static void       _M_fill_insert();
+  };
+#pragma GCC visibility push(hidden)
+  // GCC doesn't seem to use the visibility of enums at all, we do.
+  enum zed {v1};
+
+  // GCC fails to mark this specialization hidden, we mark it.
+  template<>
+  struct vector<int> {
+    static void       _M_fill_insert();
+  };
+  void foo() {
+    vector<unsigned>::_M_fill_insert();
+    vector<int>::_M_fill_insert();
+    vector<zed>::_M_fill_insert();
+  }
+#pragma GCC visibility pop
+  // CHECK: declare void @_ZN6test536vectorIjE14_M_fill_insertEv
+  // CHECK-HIDDEN: declare void @_ZN6test536vectorIjE14_M_fill_insertEv
+  // CHECK: declare hidden void @_ZN6test536vectorIiE14_M_fill_insertEv
+  // CHECK-HIDDEN: declare hidden void @_ZN6test536vectorIiE14_M_fill_insertEv
+  // CHECK: declare hidden void @_ZN6test536vectorINS_3zedEE14_M_fill_insertEv
+  // CHECK-HIDDEN: declare hidden void @_ZN6test536vectorINS_3zedEE14_M_fill_insertEv
+}
+
+namespace test54 {
+  template <class T>
+  struct foo {
+    static void bar();
+  };
+#pragma GCC visibility push(hidden)
+  class zed {
+    zed(const zed &);
+  };
+  void bah() {
+    foo<zed>::bar();
+  }
+#pragma GCC visibility pop
+  // CHECK: declare hidden void @_ZN6test543fooINS_3zedEE3barEv
+  // CHECK-HIDDEN: declare hidden void @_ZN6test543fooINS_3zedEE3barEv
+}
+
+namespace test55 {
+  template <class T>
+  struct __attribute__((visibility("hidden"))) foo {
+    static void bar();
+  };
+  template <class T> struct foo;
+  void foobar() {
+    foo<int>::bar();
+  }
+  // CHECK: declare hidden void @_ZN6test553fooIiE3barEv
+  // CHECK-HIDDEN: declare hidden void @_ZN6test553fooIiE3barEv
+}
+
+namespace test56 {
+  template <class T> struct foo;
+  template <class T>
+  struct __attribute__((visibility("hidden"))) foo {
+    static void bar();
+  };
+  void foobar() {
+    foo<int>::bar();
+  }
+  // CHECK: declare hidden void @_ZN6test563fooIiE3barEv
+  // CHECK-HIDDEN: declare hidden void @_ZN6test563fooIiE3barEv
+}
+
+namespace test57 {
+#pragma GCC visibility push(hidden)
+  template <class T>
+  struct foo;
+  void bar(foo<int>*);
+  template <class T>
+  struct foo {
+    static void zed();
+  };
+  void bah() {
+    foo<int>::zed();
+  }
+#pragma GCC visibility pop
+  // CHECK: declare hidden void @_ZN6test573fooIiE3zedEv
+  // CHECK-HIDDEN: declare hidden void @_ZN6test573fooIiE3zedEv
+}
+
+namespace test58 {
+#pragma GCC visibility push(hidden)
+  struct foo;
+  template<typename T>
+  struct __attribute__((visibility("default"))) bar {
+    static void zed() {
+    }
+  };
+  void bah() {
+    bar<foo>::zed();
+  }
+#pragma GCC visibility pop
+  // CHECK: define linkonce_odr hidden void @_ZN6test583barINS_3fooEE3zedEv
+  // CHECK-HIDDEN: define linkonce_odr hidden void @_ZN6test583barINS_3fooEE3zedEv
 }

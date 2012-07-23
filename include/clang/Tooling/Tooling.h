@@ -35,6 +35,7 @@
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Driver/Util.h"
+#include "clang/Frontend/FrontendAction.h"
 #include "clang/Tooling/ArgumentsAdjusters.h"
 #include "clang/Tooling/CompilationDatabase.h"
 #include <string>
@@ -74,18 +75,19 @@ template <typename T>
 FrontendActionFactory *newFrontendActionFactory();
 
 /// \brief Returns a new FrontendActionFactory for any type that provides an
-/// implementation of newFrontendAction().
+/// implementation of newASTConsumer().
 ///
-/// FactoryT must implement: FrontendAction *newFrontendAction().
+/// FactoryT must implement: ASTConsumer *newASTConsumer().
 ///
 /// Example:
-/// struct ProvidesFrontendActions {
-///   FrontendAction *newFrontendAction();
+/// struct ProvidesASTConsumers {
+///   clang::ASTConsumer *newASTConsumer();
 /// } Factory;
 /// FrontendActionFactory *FactoryAdapter =
 ///   newFrontendActionFactory(&Factory);
 template <typename FactoryT>
-FrontendActionFactory *newFrontendActionFactory(FactoryT *ActionFactory);
+inline FrontendActionFactory *newFrontendActionFactory(
+    FactoryT *ConsumerFactory);
 
 /// \brief Runs (and deletes) the tool on 'Code' with the -fsyntax-only flag.
 ///
@@ -102,7 +104,10 @@ class ToolInvocation {
  public:
   /// \brief Create a tool invocation.
   ///
-  /// \param CommandLine The command line arguments to clang.
+  /// \param CommandLine The command line arguments to clang. Note that clang
+  /// uses its binary name (CommandLine[0]) to locate its builtin headers.
+  /// Callers have to ensure that they are installed in a compatible location
+  /// (see clang driver implementation) or mapped in via mapVirtualFile.
   /// \param ToolAction The action to be executed. Class takes ownership.
   /// \param Files The FileManager used for the execution. Class does not take
   /// ownership.
@@ -126,8 +131,7 @@ class ToolInvocation {
   bool runInvocation(const char *BinaryName,
                      clang::driver::Compilation *Compilation,
                      clang::CompilerInvocation *Invocation,
-                     const clang::driver::ArgStringList &CC1Args,
-                     clang::FrontendAction *ToolAction);
+                     const clang::driver::ArgStringList &CC1Args);
 
   std::vector<std::string> CommandLine;
   llvm::OwningPtr<FrontendAction> ToolAction;
@@ -199,25 +203,54 @@ FrontendActionFactory *newFrontendActionFactory() {
 }
 
 template <typename FactoryT>
-FrontendActionFactory *newFrontendActionFactory(FactoryT *ActionFactory) {
+inline FrontendActionFactory *newFrontendActionFactory(
+    FactoryT *ConsumerFactory) {
   class FrontendActionFactoryAdapter : public FrontendActionFactory {
   public:
-    explicit FrontendActionFactoryAdapter(FactoryT *ActionFactory)
-      : ActionFactory(ActionFactory) {}
+    explicit FrontendActionFactoryAdapter(FactoryT *ConsumerFactory)
+      : ConsumerFactory(ConsumerFactory) {}
 
     virtual clang::FrontendAction *create() {
-      return ActionFactory->newFrontendAction();
+      return new ConsumerFactoryAdaptor(ConsumerFactory);
     }
 
   private:
-    FactoryT *ActionFactory;
+    class ConsumerFactoryAdaptor : public clang::ASTFrontendAction {
+    public:
+      ConsumerFactoryAdaptor(FactoryT *ConsumerFactory)
+        : ConsumerFactory(ConsumerFactory) {}
+
+      clang::ASTConsumer *CreateASTConsumer(clang::CompilerInstance &,
+                                            llvm::StringRef) {
+        return ConsumerFactory->newASTConsumer();
+      }
+
+    private:
+      FactoryT *ConsumerFactory;
+    };
+    FactoryT *ConsumerFactory;
   };
 
-  return new FrontendActionFactoryAdapter(ActionFactory);
+  return new FrontendActionFactoryAdapter(ConsumerFactory);
 }
+
+/// \brief Returns the absolute path of \c File, by prepending it with
+/// the current directory if \c File is not absolute.
+///
+/// Otherwise returns \c File.
+/// If 'File' starts with "./", the returned path will not contain the "./".
+/// Otherwise, the returned path will contain the literal path-concatenation of
+/// the current directory and \c File.
+///
+/// The difference to llvm::sys::fs::make_absolute is that we prefer
+/// ::getenv("PWD") if available.
+/// FIXME: Make this functionality available from llvm::sys::fs and delete
+///        this function.
+///
+/// \param File Either an absolute or relative path.
+std::string getAbsolutePath(StringRef File);
 
 } // end namespace tooling
 } // end namespace clang
 
 #endif // LLVM_CLANG_TOOLING_TOOLING_H
-

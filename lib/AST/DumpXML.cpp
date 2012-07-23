@@ -326,7 +326,7 @@ struct XMLDumper : public XMLDeclVisitor<XMLDumper>,
     }
     case TemplateArgument::Integral: {
       push("integer");
-      setInteger("value", *A.getAsIntegral());
+      setInteger("value", A.getAsIntegral());
       completeAttrs();
       pop();
       break;
@@ -778,7 +778,6 @@ struct XMLDumper : public XMLDeclVisitor<XMLDumper>,
   // ObjCCategoryDecl
   void visitObjCCategoryDeclAttrs(ObjCCategoryDecl *D) {
     setFlag("extension", D->IsClassExtension());
-    setFlag("synth_bitfield", D->hasSynthBitfield());
   }
   void visitObjCCategoryDeclChildren(ObjCCategoryDecl *D) {
     visitDeclRef("interface", D->getClassInterface());
@@ -804,7 +803,6 @@ struct XMLDumper : public XMLDeclVisitor<XMLDumper>,
 
   // ObjCImplementationDecl
   void visitObjCImplementationDeclAttrs(ObjCImplementationDecl *D) {
-    setFlag("synth_bitfield", D->hasSynthBitfield());
     set("identifier", D->getName());
   }
   void visitObjCImplementationDeclChildren(ObjCImplementationDecl *D) {

@@ -579,9 +579,10 @@ ExprResult Sema::BuildObjCSubscriptExpression(SourceLocation RB, Expr *BaseExpr,
                                         Expr *IndexExpr,
                                         ObjCMethodDecl *getterMethod,
                                         ObjCMethodDecl *setterMethod) {
-  // Feature support is for modern abi.
-  if (!LangOpts.ObjCNonFragileABI)
+  // Subscripting is only supported in the non-fragile ABI.
+  if (LangOpts.ObjCRuntime.isFragile())
     return ExprError();
+
   // If the expression is type-dependent, there's nothing for us to do.
   assert ((!BaseExpr->isTypeDependent() && !IndexExpr->isTypeDependent()) &&
           "base or index cannot have dependent type here");
@@ -1347,6 +1348,9 @@ static void DiagnoseARCUseOfWeakReceiver(Sema &S, Expr *Receiver) {
   if (!Receiver)
     return;
   
+  if (OpaqueValueExpr *OVE = dyn_cast<OpaqueValueExpr>(Receiver))
+    Receiver = OVE->getSourceExpr();
+  
   Expr *RExpr = Receiver->IgnoreParenImpCasts();
   SourceLocation Loc = RExpr->getLocStart();
   QualType T = RExpr->getType();
@@ -1367,6 +1371,22 @@ static void DiagnoseARCUseOfWeakReceiver(Sema &S, Expr *Receiver) {
           T = PDecl->getType();
         }
       }
+    }
+  }
+  else if (ObjCMessageExpr *ME = dyn_cast<ObjCMessageExpr>(RExpr)) {
+    // See if receiver is a method which envokes a synthesized getter
+    // backing a 'weak' property.
+    ObjCMethodDecl *Method = ME->getMethodDecl();
+    if (Method && Method->isSynthesized()) {
+      Selector Sel = Method->getSelector();
+      if (Sel.getNumArgs() == 0) {
+        const DeclContext *Container = Method->getDeclContext();
+        PDecl = 
+          S.LookupPropertyDecl(cast<ObjCContainerDecl>(Container),
+                               Sel.getIdentifierInfoForSlot(0));
+      }
+      if (PDecl)
+        T = PDecl->getType();
     }
   }
   
@@ -1483,10 +1503,6 @@ HandleExprPropertyRefExpr(const ObjCObjectPointerType *OPT,
     SelectorTable::constructSetterName(PP.getIdentifierTable(),
                                        PP.getSelectorTable(), Member);
   ObjCMethodDecl *Setter = IFace->lookupInstanceMethod(SetterSel);
-  if (Setter && Setter->isSynthesized())
-    // Check for corner case of: @property int p; ... self.P = 0;
-    // setter name is synthesized "setP" but there is no property name 'P'.
-    Setter = 0;
       
   // May be founf in property's qualified list.
   if (!Setter)
@@ -1926,9 +1942,9 @@ static void checkCocoaAPI(Sema &S, const ObjCMessageExpr *Msg) {
 ///
 /// \param LBracLoc The location of the opening square bracket ']'.
 ///
-/// \param RBrac The location of the closing square bracket ']'.
+/// \param RBracLoc The location of the closing square bracket ']'.
 ///
-/// \param Args The message arguments.
+/// \param ArgsIn The message arguments.
 ExprResult Sema::BuildClassMessage(TypeSourceInfo *ReceiverTypeInfo,
                                    QualType ReceiverType,
                                    SourceLocation SuperLoc,
@@ -2096,9 +2112,9 @@ ExprResult Sema::BuildInstanceMessageImplicit(Expr *Receiver,
 ///
 /// \param LBracLoc The location of the opening square bracket ']'.
 ///
-/// \param RBrac The location of the closing square bracket ']'.
+/// \param RBracLoc The location of the closing square bracket ']'.
 ///
-/// \param Args The message arguments.
+/// \param ArgsIn The message arguments.
 ExprResult Sema::BuildInstanceMessage(Expr *Receiver,
                                       QualType ReceiverType,
                                       SourceLocation SuperLoc,
@@ -2224,12 +2240,15 @@ ExprResult Sema::BuildInstanceMessage(Expr *Receiver,
 
       // We allow sending a message to a qualified ID ("id<foo>"), which is ok as
       // long as one of the protocols implements the selector (if not, warn).
+      // And as long as message is not deprecated/unavailable (warn if it is).
       if (const ObjCObjectPointerType *QIdTy 
                                    = ReceiverType->getAsObjCQualifiedIdType()) {
         // Search protocols for instance methods.
         Method = LookupMethodInQualifiedType(Sel, QIdTy, true);
         if (!Method)
           Method = LookupMethodInQualifiedType(Sel, QIdTy, false);
+        if (Method && DiagnoseUseOfDecl(Method, Loc))
+          return ExprError();
       } else if (const ObjCObjectPointerType *OCIType
                    = ReceiverType->getAsObjCInterfacePointerType()) {
         // We allow sending a message to a pointer to an interface (an object).
@@ -2775,11 +2794,12 @@ namespace {
   };
 }
 
-static bool
-KnownName(Sema &S, const char *name) {
-  LookupResult R(S, &S.Context.Idents.get(name), SourceLocation(),
+bool Sema::isKnownName(StringRef name) {
+  if (name.empty())
+    return false;
+  LookupResult R(*this, &Context.Idents.get(name), SourceLocation(),
                  Sema::LookupOrdinaryName);
-  return S.LookupName(R, S.TUScope, false);
+  return LookupName(R, TUScope, false);
 }
 
 static void addFixitForObjCARCConversion(Sema &S,
@@ -2806,14 +2826,23 @@ static void addFixitForObjCARCConversion(Sema &S,
       castedE = CCE->getSubExpr();
     castedE = castedE->IgnoreImpCasts();
     SourceRange range = castedE->getSourceRange();
+
+    SmallString<32> BridgeCall;
+
+    SourceManager &SM = S.getSourceManager();
+    char PrevChar = *SM.getCharacterData(range.getBegin().getLocWithOffset(-1));
+    if (Lexer::isIdentifierBodyChar(PrevChar, S.getLangOpts()))
+      BridgeCall += ' ';
+
+    BridgeCall += CFBridgeName;
+
     if (isa<ParenExpr>(castedE)) {
       DiagB.AddFixItHint(FixItHint::CreateInsertion(range.getBegin(),
-                         CFBridgeName));
+                         BridgeCall));
     } else {
-      std::string namePlusParen = CFBridgeName;
-      namePlusParen += "(";
+      BridgeCall += '(';
       DiagB.AddFixItHint(FixItHint::CreateInsertion(range.getBegin(),
-                                                    namePlusParen));
+                                                    BridgeCall));
       DiagB.AddFixItHint(FixItHint::CreateInsertion(
                                        S.PP.getLocForEndOfToken(range.getEnd()),
                                        ")"));
@@ -2888,14 +2917,15 @@ diagnoseObjCARCConversion(Sema &S, SourceRange castRange,
       << castType
       << castRange
       << castExpr->getSourceRange();
-    bool br = KnownName(S, "CFBridgingRelease");
+    bool br = S.isKnownName("CFBridgingRelease");
     {
       DiagnosticBuilder DiagB = S.Diag(noteLoc, diag::note_arc_bridge);
       addFixitForObjCARCConversion(S, DiagB, CCK, afterLParen,
                                    castType, castExpr, "__bridge ", 0);
     }
     {
-      DiagnosticBuilder DiagB = S.Diag(noteLoc, diag::note_arc_bridge_transfer)
+      DiagnosticBuilder DiagB = S.Diag(br ? castExpr->getExprLoc() : noteLoc,
+                                       diag::note_arc_bridge_transfer)
         << castExprType << br;
       addFixitForObjCARCConversion(S, DiagB, CCK, afterLParen,
                                    castType, castExpr, "__bridge_transfer ",
@@ -2907,7 +2937,7 @@ diagnoseObjCARCConversion(Sema &S, SourceRange castRange,
     
   // Bridge from a CF type to an ARC type.
   if (exprACTC == ACTC_retainable && isAnyRetainable(castACTC)) {
-    bool br = KnownName(S, "CFBridgingRetain");
+    bool br = S.isKnownName("CFBridgingRetain");
     S.Diag(loc, diag::err_arc_cast_requires_bridge)
       << unsigned(CCK == Sema::CCK_ImplicitConversion) // cast|implicit
       << unsigned(castExprType->isBlockPointerType()) // of ObjC|block type
@@ -2923,7 +2953,8 @@ diagnoseObjCARCConversion(Sema &S, SourceRange castRange,
                                    castType, castExpr, "__bridge ", 0);
     }
     {
-      DiagnosticBuilder DiagB = S.Diag(noteLoc, diag::note_arc_bridge_retained)
+      DiagnosticBuilder DiagB = S.Diag(br ? castExpr->getExprLoc() : noteLoc,
+                                       diag::note_arc_bridge_retained)
         << castType << br;
       addFixitForObjCARCConversion(S, DiagB, CCK, afterLParen,
                                    castType, castExpr, "__bridge_retained ",
@@ -3160,7 +3191,7 @@ ExprResult Sema::BuildObjCBridgedCast(SourceLocation LParenLoc,
       break;
       
     case OBC_BridgeRetained: {
-      bool br = KnownName(*this, "CFBridgingRelease");
+      bool br = isKnownName("CFBridgingRelease");
       Diag(BridgeKeywordLoc, diag::err_arc_bridge_cast_wrong_kind)
         << 2
         << FromType
@@ -3203,7 +3234,7 @@ ExprResult Sema::BuildObjCBridgedCast(SourceLocation LParenLoc,
       break;
       
     case OBC_BridgeTransfer: {
-      bool br = KnownName(*this, "CFBridgingRetain");
+      bool br = isKnownName("CFBridgingRetain");
       Diag(BridgeKeywordLoc, diag::err_arc_bridge_cast_wrong_kind)
         << (FromType->isBlockPointerType()? 1 : 0)
         << FromType

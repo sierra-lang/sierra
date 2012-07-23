@@ -338,6 +338,9 @@ bool EmitAssemblyHelper::AddEmitPasses(BackendAction Action,
     Options.NoFramePointerElimNonLeaf = true;
   }
 
+  if (CodeGenOpts.UseInitArray)
+    Options.UseInitArray = true;
+
   // Set float ABI type.
   if (CodeGenOpts.FloatABI == "soft" || CodeGenOpts.FloatABI == "softfp")
     Options.FloatABIType = llvm::FloatABI::Soft;
@@ -346,6 +349,19 @@ bool EmitAssemblyHelper::AddEmitPasses(BackendAction Action,
   else {
     assert(CodeGenOpts.FloatABI.empty() && "Invalid float abi!");
     Options.FloatABIType = llvm::FloatABI::Default;
+  }
+
+  // Set FP fusion mode.
+  switch (LangOpts.getFPContractMode()) {
+  case LangOptions::FPC_Off:
+    Options.AllowFPOpFusion = llvm::FPOpFusion::Strict;
+    break;
+  case LangOptions::FPC_On:
+    Options.AllowFPOpFusion = llvm::FPOpFusion::Standard;
+    break;
+  case LangOptions::FPC_Fast:
+    Options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
+    break;              
   }
 
   Options.LessPreciseFPMADOption = CodeGenOpts.LessPreciseFPMAD;

@@ -188,11 +188,15 @@ CodeGenFunction::CreateStaticVarDecl(const VarDecl &D,
     new llvm::GlobalVariable(CGM.getModule(), LTy,
                              Ty.isConstant(getContext()), Linkage,
                              CGM.EmitNullConstant(D.getType()), Name, 0,
-                             D.isThreadSpecified(),
+                             llvm::GlobalVariable::NotThreadLocal,
                              CGM.getContext().getTargetAddressSpace(Ty));
   GV->setAlignment(getContext().getDeclAlign(&D).getQuantity());
   if (Linkage != llvm::GlobalValue::InternalLinkage)
     GV->setVisibility(CurFn->getVisibility());
+
+  if (D.isThreadSpecified())
+    CGM.setTLSMode(GV, D);
+
   return GV;
 }
 
@@ -239,7 +243,7 @@ CodeGenFunction::AddInitializerToStaticVarDecl(const VarDecl &D,
                                   OldGV->isConstant(),
                                   OldGV->getLinkage(), Init, "",
                                   /*InsertBefore*/ OldGV,
-                                  D.isThreadSpecified(),
+                                  OldGV->getThreadLocalMode(),
                            CGM.getContext().getTargetAddressSpace(D.getType()));
     GV->setVisibility(OldGV->getVisibility());
 
@@ -490,6 +494,14 @@ static bool isAccessedBy(const VarDecl &var, const Stmt *s) {
 
     if (const DeclRefExpr *ref = dyn_cast<DeclRefExpr>(e))
       return (ref->getDecl() == &var);
+    if (const BlockExpr *be = dyn_cast<BlockExpr>(e)) {
+      const BlockDecl *block = be->getBlockDecl();
+      for (BlockDecl::capture_const_iterator i = block->capture_begin(),
+           e = block->capture_end(); i != e; ++i) {
+        if (i->getVariable() == &var)
+          return true;
+      }
+    }
   }
 
   for (Stmt::const_child_range children = s->children(); children; ++children)
@@ -1065,7 +1077,7 @@ void CodeGenFunction::EmitAutoVarInit(const AutoVarEmission &emission) {
     llvm::GlobalVariable *GV =
       new llvm::GlobalVariable(CGM.getModule(), constant->getType(), true,
                                llvm::GlobalValue::PrivateLinkage,
-                               constant, Name, 0, false, 0);
+                               constant, Name);
     GV->setAlignment(alignment.getQuantity());
     GV->setUnnamedAddr(true);
 

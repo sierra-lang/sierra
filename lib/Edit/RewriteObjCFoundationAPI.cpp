@@ -14,6 +14,7 @@
 #include "clang/Edit/Rewriters.h"
 #include "clang/Edit/Commit.h"
 #include "clang/Lex/Lexer.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/NSAPI.h"
@@ -22,7 +23,8 @@ using namespace clang;
 using namespace edit;
 
 static bool checkForLiteralCreation(const ObjCMessageExpr *Msg,
-                                    IdentifierInfo *&ClassId) {
+                                    IdentifierInfo *&ClassId,
+                                    const LangOptions &LangOpts) {
   if (!Msg || Msg->isImplicit() || !Msg->getMethodDecl())
     return false;
 
@@ -34,6 +36,18 @@ static bool checkForLiteralCreation(const ObjCMessageExpr *Msg,
   if (Msg->getReceiverKind() == ObjCMessageExpr::Class)
     return true;
 
+  // When in ARC mode we also convert "[[.. alloc] init]" messages to literals,
+  // since the change from +1 to +0 will be handled fine by ARC.
+  if (LangOpts.ObjCAutoRefCount) {
+    if (Msg->getReceiverKind() == ObjCMessageExpr::Instance) {
+      if (const ObjCMessageExpr *Rec = dyn_cast<ObjCMessageExpr>(
+                           Msg->getInstanceReceiver()->IgnoreParenImpCasts())) {
+        if (Rec->getMethodFamily() == OMF_alloc)
+          return true;
+      }
+    }
+  }
+
   return false;
 }
 
@@ -44,7 +58,7 @@ static bool checkForLiteralCreation(const ObjCMessageExpr *Msg,
 bool edit::rewriteObjCRedundantCallWithLiteral(const ObjCMessageExpr *Msg,
                                               const NSAPI &NS, Commit &commit) {
   IdentifierInfo *II = 0;
-  if (!checkForLiteralCreation(Msg, II))
+  if (!checkForLiteralCreation(Msg, II, NS.getASTContext().getLangOpts()))
     return false;
   if (Msg->getNumArgs() != 1)
     return false;
@@ -54,16 +68,19 @@ bool edit::rewriteObjCRedundantCallWithLiteral(const ObjCMessageExpr *Msg,
 
   if ((isa<ObjCStringLiteral>(Arg) &&
        NS.getNSClassId(NSAPI::ClassId_NSString) == II &&
-       NS.getNSStringSelector(NSAPI::NSStr_stringWithString) == Sel)    ||
+       (NS.getNSStringSelector(NSAPI::NSStr_stringWithString) == Sel ||
+        NS.getNSStringSelector(NSAPI::NSStr_initWithString) == Sel))   ||
 
       (isa<ObjCArrayLiteral>(Arg) &&
        NS.getNSClassId(NSAPI::ClassId_NSArray) == II &&
-       NS.getNSArraySelector(NSAPI::NSArr_arrayWithArray) == Sel)      ||
+       (NS.getNSArraySelector(NSAPI::NSArr_arrayWithArray) == Sel ||
+        NS.getNSArraySelector(NSAPI::NSArr_initWithArray) == Sel))     ||
 
       (isa<ObjCDictionaryLiteral>(Arg) &&
        NS.getNSClassId(NSAPI::ClassId_NSDictionary) == II &&
-       NS.getNSDictionarySelector(
-                              NSAPI::NSDict_dictionaryWithDictionary) == Sel)) {
+       (NS.getNSDictionarySelector(
+                              NSAPI::NSDict_dictionaryWithDictionary) == Sel ||
+        NS.getNSDictionarySelector(NSAPI::NSDict_initWithDictionary) == Sel))) {
     
     commit.replaceWithInner(Msg->getSourceRange(),
                            Msg->getArg(0)->getSourceRange());
@@ -77,6 +94,80 @@ bool edit::rewriteObjCRedundantCallWithLiteral(const ObjCMessageExpr *Msg,
 // rewriteToObjCSubscriptSyntax.
 //===----------------------------------------------------------------------===//
 
+/// \brief Check for classes that accept 'objectForKey:' (or the other selectors
+/// that the migrator handles) but return their instances as 'id', resulting
+/// in the compiler resolving 'objectForKey:' as the method from NSDictionary.
+///
+/// When checking if we can convert to subscripting syntax, check whether
+/// the receiver is a result of a class method from a hardcoded list of
+/// such classes. In such a case return the specific class as the interface
+/// of the receiver.
+///
+/// FIXME: Remove this when these classes start using 'instancetype'.
+static const ObjCInterfaceDecl *
+maybeAdjustInterfaceForSubscriptingCheck(const ObjCInterfaceDecl *IFace,
+                                         const Expr *Receiver,
+                                         ASTContext &Ctx) {
+  assert(IFace && Receiver);
+
+  // If the receiver has type 'id'...
+  if (!Ctx.isObjCIdType(Receiver->getType().getUnqualifiedType()))
+    return IFace;
+
+  const ObjCMessageExpr *
+    InnerMsg = dyn_cast<ObjCMessageExpr>(Receiver->IgnoreParenCasts());
+  if (!InnerMsg)
+    return IFace;
+
+  QualType ClassRec;
+  switch (InnerMsg->getReceiverKind()) {
+  case ObjCMessageExpr::Instance:
+  case ObjCMessageExpr::SuperInstance:
+    return IFace;
+
+  case ObjCMessageExpr::Class:
+    ClassRec = InnerMsg->getClassReceiver();
+    break;
+  case ObjCMessageExpr::SuperClass:
+    ClassRec = InnerMsg->getSuperType();
+    break;
+  }
+
+  if (ClassRec.isNull())
+    return IFace;
+
+  // ...and it is the result of a class message...
+
+  const ObjCObjectType *ObjTy = ClassRec->getAs<ObjCObjectType>();
+  if (!ObjTy)
+    return IFace;
+  const ObjCInterfaceDecl *OID = ObjTy->getInterface();
+
+  // ...and the receiving class is NSMapTable or NSLocale, return that
+  // class as the receiving interface.
+  if (OID->getName() == "NSMapTable" ||
+      OID->getName() == "NSLocale")
+    return OID;
+
+  return IFace;
+}
+
+static bool canRewriteToSubscriptSyntax(const ObjCInterfaceDecl *&IFace,
+                                        const ObjCMessageExpr *Msg,
+                                        ASTContext &Ctx,
+                                        Selector subscriptSel) {
+  const Expr *Rec = Msg->getInstanceReceiver();
+  if (!Rec)
+    return false;
+  IFace = maybeAdjustInterfaceForSubscriptingCheck(IFace, Rec, Ctx);
+
+  if (const ObjCMethodDecl *MD = IFace->lookupInstanceMethod(subscriptSel)) {
+    if (!MD->isUnavailable())
+      return true;
+  }
+  return false;
+}
+
 static bool subscriptOperatorNeedsParens(const Expr *FullExpr);
 
 static void maybePutParensOnReceiver(const Expr *Receiver, Commit &commit) {
@@ -86,7 +177,8 @@ static void maybePutParensOnReceiver(const Expr *Receiver, Commit &commit) {
   }
 }
 
-static bool rewriteToSubscriptGet(const ObjCMessageExpr *Msg, Commit &commit) {
+static bool rewriteToSubscriptGetCommon(const ObjCMessageExpr *Msg,
+                                        Commit &commit) {
   if (Msg->getNumArgs() != 1)
     return false;
   const Expr *Rec = Msg->getInstanceReceiver();
@@ -107,8 +199,34 @@ static bool rewriteToSubscriptGet(const ObjCMessageExpr *Msg, Commit &commit) {
   return true;
 }
 
-static bool rewriteToArraySubscriptSet(const ObjCMessageExpr *Msg,
+static bool rewriteToArraySubscriptGet(const ObjCInterfaceDecl *IFace,
+                                       const ObjCMessageExpr *Msg,
+                                       const NSAPI &NS,
                                        Commit &commit) {
+  if (!canRewriteToSubscriptSyntax(IFace, Msg, NS.getASTContext(),
+                                   NS.getObjectAtIndexedSubscriptSelector()))
+    return false;
+  return rewriteToSubscriptGetCommon(Msg, commit);
+}
+
+static bool rewriteToDictionarySubscriptGet(const ObjCInterfaceDecl *IFace,
+                                            const ObjCMessageExpr *Msg,
+                                            const NSAPI &NS,
+                                            Commit &commit) {
+  if (!canRewriteToSubscriptSyntax(IFace, Msg, NS.getASTContext(),
+                                  NS.getObjectForKeyedSubscriptSelector()))
+    return false;
+  return rewriteToSubscriptGetCommon(Msg, commit);
+}
+
+static bool rewriteToArraySubscriptSet(const ObjCInterfaceDecl *IFace,
+                                       const ObjCMessageExpr *Msg,
+                                       const NSAPI &NS,
+                                       Commit &commit) {
+  if (!canRewriteToSubscriptSyntax(IFace, Msg, NS.getASTContext(),
+                                   NS.getSetObjectAtIndexedSubscriptSelector()))
+    return false;
+
   if (Msg->getNumArgs() != 2)
     return false;
   const Expr *Rec = Msg->getInstanceReceiver();
@@ -135,8 +253,14 @@ static bool rewriteToArraySubscriptSet(const ObjCMessageExpr *Msg,
   return true;
 }
 
-static bool rewriteToDictionarySubscriptSet(const ObjCMessageExpr *Msg,
+static bool rewriteToDictionarySubscriptSet(const ObjCInterfaceDecl *IFace,
+                                            const ObjCMessageExpr *Msg,
+                                            const NSAPI &NS,
                                             Commit &commit) {
+  if (!canRewriteToSubscriptSyntax(IFace, Msg, NS.getASTContext(),
+                                   NS.getSetObjectForKeyedSubscriptSelector()))
+    return false;
+
   if (Msg->getNumArgs() != 2)
     return false;
   const Expr *Rec = Msg->getInstanceReceiver();
@@ -163,7 +287,7 @@ static bool rewriteToDictionarySubscriptSet(const ObjCMessageExpr *Msg,
 }
 
 bool edit::rewriteToObjCSubscriptSyntax(const ObjCMessageExpr *Msg,
-                                           const NSAPI &NS, Commit &commit) {
+                                        const NSAPI &NS, Commit &commit) {
   if (!Msg || Msg->isImplicit() ||
       Msg->getReceiverKind() != ObjCMessageExpr::Instance)
     return false;
@@ -176,25 +300,22 @@ bool edit::rewriteToObjCSubscriptSyntax(const ObjCMessageExpr *Msg,
                                           const_cast<ObjCMethodDecl *>(Method));
   if (!IFace)
     return false;
-  IdentifierInfo *II = IFace->getIdentifier();
   Selector Sel = Msg->getSelector();
 
-  if ((II == NS.getNSClassId(NSAPI::ClassId_NSArray) &&
-       Sel == NS.getNSArraySelector(NSAPI::NSArr_objectAtIndex)) ||
-      (II == NS.getNSClassId(NSAPI::ClassId_NSDictionary) &&
-       Sel == NS.getNSDictionarySelector(NSAPI::NSDict_objectForKey)))
-    return rewriteToSubscriptGet(Msg, commit);
+  if (Sel == NS.getNSArraySelector(NSAPI::NSArr_objectAtIndex))
+    return rewriteToArraySubscriptGet(IFace, Msg, NS, commit);
+
+  if (Sel == NS.getNSDictionarySelector(NSAPI::NSDict_objectForKey))
+    return rewriteToDictionarySubscriptGet(IFace, Msg, NS, commit);
 
   if (Msg->getNumArgs() != 2)
     return false;
 
-  if (II == NS.getNSClassId(NSAPI::ClassId_NSMutableArray) &&
-      Sel == NS.getNSArraySelector(NSAPI::NSMutableArr_replaceObjectAtIndex))
-    return rewriteToArraySubscriptSet(Msg, commit);
+  if (Sel == NS.getNSArraySelector(NSAPI::NSMutableArr_replaceObjectAtIndex))
+    return rewriteToArraySubscriptSet(IFace, Msg, NS, commit);
 
-  if (II == NS.getNSClassId(NSAPI::ClassId_NSMutableDictionary) &&
-      Sel == NS.getNSDictionarySelector(NSAPI::NSMutableDict_setObjectForKey))
-    return rewriteToDictionarySubscriptSet(Msg, commit);
+  if (Sel == NS.getNSDictionarySelector(NSAPI::NSMutableDict_setObjectForKey))
+    return rewriteToDictionarySubscriptSet(IFace, Msg, NS, commit);
 
   return false;
 }
@@ -217,7 +338,7 @@ static bool rewriteToStringBoxedExpression(const ObjCMessageExpr *Msg,
 bool edit::rewriteToObjCLiteralSyntax(const ObjCMessageExpr *Msg,
                                       const NSAPI &NS, Commit &commit) {
   IdentifierInfo *II = 0;
-  if (!checkForLiteralCreation(Msg, II))
+  if (!checkForLiteralCreation(Msg, II, NS.getASTContext().getLangOpts()))
     return false;
 
   if (II == NS.getNSClassId(NSAPI::ClassId_NSArray))
@@ -261,7 +382,8 @@ static bool rewriteToArrayLiteral(const ObjCMessageExpr *Msg,
     return true;
   }
 
-  if (Sel == NS.getNSArraySelector(NSAPI::NSArr_arrayWithObjects)) {
+  if (Sel == NS.getNSArraySelector(NSAPI::NSArr_arrayWithObjects) ||
+      Sel == NS.getNSArraySelector(NSAPI::NSArr_initWithObjects)) {
     if (Msg->getNumArgs() == 0)
       return false;
     const Expr *SentinelExpr = Msg->getArg(Msg->getNumArgs() - 1);
@@ -323,7 +445,8 @@ static bool rewriteToDictionaryLiteral(const ObjCMessageExpr *Msg,
   }
 
   if (Sel == NS.getNSDictionarySelector(
-                                  NSAPI::NSDict_dictionaryWithObjectsAndKeys)) {
+                                  NSAPI::NSDict_dictionaryWithObjectsAndKeys) ||
+      Sel == NS.getNSDictionarySelector(NSAPI::NSDict_initWithObjectsAndKeys)) {
     if (Msg->getNumArgs() % 2 != 1)
       return false;
     unsigned SentinelIdx = Msg->getNumArgs() - 1;
@@ -805,8 +928,9 @@ static bool rewriteToNumericBoxedExpression(const ObjCMessageExpr *Msg,
     DiagnosticsEngine &Diags = Ctx.getDiagnostics(); 
     // FIXME: Use a custom category name to distinguish migration diagnostics.
     unsigned diagID = Diags.getCustomDiagID(DiagnosticsEngine::Warning,
-                      "converting to boxing syntax requires a cast");
-    Diags.Report(Msg->getExprLoc(), diagID) << Msg->getSourceRange();
+                       "converting to boxing syntax requires casting %0 to %1");
+    Diags.Report(Msg->getExprLoc(), diagID) << OrigTy << FinalTy
+        << Msg->getSourceRange();
     return false;
   }
 

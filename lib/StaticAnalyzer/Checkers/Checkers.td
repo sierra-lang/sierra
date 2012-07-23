@@ -393,6 +393,10 @@ def ObjCSelfInitChecker : Checker<"SelfInit">,
   HelpText<"Check that 'self' is properly initialized inside an initializer method">,
   DescFile<"ObjCSelfInitChecker.cpp">;
 
+def ObjCLoopChecker : Checker<"Loops">,
+  HelpText<"Improved modeling of loops using Cocoa collection types">,
+  DescFile<"BasicObjCFoundationChecks.cpp">;
+
 def NSErrorChecker : Checker<"NSError">,
   HelpText<"Check usage of NSError** parameters">,
   DescFile<"NSErrorChecker.cpp">;
@@ -474,6 +478,14 @@ def CallGraphViewer : Checker<"ViewCallGraph">,
 def CallGraphDumper : Checker<"DumpCallGraph">,
   HelpText<"Display Call Graph">,
   DescFile<"DebugCheckers.cpp">;
+
+def TraversalDumper : Checker<"DumpTraversal">,
+  HelpText<"Print branch conditions as they are traversed by the engine">,
+  DescFile<"TraversalChecker.cpp">;
+
+def CallDumper : Checker<"DumpCalls">,
+  HelpText<"Print calls as they are traversed by the engine">,
+  DescFile<"TraversalChecker.cpp">;
 
 def AnalyzerStatsChecker : Checker<"Stats">,
   HelpText<"Emit warnings with analyzer statistics">,

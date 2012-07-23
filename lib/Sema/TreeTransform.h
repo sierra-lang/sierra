@@ -225,9 +225,6 @@ public:
   /// \param Unexpanded The set of unexpanded parameter packs within the 
   /// pattern.
   ///
-  /// \param NumUnexpanded The number of unexpanded parameter packs in
-  /// \p Unexpanded.
-  ///
   /// \param ShouldExpand Will be set to \c true if the transformer should
   /// expand the corresponding pack expansions into separate arguments. When
   /// set, \c NumExpansions must also be set.
@@ -1071,7 +1068,8 @@ public:
   ///
   /// By default, performs semantic analysis to build the new statement.
   /// Subclasses may override this routine to provide different behavior.
-  StmtResult RebuildAttributedStmt(SourceLocation AttrLoc, const AttrVec &Attrs,
+  StmtResult RebuildAttributedStmt(SourceLocation AttrLoc,
+                                   ArrayRef<const Attr*> Attrs,
                                    Stmt *SubStmt) {
     return SemaRef.ActOnAttributedStmt(AttrLoc, Attrs, SubStmt);
   }
@@ -1197,7 +1195,17 @@ public:
                                   RParenLoc, MSAsm);
   }
 
-  /// \brief Build a new Objective-C @try statement.
+  /// \brief Build a new MS style inline asm statement.
+  ///
+  /// By default, performs semantic analysis to build the new statement.
+  /// Subclasses may override this routine to provide different behavior.
+  StmtResult RebuildMSAsmStmt(SourceLocation AsmLoc,
+                              std::string &AsmString,
+                              SourceLocation EndLoc) {
+    return getSema().ActOnMSAsmStmt(AsmLoc, AsmString, EndLoc);
+  }
+
+  /// \brief Build a new Objective-C \@try statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
   /// Subclasses may override this routine to provide different behavior.
@@ -1221,7 +1229,7 @@ public:
                                             ExceptionDecl->getIdentifier());
   }
   
-  /// \brief Build a new Objective-C @catch statement.
+  /// \brief Build a new Objective-C \@catch statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
   /// Subclasses may override this routine to provide different behavior.
@@ -1233,7 +1241,7 @@ public:
                                           Var, Body);
   }
   
-  /// \brief Build a new Objective-C @finally statement.
+  /// \brief Build a new Objective-C \@finally statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
   /// Subclasses may override this routine to provide different behavior.
@@ -1242,7 +1250,7 @@ public:
     return getSema().ActOnObjCAtFinallyStmt(AtLoc, Body);
   }
   
-  /// \brief Build a new Objective-C @throw statement.
+  /// \brief Build a new Objective-C \@throw statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
   /// Subclasses may override this routine to provide different behavior.
@@ -1251,7 +1259,7 @@ public:
     return getSema().BuildObjCAtThrowStmt(AtLoc, Operand);
   }
   
-  /// \brief Rebuild the operand to an Objective-C @synchronized statement.
+  /// \brief Rebuild the operand to an Objective-C \@synchronized statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
   /// Subclasses may override this routine to provide different behavior.
@@ -1260,7 +1268,7 @@ public:
     return getSema().ActOnObjCAtSynchronizedOperand(atLoc, object);
   }
 
-  /// \brief Build a new Objective-C @synchronized statement.
+  /// \brief Build a new Objective-C \@synchronized statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
   /// Subclasses may override this routine to provide different behavior.
@@ -1269,23 +1277,13 @@ public:
     return getSema().ActOnObjCAtSynchronizedStmt(AtLoc, Object, Body);
   }
 
-  /// \brief Build a new Objective-C @autoreleasepool statement.
+  /// \brief Build a new Objective-C \@autoreleasepool statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
   /// Subclasses may override this routine to provide different behavior.
   StmtResult RebuildObjCAutoreleasePoolStmt(SourceLocation AtLoc,
                                             Stmt *Body) {
     return getSema().ActOnObjCAutoreleasePoolStmt(AtLoc, Body);
-  }
-
-  /// \brief Build the collection operand to a new Objective-C fast
-  /// enumeration statement.
-  ///
-  /// By default, performs semantic analysis to build the new statement.
-  /// Subclasses may override this routine to provide different behavior.
-  ExprResult RebuildObjCForCollectionOperand(SourceLocation forLoc,
-                                             Expr *collection) {
-    return getSema().ActOnObjCForCollectionOperand(forLoc, collection);
   }
 
   /// \brief Build a new Objective-C fast enumeration statement.
@@ -1298,11 +1296,14 @@ public:
                                           Expr *Collection,
                                           SourceLocation RParenLoc,
                                           Stmt *Body) {
-    return getSema().ActOnObjCForCollectionStmt(ForLoc, LParenLoc,
-                                                Element, 
+    StmtResult ForEachStmt = getSema().ActOnObjCForCollectionStmt(ForLoc, LParenLoc,
+                                                Element,
                                                 Collection,
-                                                RParenLoc,
-                                                Body);
+                                                RParenLoc);
+    if (ForEachStmt.isInvalid())
+      return StmtError();
+
+    return getSema().FinishObjCForCollectionStmt(ForEachStmt.take(), Body);
   }
   
   /// \brief Build a new C++ exception declaration.
@@ -2279,7 +2280,7 @@ public:
     return getSema().BuildObjCDictionaryLiteral(Range, Elements, NumElements);
   }
   
-  /// \brief Build a new Objective-C @encode expression.
+  /// \brief Build a new Objective-C \@encode expression.
   ///
   /// By default, performs semantic analysis to build the new expression.
   /// Subclasses may override this routine to provide different behavior.
@@ -5695,6 +5696,14 @@ TreeTransform<Derived>::TransformAsmStmt(AsmStmt *S) {
                                      S->isMSAsm());
 }
 
+template<typename Derived>
+StmtResult
+TreeTransform<Derived>::TransformMSAsmStmt(MSAsmStmt *S) {
+  // No need to transform the asm string literal.
+  return getDerived().RebuildMSAsmStmt(S->getAsmLoc(),
+                                       *S->getAsmString(),
+                                       S->getEndLoc());
+}
 
 template<typename Derived>
 StmtResult
@@ -5867,10 +5876,6 @@ TreeTransform<Derived>::TransformObjCForCollectionStmt(
   
   // Transform the collection expression.
   ExprResult Collection = getDerived().TransformExpr(S->getCollection());
-  if (Collection.isInvalid())
-    return StmtError();
-  Collection = getDerived().RebuildObjCForCollectionOperand(S->getForLoc(),
-                                                            Collection.take());
   if (Collection.isInvalid())
     return StmtError();
   
@@ -7992,15 +7997,11 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
     Invalid = true;  
 
   // Build the call operator.
-  // Note: Once a lambda mangling number and context declaration have been
-  // assigned, they never change.
-  unsigned ManglingNumber = E->getLambdaClass()->getLambdaManglingNumber();
-  Decl *ContextDecl = E->getLambdaClass()->getLambdaContextDecl();  
   CXXMethodDecl *CallOperator
     = getSema().startLambdaDefinition(Class, E->getIntroducerRange(),
-                                      MethodTy, 
+                                      MethodTy,
                                       E->getCallOperator()->getLocEnd(),
-                                      Params, ManglingNumber, ContextDecl);
+                                      Params);
   getDerived().transformAttrs(E->getCallOperator(), CallOperator);
   
   // FIXME: Instantiation-specific.

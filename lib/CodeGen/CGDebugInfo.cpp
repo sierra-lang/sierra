@@ -320,7 +320,7 @@ void CGDebugInfo::CreateCompileUnit() {
   // Figure out which version of the ObjC runtime we have.
   unsigned RuntimeVers = 0;
   if (LO.ObjC1)
-    RuntimeVers = LO.ObjCNonFragileABI ? 2 : 1;
+    RuntimeVers = LO.ObjCRuntime.isNonFragile() ? 2 : 1;
 
   // Create new compile unit.
   DBuilder.createCompileUnit(
@@ -764,7 +764,7 @@ CollectRecordFields(const RecordDecl *record, llvm::DIFile tunit,
   const ASTRecordLayout &layout = CGM.getContext().getASTRecordLayout(record);
   const CXXRecordDecl *CXXDecl = dyn_cast<CXXRecordDecl>(record);
 
-  // For C++11 Lambdas a Fields will be the same as a Capture, but the Capture
+  // For C++11 Lambdas a Field will be the same as a Capture, but the Capture
   // has the name and the location of the variable so we should iterate over
   // both concurrently.
   if (CXXDecl && CXXDecl->isLambda()) {
@@ -797,7 +797,7 @@ CollectRecordFields(const RecordDecl *record, llvm::DIFile tunit,
     for (RecordDecl::field_iterator I = record->field_begin(),
            E = record->field_end();
          I != E; ++I, ++fieldNo) {
-      FieldDecl *field = &*I;
+      FieldDecl *field = *I;
 
       if (IsMsStruct) {
         // Zero-length bitfields following non-bitfield members are ignored
@@ -991,8 +991,12 @@ CollectCXXMemberFunctions(const CXXRecordDecl *RD, llvm::DIFile Unit,
     if (D->isImplicit() && !D->isUsed())
       continue;
 
-    if (const CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(D))
-      EltTys.push_back(CreateCXXMemberFunction(Method, Unit, RecordTy));
+    if (const CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(D)) {
+      // Only emit debug information for user provided functions, we're
+      // unlikely to want info for artificial functions.
+      if (Method->isUserProvided())
+        EltTys.push_back(CreateCXXMemberFunction(Method, Unit, RecordTy));
+    }
     else if (FunctionTemplateDecl *FTD = dyn_cast<FunctionTemplateDecl>(D))
       for (FunctionTemplateDecl::spec_iterator SI = FTD->spec_begin(),
             SE = FTD->spec_end(); SI != SE; ++SI) {
@@ -1046,7 +1050,7 @@ CollectCXXBases(const CXXRecordDecl *RD, llvm::DIFile Unit,
                .getVirtualBaseOffsetOffset(RD, Base).getQuantity();
       BFlags = llvm::DIDescriptor::FlagVirtual;
     } else
-      BaseOffset = RL.getBaseClassOffsetInBits(Base);
+      BaseOffset = CGM.getContext().toBits(RL.getBaseClassOffset(Base));
     // FIXME: Inconsistent units for BaseOffset. It is in bytes when
     // BI->isVirtual() and bits when not.
     
@@ -1082,7 +1086,7 @@ CollectTemplateParams(const TemplateParameterList *TPList,
       llvm::DIType TTy = getOrCreateType(TA.getIntegralType(), Unit);
       llvm::DITemplateValueParameter TVP =
         DBuilder.createTemplateValueParameter(TheCU, ND->getName(), TTy,
-                                          TA.getAsIntegral()->getZExtValue());
+                                             TA.getAsIntegral().getZExtValue());
       TemplateParams.push_back(TVP);          
     }
   }
@@ -1334,7 +1338,7 @@ llvm::DIType CGDebugInfo::CreateType(const ObjCInterfaceType *Ty,
 
   for (ObjCContainerDecl::prop_iterator I = ID->prop_begin(),
          E = ID->prop_end(); I != E; ++I) {
-    const ObjCPropertyDecl *PD = &*I;
+    const ObjCPropertyDecl *PD = *I;
     SourceLocation Loc = PD->getLocation();
     llvm::DIFile PUnit = getOrCreateFile(Loc);
     unsigned PLine = getLineNumber(Loc);
@@ -1386,8 +1390,8 @@ llvm::DIType CGDebugInfo::CreateType(const ObjCInterfaceType *Ty,
     // the non-fragile abi and the debugger should ignore the value anyways.
     // Call it the FieldNo+1 due to how debuggers use the information,
     // e.g. negating the value when it needs a lookup in the dynamic table.
-    uint64_t FieldOffset = CGM.getLangOpts().ObjCNonFragileABI ? FieldNo+1
-      : RL.getFieldOffset(FieldNo);
+    uint64_t FieldOffset = CGM.getLangOpts().ObjCRuntime.isNonFragile()
+                             ? FieldNo+1 : RL.getFieldOffset(FieldNo);
 
     unsigned Flags = 0;
     if (Field->getAccessControl() == ObjCIvarDecl::Protected)
@@ -1561,7 +1565,6 @@ llvm::DIType CGDebugInfo::CreateType(const AtomicType *Ty,
 
 /// CreateEnumType - get enumeration type.
 llvm::DIType CGDebugInfo::CreateEnumType(const EnumDecl *ED) {
-  llvm::DIFile Unit = getOrCreateFile(ED->getLocation());
   SmallVector<llvm::Value *, 16> Enumerators;
 
   // Create DIEnumerator elements for each enumerator.
@@ -1588,10 +1591,11 @@ llvm::DIType CGDebugInfo::CreateEnumType(const EnumDecl *ED) {
     getContextDescriptor(cast<Decl>(ED->getDeclContext()));
   llvm::DIType ClassTy = ED->isScopedUsingClassTag() ?
     getOrCreateType(ED->getIntegerType(), DefUnit) : llvm::DIType();
+  unsigned Flags = !ED->isCompleteDefinition() ? llvm::DIDescriptor::FlagFwdDecl : 0;
   llvm::DIType DbgTy = 
     DBuilder.createEnumerationType(EnumContext, ED->getName(), DefUnit, Line,
                                    Size, Align, EltArray,
-                                   ClassTy);
+                                   ClassTy, Flags);
   return DbgTy;
 }
 
@@ -1695,7 +1699,8 @@ llvm::DIType CGDebugInfo::getOrCreateType(QualType Ty, llvm::DIFile Unit) {
 
   llvm::DIType TC = getTypeOrNull(Ty);
   if (TC.Verify() && TC.isForwardDecl())
-    ReplaceMap.push_back(std::make_pair(Ty.getAsOpaquePtr(), TC));
+    ReplaceMap.push_back(std::make_pair(Ty.getAsOpaquePtr(),
+                                        static_cast<llvm::Value*>(TC)));
   
   // And update the type cache.
   TypeCache[Ty.getAsOpaquePtr()] = Res;
@@ -1807,7 +1812,8 @@ llvm::DIType CGDebugInfo::getOrCreateLimitedType(QualType Ty,
   llvm::DIType Res = CreateLimitedTypeNode(Ty, Unit);
 
   if (T.Verify() && T.isForwardDecl())
-    ReplaceMap.push_back(std::make_pair(Ty.getAsOpaquePtr(), T));
+    ReplaceMap.push_back(std::make_pair(Ty.getAsOpaquePtr(),
+                                        static_cast<llvm::Value*>(T)));
 
   // And update the type cache.
   TypeCache[Ty.getAsOpaquePtr()] = Res;
@@ -2328,7 +2334,7 @@ void CGDebugInfo::EmitDeclare(const VarDecl *VD, unsigned Tag,
       for (RecordDecl::field_iterator I = RD->field_begin(),
              E = RD->field_end();
            I != E; ++I) {
-        FieldDecl *Field = &*I;
+        FieldDecl *Field = *I;
         llvm::DIType FieldTy = getOrCreateType(Field->getType(), Unit);
         StringRef FieldName = Field->getName();
           
@@ -2655,8 +2661,9 @@ void CGDebugInfo::EmitGlobalVariable(const ValueDecl *VD,
   StringRef Name = VD->getName();
   llvm::DIType Ty = getOrCreateType(VD->getType(), Unit);
   if (const EnumConstantDecl *ECD = dyn_cast<EnumConstantDecl>(VD)) {
-    if (const EnumDecl *ED = dyn_cast<EnumDecl>(ECD->getDeclContext()))
-      Ty = CreateEnumType(ED);
+    const EnumDecl *ED = cast<EnumDecl>(ECD->getDeclContext());
+    assert(isa<EnumType>(ED->getTypeForDecl()) && "Enum without EnumType?");
+    Ty = getOrCreateType(QualType(ED->getTypeForDecl(), 0), Unit);
   }
   // Do not use DIGlobalVariable for enums.
   if (Ty.getTag() == llvm::dwarf::DW_TAG_enumeration_type)

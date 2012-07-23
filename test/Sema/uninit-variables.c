@@ -152,15 +152,15 @@ int test19() {
 
 int test20() {
   int z; // expected-note{{initialize the variable 'z' to silence this warning}}
-  if ((test19_aux1() + test19_aux2() && test19_aux1()) || test19_aux3(&z))
-    return z; // expected-warning{{variable 'z' may be uninitialized when used here}}
+  if ((test19_aux1() + test19_aux2() && test19_aux1()) || test19_aux3(&z)) // expected-warning {{variable 'z' is used uninitialized whenever '||' condition is true}} expected-note {{remove the '||' if its condition is always false}}
+    return z; // expected-note {{uninitialized use occurs here}}
   return 0;
 }
 
 int test21(int x, int y) {
   int z; // expected-note{{initialize the variable 'z' to silence this warning}}
-  if ((x && y) || test19_aux3(&z) || test19_aux2())
-    return z; // expected-warning{{variable 'z' may be uninitialized when used here}}
+  if ((x && y) || test19_aux3(&z) || test19_aux2()) // expected-warning {{variable 'z' is used uninitialized whenever '||' condition is true}} expected-note {{remove the '||' if its condition is always false}}
+    return z; // expected-note {{uninitialized use occurs here}}
   return 0;
 }
 
@@ -436,4 +436,70 @@ void test54() {
                       // expected-note {{variable 'a' is declared here}}
   int c;  // expected-note {{initialize the variable 'c' to silence this warning}}
   ASSIGN(int, c, d);  // expected-warning {{variable 'c' is uninitialized when used here}}
+}
+
+// Taking the address is fine
+struct { struct { void *p; } a; } test55 = { { &test55.a }}; // no-warning
+struct { struct { void *p; } a; } test56 = { { &(test56.a) }}; // no-warning
+
+void uninit_in_loop() {
+  int produce(void);
+  void consume(int);
+  for (int n = 0; n < 100; ++n) {
+    int k; // expected-note {{initialize}}
+    consume(k); // expected-warning {{variable 'k' is uninitialized}}
+    k = produce();
+  }
+}
+
+void uninit_in_loop_goto() {
+  int produce(void);
+  void consume(int);
+  for (int n = 0; n < 100; ++n) {
+    goto skip_decl;
+    int k; // expected-note {{initialize}}
+skip_decl:
+    // FIXME: This should produce the 'is uninitialized' diagnostic, but we
+    // don't have enough information in the CFG to easily tell that the
+    // variable's scope has been left and re-entered.
+    consume(k); // expected-warning {{variable 'k' may be uninitialized}}
+    k = produce();
+  }
+}
+
+typedef char jmp_buf[256];
+extern int setjmp(jmp_buf env); // implicitly returns_twice
+
+void do_stuff_and_longjmp(jmp_buf env, int *result) __attribute__((noreturn));
+
+int returns_twice() {
+  int a; // expected-note {{initialize}}
+  if (!a) { // expected-warning {{variable 'a' is uninitialized}}
+    jmp_buf env;
+    int b;
+    if (setjmp(env) == 0) {
+      do_stuff_and_longjmp(env, &b);
+    } else {
+      a = b; // no warning
+    }
+  }
+  return a;
+}
+
+int compound_assign(int *arr, int n) {
+  int sum; // expected-note {{initialize}}
+  for (int i = 0; i < n; ++i)
+    sum += arr[i]; // expected-warning {{variable 'sum' is uninitialized}}
+  return sum / n;
+}
+
+int compound_assign_2() {
+  int x; // expected-note {{initialize}}
+  return x += 1; // expected-warning {{variable 'x' is uninitialized}}
+}
+
+int compound_assign_3() {
+  int x; // expected-note {{initialize}}
+  x *= 0; // expected-warning {{variable 'x' is uninitialized}}
+  return x;
 }

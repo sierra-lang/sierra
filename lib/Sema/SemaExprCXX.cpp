@@ -6,9 +6,10 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-//
-//  This file implements semantic analysis for C++ expressions.
-//
+///
+/// \file
+/// \brief Implements semantic analysis for C++ expressions.
+///
 //===----------------------------------------------------------------------===//
 
 #include "clang/Sema/SemaInternal.h"
@@ -375,6 +376,12 @@ Sema::ActOnCXXTypeid(SourceLocation OpLoc, SourceLocation LParenLoc,
     LookupResult R(*this, TypeInfoII, SourceLocation(), LookupTagName);
     LookupQualifiedName(R, getStdNamespace());
     CXXTypeInfoDecl = R.getAsSingle<RecordDecl>();
+    // Microsoft's typeinfo doesn't have type_info in std but in the global
+    // namespace if _HAS_EXCEPTIONS is defined to 0. See PR13153.
+    if (!CXXTypeInfoDecl && LangOpts.MicrosoftMode) {
+      LookupQualifiedName(R, Context.getTranslationUnitDecl());
+      CXXTypeInfoDecl = R.getAsSingle<RecordDecl>();
+    }
     if (!CXXTypeInfoDecl)
       return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
   }
@@ -740,7 +747,7 @@ void Sema::CheckCXXThisCapture(SourceLocation Loc, bool Explicit) {
       FieldDecl *Field
         = FieldDecl::Create(Context, Lambda, Loc, Loc, 0, ThisTy,
                             Context.getTrivialTypeSourceInfo(ThisTy, Loc),
-                            0, false, false);
+                            0, false, ICIS_NoInit);
       Field->setImplicit(true);
       Field->setAccess(AS_private);
       Lambda->addDecl(Field);
@@ -934,7 +941,7 @@ static bool doesUsualArrayDeleteWantSize(Sema &S, SourceLocation loc,
 }
 
 /// \brief Parsed a C++ 'new' expression (C++ 5.3.4).
-
+///
 /// E.g.:
 /// @code new (memory) int[size][4] @endcode
 /// or
@@ -947,10 +954,8 @@ static bool doesUsualArrayDeleteWantSize(Sema &S, SourceLocation loc,
 /// \param PlacementRParen Closing paren of the placement arguments.
 /// \param TypeIdParens If the type is in parens, the source range.
 /// \param D The type to be allocated, as well as array dimensions.
-/// \param ConstructorLParen Opening paren of the constructor args, empty if
-///                          initializer-list syntax is used.
-/// \param ConstructorArgs Constructor/initialization arguments.
-/// \param ConstructorRParen Closing paren of the constructor args.
+/// \param Initializer The initializing expression or initializer-list, or null
+///   if there is none.
 ExprResult
 Sema::ActOnCXXNew(SourceLocation StartLoc, bool UseGlobal,
                   SourceLocation PlacementLParen, MultiExprArg PlacementArgs,
@@ -962,7 +967,7 @@ Sema::ActOnCXXNew(SourceLocation StartLoc, bool UseGlobal,
   // If the specified type is an array, unwrap it and save the expression.
   if (D.getNumTypeObjects() > 0 &&
       D.getTypeObject(0).Kind == DeclaratorChunk::Array) {
-    DeclaratorChunk &Chunk = D.getTypeObject(0);
+     DeclaratorChunk &Chunk = D.getTypeObject(0);
     if (TypeContainsAuto)
       return ExprError(Diag(Chunk.Loc, diag::err_new_array_of_auto)
         << D.getSourceRange());
@@ -1088,8 +1093,10 @@ Sema::BuildCXXNew(SourceLocation StartLoc, bool UseGlobal,
     }
   }
 
-  // C++0x [decl.spec.auto]p6. Deduce the type which 'auto' stands in for.
-  if (TypeMayContainAuto && AllocType->getContainedAutoType()) {
+  // C++11 [decl.spec.auto]p6. Deduce the type which 'auto' stands in for.
+  AutoType *AT = 0;
+  if (TypeMayContainAuto &&
+      (AT = AllocType->getContainedAutoType()) && !AT->isDeduced()) {
     if (initStyle == CXXNewExpr::NoInit || NumInits == 0)
       return ExprError(Diag(StartLoc, diag::err_auto_new_requires_ctor_arg)
                        << AllocType << TypeRange);
@@ -1105,8 +1112,7 @@ Sema::BuildCXXNew(SourceLocation StartLoc, bool UseGlobal,
     }
     Expr *Deduce = Inits[0];
     TypeSourceInfo *DeducedType = 0;
-    if (DeduceAutoType(AllocTypeInfo, Deduce, DeducedType) ==
-            DAR_Failed)
+    if (DeduceAutoType(AllocTypeInfo, Deduce, DeducedType) == DAR_Failed)
       return ExprError(Diag(StartLoc, diag::err_auto_new_deduction_failure)
                        << AllocType << Deduce->getType()
                        << TypeRange << Deduce->getSourceRange());
@@ -2142,9 +2148,6 @@ Sema::ActOnCXXDelete(SourceLocation StartLoc, bool UseGlobal,
     //   delete-expression; it is not necessary to cast away the constness
     //   (5.2.11) of the pointer expression before it is used as the operand
     //   of the delete-expression. ]
-    if (!Context.hasSameType(Ex.get()->getType(), Context.VoidPtrTy))
-      Ex = Owned(ImplicitCastExpr::Create(Context, Context.VoidPtrTy,
-                                          CK_BitCast, Ex.take(), 0, VK_RValue));
 
     if (Pointee->isArrayType() && !ArrayForm) {
       Diag(StartLoc, diag::warn_delete_array_type)
@@ -2222,6 +2225,9 @@ Sema::ActOnCXXDelete(SourceLocation StartLoc, bool UseGlobal,
       DeclareGlobalNewDelete();
       DeclContext *TUDecl = Context.getTranslationUnitDecl();
       Expr *Arg = Ex.get();
+      if (!Context.hasSameType(Arg->getType(), Context.VoidPtrTy))
+        Arg = ImplicitCastExpr::Create(Context, Context.VoidPtrTy,
+                                       CK_BitCast, Arg, 0, VK_RValue);
       if (FindAllocationOverload(StartLoc, SourceRange(), DeleteName,
                                  &Arg, 1, TUDecl, /*AllowMissing=*/false,
                                  OperatorDelete))
@@ -3330,6 +3336,25 @@ ExprResult Sema::ActOnBinaryTypeTrait(BinaryTypeTrait BTT,
   return BuildBinaryTypeTrait(BTT, KWLoc, LhsTSInfo, RhsTSInfo, RParen);
 }
 
+/// \brief Determine whether T has a non-trivial Objective-C lifetime in
+/// ARC mode.
+static bool hasNontrivialObjCLifetime(QualType T) {
+  switch (T.getObjCLifetime()) {
+  case Qualifiers::OCL_ExplicitNone:
+    return false;
+
+  case Qualifiers::OCL_Strong:
+  case Qualifiers::OCL_Weak:
+  case Qualifiers::OCL_Autoreleasing:
+    return true;
+
+  case Qualifiers::OCL_None:
+    return T->isObjCLifetimeType();
+  }
+
+  llvm_unreachable("Unknown ObjC lifetime qualifier");
+}
+
 static bool evaluateTypeTrait(Sema &S, TypeTrait Kind, SourceLocation KWLoc,
                               ArrayRef<TypeSourceInfo *> Args,
                               SourceLocation RParenLoc) {
@@ -3403,8 +3428,14 @@ static bool evaluateTypeTrait(Sema &S, TypeTrait Kind, SourceLocation KWLoc,
                                                   ArgExprs.size()));
     if (Result.isInvalid() || SFINAE.hasErrorOccurred())
       return false;
-    
-    // The initialization succeeded; not make sure there are no non-trivial 
+
+    // Under Objective-C ARC, if the destination has non-trivial Objective-C
+    // lifetime, this is a non-trivial construction.
+    if (S.getLangOpts().ObjCAutoRefCount &&
+        hasNontrivialObjCLifetime(Args[0]->getType().getNonReferenceType()))
+      return false;
+
+    // The initialization succeeded; now make sure there are no non-trivial
     // calls.
     return !Result.get()->hasNonTrivialCall(S.Context);
   }
@@ -3583,6 +3614,12 @@ static bool EvaluateBinaryTypeTrait(Sema &Self, BinaryTypeTrait BTT,
     Sema::ContextRAII TUContext(Self, Self.Context.getTranslationUnitDecl());
     ExprResult Result = Self.BuildBinOp(/*S=*/0, KeyLoc, BO_Assign, &Lhs, &Rhs);
     if (Result.isInvalid() || SFINAE.hasErrorOccurred())
+      return false;
+
+    // Under Objective-C ARC, if the destination has non-trivial Objective-C
+    // lifetime, this is a non-trivial assignment.
+    if (Self.getLangOpts().ObjCAutoRefCount &&
+        hasNontrivialObjCLifetime(LhsT.getNonReferenceType()))
       return false;
 
     return !Result.get()->hasNonTrivialCall(Self.Context);

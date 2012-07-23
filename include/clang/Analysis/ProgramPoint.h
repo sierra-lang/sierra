@@ -49,23 +49,27 @@ public:
               PostStoreKind,
               PostConditionKind,
               PostLValueKind,
+              MinPostStmtKind = PostStmtKind,
+              MaxPostStmtKind = PostLValueKind,
               PostInitializerKind,
               CallEnterKind,
               CallExitBeginKind,
               CallExitEndKind,
-              MinPostStmtKind = PostStmtKind,
-              MaxPostStmtKind = CallExitEndKind,
+              PreImplicitCallKind,
+              PostImplicitCallKind,
+              MinImplicitCallKind = PreImplicitCallKind,
+              MaxImplicitCallKind = PostImplicitCallKind,
               EpsilonKind};
 
 private:
-  llvm::PointerIntPair<const void *, 2, unsigned> Data1;
+  const void *Data1;
   llvm::PointerIntPair<const void *, 2, unsigned> Data2;
 
   // The LocationContext could be NULL to allow ProgramPoint to be used in
   // context insensitive analysis.
   llvm::PointerIntPair<const LocationContext *, 2, unsigned> L;
 
-  const ProgramPointTag *Tag;
+  llvm::PointerIntPair<const ProgramPointTag *, 2, unsigned> Tag;
 
   ProgramPoint();
   
@@ -74,10 +78,10 @@ protected:
                Kind k,
                const LocationContext *l,
                const ProgramPointTag *tag = 0)
-    : Data1(P, ((unsigned) k) & 0x3),
-      Data2(0, (((unsigned) k) >> 2) & 0x3),
-      L(l, (((unsigned) k) >> 4) & 0x3),
-      Tag(tag) {
+    : Data1(P),
+      Data2(0, (((unsigned) k) >> 0) & 0x3),
+      L(l, (((unsigned) k) >> 2) & 0x3),
+      Tag(tag, (((unsigned) k) >> 4) & 0x3) {
         assert(getKind() == k);
         assert(getLocationContext() == l);
         assert(getData1() == P);
@@ -88,13 +92,13 @@ protected:
                Kind k,
                const LocationContext *l,
                const ProgramPointTag *tag = 0)
-    : Data1(P1, ((unsigned) k) & 0x3),
-      Data2(P2, (((unsigned) k) >> 2) & 0x3),
-      L(l, (((unsigned) k) >> 4) & 0x3),
-      Tag(tag) {}
+    : Data1(P1),
+      Data2(P2, (((unsigned) k) >> 0) & 0x3),
+      L(l, (((unsigned) k) >> 2) & 0x3),
+      Tag(tag, (((unsigned) k) >> 4) & 0x3) {}
 
 protected:
-  const void *getData1() const { return Data1.getPointer(); }
+  const void *getData1() const { return Data1; }
   const void *getData2() const { return Data2.getPointer(); }
   void setData2(const void *d) { Data2.setPointer(d); }
 
@@ -107,11 +111,11 @@ public:
   }
 
   Kind getKind() const {
-    unsigned x = L.getInt();
+    unsigned x = Tag.getInt();
+    x <<= 2;
+    x |= L.getInt();
     x <<= 2;
     x |= Data2.getInt();
-    x <<= 2;
-    x |= Data1.getInt();
     return (Kind) x;
   }
 
@@ -123,7 +127,7 @@ public:
             K == PreStmtPurgeDeadSymbolsKind);
   }
 
-  const ProgramPointTag *getTag() const { return Tag; }
+  const ProgramPointTag *getTag() const { return Tag.getPointer(); }
 
   const LocationContext *getLocationContext() const {
     return L.getPointer();
@@ -157,7 +161,7 @@ public:
     ID.AddPointer(getData1());
     ID.AddPointer(getData2());
     ID.AddPointer(getLocationContext());
-    ID.AddPointer(Tag);
+    ID.AddPointer(getTag());
   }
 
   static ProgramPoint getProgramPoint(const Stmt *S, ProgramPoint::Kind K,
@@ -314,7 +318,7 @@ public:
   }
 };
 
-/// \class Represents a program point after a store evaluation.
+/// \brief Represents a program point after a store evaluation.
 class PostStore : public PostStmt {
 public:
   /// Construct the post store point.
@@ -350,7 +354,7 @@ public:
   }
 };
 
-/// \class Represents a point after we ran remove dead bindings BEFORE
+/// Represents a point after we ran remove dead bindings BEFORE
 /// processing the given statement.
 class PreStmtPurgeDeadSymbols : public StmtPoint {
 public:
@@ -363,7 +367,7 @@ public:
   }
 };
 
-/// \class Represents a point after we ran remove dead bindings AFTER
+/// Represents a point after we ran remove dead bindings AFTER
 /// processing the  given statement.
 class PostStmtPurgeDeadSymbols : public StmtPoint {
 public:
@@ -408,12 +412,60 @@ public:
   }
 };
 
-/// \class Represents a point when we begin processing an inlined call.
-class CallEnter : public StmtPoint {
+/// Represents an implicit call event.
+///
+/// The nearest statement is provided for diagnostic purposes.
+class ImplicitCallPoint : public ProgramPoint {
+public:
+  ImplicitCallPoint(const Decl *D, SourceLocation Loc, Kind K,
+                    const LocationContext *L, const ProgramPointTag *Tag)
+    : ProgramPoint(Loc.getPtrEncoding(), D, K, L, Tag) {}
+
+  const Decl *getDecl() const { return static_cast<const Decl *>(getData2()); }
+  SourceLocation getLocation() const {
+    return SourceLocation::getFromPtrEncoding(getData1());
+  }
+
+  static bool classof(const ProgramPoint *Location) {
+    return Location->getKind() >= MinImplicitCallKind &&
+           Location->getKind() <= MaxImplicitCallKind;
+  }
+};
+
+/// Represents a program point just before an implicit call event.
+///
+/// Explicit calls will appear as PreStmt program points.
+class PreImplicitCall : public ImplicitCallPoint {
+public:
+  PreImplicitCall(const Decl *D, SourceLocation Loc,
+                  const LocationContext *L, const ProgramPointTag *Tag = 0)
+    : ImplicitCallPoint(D, Loc, PreImplicitCallKind, L, Tag) {}
+
+  static bool classof(const ProgramPoint *Location) {
+    return Location->getKind() == PreImplicitCallKind;
+  }
+};
+
+/// Represents a program point just after an implicit call event.
+///
+/// Explicit calls will appear as PostStmt program points.
+class PostImplicitCall : public ImplicitCallPoint {
+public:
+  PostImplicitCall(const Decl *D, SourceLocation Loc,
+                   const LocationContext *L, const ProgramPointTag *Tag = 0)
+    : ImplicitCallPoint(D, Loc, PostImplicitCallKind, L, Tag) {}
+
+  static bool classof(const ProgramPoint *Location) {
+    return Location->getKind() == PostImplicitCallKind;
+  }
+};
+
+/// Represents a point when we begin processing an inlined call.
+class CallEnter : public ProgramPoint {
 public:
   CallEnter(const Stmt *stmt, const StackFrameContext *calleeCtx, 
             const LocationContext *callerCtx)
-    : StmtPoint(stmt, calleeCtx, CallEnterKind, callerCtx, 0) {}
+    : ProgramPoint(stmt, calleeCtx, CallEnterKind, callerCtx, 0) {}
 
   const Stmt *getCallExpr() const {
     return static_cast<const Stmt *>(getData1());
@@ -428,8 +480,7 @@ public:
   }
 };
 
-/// \class Represents a point when we start the call exit sequence (for
-/// inlined call).
+/// Represents a point when we start the call exit sequence (for inlined call).
 ///
 /// The call exit is simulated with a sequence of nodes, which occur between
 /// CallExitBegin and CallExitEnd. The following operations occur between the
@@ -438,25 +489,29 @@ public:
 /// - Bind the return value
 /// - Run Remove dead bindings (to clean up the dead symbols from the callee).
 /// - CallExitEnd
-class CallExitBegin : public StmtPoint {
+class CallExitBegin : public ProgramPoint {
 public:
   // CallExitBegin uses the callee's location context.
-  CallExitBegin(const Stmt *S, const LocationContext *L)
-    : StmtPoint(S, 0, CallExitBeginKind, L, 0) {}
+  CallExitBegin(const StackFrameContext *L)
+    : ProgramPoint(0, CallExitBeginKind, L, 0) {}
 
   static bool classof(const ProgramPoint *Location) {
     return Location->getKind() == CallExitBeginKind;
   }
 };
 
-/// \class Represents a point when we finish the call exit sequence (for
-/// inlined call).
+/// Represents a point when we finish the call exit sequence (for inlined call).
 /// \sa CallExitBegin
-class CallExitEnd : public StmtPoint {
+class CallExitEnd : public ProgramPoint {
 public:
   // CallExitEnd uses the caller's location context.
-  CallExitEnd(const Stmt *S, const LocationContext *L)
-    : StmtPoint(S, 0, CallExitEndKind, L, 0) {}
+  CallExitEnd(const StackFrameContext *CalleeCtx,
+              const LocationContext *CallerCtx)
+    : ProgramPoint(CalleeCtx, CallExitEndKind, CallerCtx, 0) {}
+
+  const StackFrameContext *getCalleeContext() const {
+    return static_cast<const StackFrameContext *>(getData1());
+  }
 
   static bool classof(const ProgramPoint *Location) {
     return Location->getKind() == CallExitEndKind;

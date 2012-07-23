@@ -15,7 +15,7 @@ void test0(Test0 *x) {
 
   [weakx addBlock: ^{ [x actNow]; }]; // expected-warning {{weak receiver may be unpredictably null in ARC mode}}
   [weakx setBlock: ^{ [x actNow]; }]; // expected-warning {{weak receiver may be unpredictably null in ARC mode}}
-  weakx.block = ^{ [x actNow]; };
+  weakx.block = ^{ [x actNow]; };     // expected-warning {{weak receiver may be unpredictably null in ARC mode}}
 }
 
 @interface Test
@@ -47,4 +47,34 @@ void test0(Test0 *x) {
 - (__weak id) P { return 0; }
 @dynamic weak_prop, weak_atomic_prop;
 @end
+
+
+@interface MyClass {
+    __weak MyClass *_parent;
+}
+@property (weak) MyClass *parent; // expected-note 2 {{property declared here}}
+@end
+
+@implementation MyClass
+@synthesize parent = _parent;
+
+- (void)doSomething
+{
+    [[self parent] doSomething]; // expected-warning {{weak property may be unpredictably null in ARC mode}}
+
+    (void)self.parent.doSomething; // expected-warning {{weak property may be unpredictably null in ARC mode}}
+}
+
+@end
+
+
+// Weak properties on protocols can be synthesized by an adopting class.
+@protocol MyProtocol
+@property (weak) id object; // expected-note 2 {{property declared here}}
+@end
+
+void testProtocol(id <MyProtocol> input) {
+  [[input object] Meth]; // expected-warning {{weak property may be unpredictably null in ARC mode}}
+  [input.object Meth]; // expected-warning {{weak property may be unpredictably null in ARC mode}}
+}
 

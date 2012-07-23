@@ -1916,10 +1916,6 @@ void CastOperation::CheckCStyleCast() {
     return;
   QualType SrcType = SrcExpr.get()->getType();
 
-  // You can cast an _Atomic(T) to anything you can cast a T to.
-  if (const AtomicType *AtomicSrcType = SrcType->getAs<AtomicType>())
-    SrcType = AtomicSrcType->getValueType();
-
   assert(!SrcType->isPlaceholderType());
 
   if (Self.RequireCompleteType(OpRange.getBegin(), DestType,
@@ -2106,6 +2102,9 @@ ExprResult Sema::BuildCXXFunctionalCastExpr(TypeSourceInfo *CastTypeInfo,
   Op.CheckCXXCStyleCast(/*FunctionalStyle=*/true, /*ListInit=*/false);
   if (Op.SrcExpr.isInvalid())
     return ExprError();
+  
+  if (CXXConstructExpr *ConstructExpr = dyn_cast<CXXConstructExpr>(Op.SrcExpr.get()))
+    ConstructExpr->setParenRange(SourceRange(LPLoc, RPLoc));
 
   return Op.complete(CXXFunctionalCastExpr::Create(Context, Op.ResultType,
                          Op.ValueKind, CastTypeInfo, Op.DestRange.getBegin(),

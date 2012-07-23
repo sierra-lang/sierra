@@ -15,6 +15,7 @@
 
 #include "Transforms.h"
 #include "Internals.h"
+#include "clang/AST/ASTContext.h"
 
 using namespace clang;
 using namespace arcmt;
@@ -114,7 +115,7 @@ public:
     // this class implementation.
     for (ObjCImplDecl::propimpl_iterator
            I = IMD->propimpl_begin(), EI = IMD->propimpl_end(); I != EI; ++I) {
-        ObjCPropertyImplDecl *PID = &*I;
+        ObjCPropertyImplDecl *PID = *I;
         if (PID->getPropertyImplementation() ==
             ObjCPropertyImplDecl::Synthesize) {
           ObjCPropertyDecl *PD = PID->getPropertyDecl();

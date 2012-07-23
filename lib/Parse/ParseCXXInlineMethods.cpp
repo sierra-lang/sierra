@@ -46,7 +46,7 @@ Decl *Parser::ParseCXXInlineMethodDef(AccessSpecifier AS,
   else {
     FnD = Actions.ActOnCXXMemberDeclarator(getCurScope(), AS, D,
                                            move(TemplateParams), 0, 
-                                           VS, /*HasDeferredInit=*/false);
+                                           VS, ICIS_NoInit);
     if (FnD) {
       Actions.ProcessDeclAttributeList(getCurScope(), FnD, AccessAttrs,
                                        false, true);
@@ -109,6 +109,7 @@ Decl *Parser::ParseCXXInlineMethodDef(AccessSpecifier AS,
   // or if we are about to parse function member template then consume
   // the tokens and store them for parsing at the end of the translation unit.
   if (getLangOpts().DelayedTemplateParsing && 
+      DefinitionKind == FDK_Definition && 
       ((Actions.CurContext->isDependentContext() ||
         TemplateInfo.Kind != ParsedTemplateInfo::NonTemplate) && 
         !Actions.IsInsideALocalClassWithinATemplateFunction())) {
@@ -493,7 +494,7 @@ void Parser::ParseLexedMemberInitializer(LateParsedMemberInitializer &MI) {
   ConsumeAnyToken();
 
   SourceLocation EqualLoc;
-    
+
   ExprResult Init = ParseCXXMemberInitializer(MI.Field, /*IsFunction=*/false, 
                                               EqualLoc);
 

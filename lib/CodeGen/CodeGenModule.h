@@ -351,6 +351,8 @@ class CodeGenModule : public CodeGenTypeCache {
   struct {
     int GlobalUniqueCount;
   } Block;
+  
+  GlobalDecl initializedGlobalDecl;
 
   /// @}
 public:
@@ -472,6 +474,10 @@ public:
   /// GlobalValue.
   void setGlobalVisibility(llvm::GlobalValue *GV, const NamedDecl *D) const;
 
+  /// setTLSMode - Set the TLS mode for the given LLVM GlobalVariable
+  /// for the thread-local variable declaration D.
+  void setTLSMode(llvm::GlobalVariable *GV, const VarDecl &D) const;
+
   /// TypeVisibilityKind - The kind of global variable that is passed to 
   /// setTypeVisibility
   enum TypeVisibilityKind {
@@ -587,7 +593,7 @@ public:
 
   /// getUniqueBlockCount - Fetches the global unique block count.
   int getUniqueBlockCount() { return ++Block.GlobalUniqueCount; }
-
+  
   /// getBlockDescriptorType - Fetches the type of a generic block
   /// descriptor.
   llvm::Type *getBlockDescriptorType();

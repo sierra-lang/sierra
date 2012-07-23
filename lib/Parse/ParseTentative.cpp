@@ -735,6 +735,7 @@ Parser::isExpressionOrTypeSpecifierSimple(tok::TokenKind Kind) {
   case tok::kw_alignof:
   case tok::kw_noexcept:
   case tok::kw_nullptr:
+  case tok::kw__Alignof:
   case tok::kw___null:
   case tok::kw___alignof:
   case tok::kw___builtin_choose_expr:
@@ -744,6 +745,7 @@ Parser::isExpressionOrTypeSpecifierSimple(tok::TokenKind Kind) {
   case tok::kw___imag:
   case tok::kw___real:
   case tok::kw___FUNCTION__:
+  case tok::kw_L__FUNCTION__:
   case tok::kw___PRETTY_FUNCTION__:
   case tok::kw___has_nothrow_assign:
   case tok::kw___has_nothrow_copy:

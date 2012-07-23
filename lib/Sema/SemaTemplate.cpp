@@ -745,7 +745,7 @@ Decl *Sema::ActOnNonTypeTemplateParameter(Scope *S, Declarator &D,
 }
 
 /// ActOnTemplateTemplateParameter - Called when a C++ template template
-/// parameter (e.g. T in template <template <typename> class T> class array)
+/// parameter (e.g. T in template <template \<typename> class T> class array)
 /// has been parsed. S is the current scope.
 Decl *Sema::ActOnTemplateTemplateParameter(Scope* S,
                                            SourceLocation TmpLoc,
@@ -1102,6 +1102,8 @@ Sema::CheckClassTemplate(Scope *S, unsigned TagSpec, TagUseKind TUK,
   if (Attr)
     ProcessDeclAttributeList(S, NewClass, Attr);
 
+  AddPushedVisibilityAttribute(NewClass);
+
   if (TUK != TUK_Friend)
     PushOnScopeChains(NewTemplate, S);
   else {
@@ -1134,6 +1136,9 @@ Sema::CheckClassTemplate(Scope *S, unsigned TagSpec, TagUseKind TUK,
     NewTemplate->setInvalidDecl();
     NewClass->setInvalidDecl();
   }
+  if (PrevClassTemplate)
+    mergeDeclAttributes(NewClass, PrevClassTemplate->getTemplatedDecl());
+
   return NewTemplate;
 }
 
@@ -1990,6 +1995,8 @@ QualType Sema::CheckTemplateIdType(TemplateName Name,
       TemplateArgLists.addOuterTemplateArguments(0, 0);
 
     InstantiatingTemplate Inst(*this, TemplateLoc, Template);
+    if (Inst)
+      return QualType();
     CanonType = SubstType(Pattern->getUnderlyingType(),
                           TemplateArgLists, AliasTemplate->getLocation(),
                           AliasTemplate->getDeclName());
@@ -2453,22 +2460,20 @@ bool Sema::CheckTemplateTypeArgument(TemplateTypeParmDecl *Param,
       NameInfo = ArgExpr->getNameInfo();
     } else if (CXXDependentScopeMemberExpr *ArgExpr =
                dyn_cast<CXXDependentScopeMemberExpr>(Arg.getAsExpr())) {
-      SS.Adopt(ArgExpr->getQualifierLoc());
-      NameInfo = ArgExpr->getMemberNameInfo();
+      if (ArgExpr->isImplicitAccess()) {
+        SS.Adopt(ArgExpr->getQualifierLoc());
+        NameInfo = ArgExpr->getMemberNameInfo();
+      }
     }
 
-    if (NameInfo.getName()) {
+    if (NameInfo.getName().isIdentifier()) {
       LookupResult Result(*this, NameInfo, LookupOrdinaryName);
       LookupParsedName(Result, CurScope, &SS);
 
-      bool CouldBeType = Result.getResultKind() ==
-          LookupResult::NotFoundInCurrentInstantiation;
-
-      for (LookupResult::iterator I = Result.begin(), IEnd = Result.end();
-           !CouldBeType && I != IEnd; ++I) {
-        CouldBeType = isa<TypeDecl>(*I);
-      }
-      if (CouldBeType) {
+      if (Result.getAsSingle<TypeDecl>() ||
+          Result.getResultKind() ==
+            LookupResult::NotFoundInCurrentInstantiation) {
+        // FIXME: Add a FixIt and fix up the template argument for recovery.
         SourceLocation Loc = AL.getSourceRange().getBegin();
         Diag(Loc, diag::err_template_arg_must_be_type_suggest);
         Diag(Param->getLocation(), diag::note_template_param_here);
@@ -2549,9 +2554,10 @@ SubstDefaultTemplateArgument(Sema &SemaRef,
       = SemaRef.getTemplateInstantiationArgs(Template, &TemplateArgs);
 
     Sema::InstantiatingTemplate Inst(SemaRef, TemplateLoc,
-                                     Template, Converted.data(),
-                                     Converted.size(),
+                                     Template, Converted,
                                      SourceRange(TemplateLoc, RAngleLoc));
+    if (Inst)
+      return 0;
 
     Sema::ContextRAII SavedContext(SemaRef, Template->getDeclContext());
     ArgType = SemaRef.SubstType(ArgType, AllTemplateArgs,
@@ -2598,9 +2604,10 @@ SubstDefaultTemplateArgument(Sema &SemaRef,
     = SemaRef.getTemplateInstantiationArgs(Template, &TemplateArgs);
 
   Sema::InstantiatingTemplate Inst(SemaRef, TemplateLoc,
-                                   Template, Converted.data(),
-                                   Converted.size(),
+                                   Template, Converted,
                                    SourceRange(TemplateLoc, RAngleLoc));
+  if (Inst)
+    return ExprError();
 
   Sema::ContextRAII SavedContext(SemaRef, Template->getDeclContext());
   EnterExpressionEvaluationContext Unevaluated(SemaRef, Sema::Unevaluated);
@@ -2647,9 +2654,10 @@ SubstDefaultTemplateArgument(Sema &SemaRef,
     = SemaRef.getTemplateInstantiationArgs(Template, &TemplateArgs);
 
   Sema::InstantiatingTemplate Inst(SemaRef, TemplateLoc,
-                                   Template, Converted.data(),
-                                   Converted.size(),
+                                   Template, Converted,
                                    SourceRange(TemplateLoc, RAngleLoc));
+  if (Inst)
+    return TemplateName();
 
   Sema::ContextRAII SavedContext(SemaRef, Template->getDeclContext());
   // Substitute into the nested-name-specifier first, 
@@ -2781,8 +2789,10 @@ bool Sema::CheckTemplateArgument(NamedDecl *Param,
         !Template->getDeclContext()->isDependentContext()) {
       // Do substitution on the type of the non-type template parameter.
       InstantiatingTemplate Inst(*this, TemplateLoc, Template,
-                                 NTTP, Converted.data(), Converted.size(),
+                                 NTTP, Converted,
                                  SourceRange(TemplateLoc, RAngleLoc));
+      if (Inst)
+        return true;
 
       TemplateArgumentList TemplateArgs(TemplateArgumentList::OnStack,
                                         Converted.data(), Converted.size());
@@ -2913,8 +2923,10 @@ bool Sema::CheckTemplateArgument(NamedDecl *Param,
     // Set up a template instantiation context.
     LocalInstantiationScope Scope(*this);
     InstantiatingTemplate Inst(*this, TemplateLoc, Template,
-                               TempParm, Converted.data(), Converted.size(),
+                               TempParm, Converted,
                                SourceRange(TemplateLoc, RAngleLoc));
+    if (Inst)
+      return true;
 
     TemplateArgumentList TemplateArgs(TemplateArgumentList::OnStack,
                                       Converted.data(), Converted.size());
@@ -3143,9 +3155,11 @@ bool Sema::CheckTemplateArgumentList(TemplateDecl *Template,
 
     // Introduce an instantiation record that describes where we are using
     // the default template argument.
-    InstantiatingTemplate Instantiating(*this, RAngleLoc, Template, *Param,
-                                        Converted.data(), Converted.size(),
+    InstantiatingTemplate Instantiating(*this, RAngleLoc, Template,
+                                        *Param, Converted,
                                         SourceRange(TemplateLoc, RAngleLoc));
+    if (Instantiating)
+      return true;
 
     // Check the default template argument.
     if (CheckTemplateArgument(*Param, Arg, Template, TemplateLoc,
@@ -4134,7 +4148,8 @@ ExprResult Sema::CheckTemplateArgument(NonTypeTemplateParmDecl *Param,
         IntegerType = Enum->getDecl()->getIntegerType();
       Value = Value.extOrTrunc(Context.getTypeSize(IntegerType));
 
-      Converted = TemplateArgument(Value, Context.getCanonicalType(ParamType));
+      Converted = TemplateArgument(Context, Value,
+                                   Context.getCanonicalType(ParamType));
       return ArgResult;
     }
 
@@ -4260,7 +4275,7 @@ ExprResult Sema::CheckTemplateArgument(NonTypeTemplateParmDecl *Param,
       }
     }
 
-    Converted = TemplateArgument(Value,
+    Converted = TemplateArgument(Context, Value,
                                  ParamType->isEnumeralType() 
                                    ? Context.getCanonicalType(ParamType)
                                    : IntegerType);
@@ -4578,13 +4593,13 @@ Sema::BuildExpressionFromIntegralTemplateArgument(const TemplateArgument &Arg,
       Kind = CharacterLiteral::Ascii;
 
     return Owned(new (Context) CharacterLiteral(
-                                            Arg.getAsIntegral()->getZExtValue(),
+                                            Arg.getAsIntegral().getZExtValue(),
                                             Kind, T, Loc));
   }
 
   if (T->isBooleanType())
     return Owned(new (Context) CXXBoolLiteralExpr(
-                                            Arg.getAsIntegral()->getBoolValue(),
+                                            Arg.getAsIntegral().getBoolValue(),
                                             T, Loc));
 
   if (T->isNullPtrType())
@@ -4599,7 +4614,7 @@ Sema::BuildExpressionFromIntegralTemplateArgument(const TemplateArgument &Arg,
   else
     BT = T;
 
-  Expr *E = IntegerLiteral::Create(Context, *Arg.getAsIntegral(), BT, Loc);
+  Expr *E = IntegerLiteral::Create(Context, Arg.getAsIntegral(), BT, Loc);
   if (T->isEnumeralType()) {
     // FIXME: This is a hack. We need a better way to handle substituted
     // non-type template parameters.
@@ -5122,7 +5137,7 @@ static bool CheckNonTypeClassTemplatePartialSpecializationArgs(Sema &S,
 /// \param TemplateParams the template parameters of the primary class
 /// template.
 ///
-/// \param TemplateArg the template arguments of the class template
+/// \param TemplateArgs the template arguments of the class template
 /// partial specialization.
 ///
 /// \returns true if there was an error, false otherwise.
@@ -5800,14 +5815,17 @@ Sema::CheckSpecializationInstantiationRedecl(SourceLocation NewLoc,
 }
 
 /// \brief Perform semantic analysis for the given dependent function
-/// template specialization.  The only possible way to get a dependent
-/// function template specialization is with a friend declaration,
-/// like so:
+/// template specialization.
 ///
-///   template <class T> void foo(T);
-///   template <class T> class A {
+/// The only possible way to get a dependent function template specialization
+/// is with a friend declaration, like so:
+///
+/// \code
+///   template \<class T> void foo(T);
+///   template \<class T> class A {
 ///     friend void foo<>(T);
 ///   };
+/// \endcode
 ///
 /// There really isn't any useful analysis we can do here, so we
 /// just store the information.

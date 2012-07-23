@@ -16,6 +16,7 @@
 #ifndef LLVM_CLANG_GR_MEMREGION_H
 #define LLVM_CLANG_GR_MEMREGION_H
 
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/ExprObjC.h"
@@ -237,8 +238,6 @@ protected:
   
 public:
 
-  void dumpToStream(raw_ostream &os) const;
-
   static bool classof(const MemRegion *R) {
     Kind k = R->getKind();
     return k >= BEG_NON_STATIC_GLOBAL_MEMSPACES &&
@@ -308,6 +307,9 @@ class HeapSpaceRegion : public MemSpaceRegion {
   HeapSpaceRegion(MemRegionManager *mgr)
     : MemSpaceRegion(mgr, HeapSpaceRegionKind) {}
 public:
+
+  void dumpToStream(raw_ostream &os) const;
+
   static bool classof(const MemRegion *R) {
     return R->getKind() == HeapSpaceRegionKind;
   }
@@ -319,6 +321,9 @@ class UnknownSpaceRegion : public MemSpaceRegion {
   UnknownSpaceRegion(MemRegionManager *mgr)
     : MemSpaceRegion(mgr, UnknownSpaceRegionKind) {}
 public:
+
+  void dumpToStream(raw_ostream &os) const;
+
   static bool classof(const MemRegion *R) {
     return R->getKind() == UnknownSpaceRegionKind;
   }
@@ -352,6 +357,9 @@ class StackLocalsSpaceRegion : public StackSpaceRegion {
   StackLocalsSpaceRegion(MemRegionManager *mgr, const StackFrameContext *sfc)
     : StackSpaceRegion(mgr, StackLocalsSpaceRegionKind, sfc) {}
 public:
+
+  void dumpToStream(raw_ostream &os) const;
+
   static bool classof(const MemRegion *R) {
     return R->getKind() == StackLocalsSpaceRegionKind;
   }
@@ -364,6 +372,9 @@ private:
   StackArgumentsSpaceRegion(MemRegionManager *mgr, const StackFrameContext *sfc)
     : StackSpaceRegion(mgr, StackArgumentsSpaceRegionKind, sfc) {}
 public:
+
+  void dumpToStream(raw_ostream &os) const;
+
   static bool classof(const MemRegion *R) {
     return R->getKind() == StackArgumentsSpaceRegionKind;
   }
@@ -1120,8 +1131,11 @@ public:
   const CXXThisRegion *getCXXThisRegion(QualType thisPointerTy,
                                         const LocationContext *LC);
 
-  /// getSymbolicRegion - Retrieve or create a "symbolic" memory region.
-  const SymbolicRegion* getSymbolicRegion(SymbolRef sym);
+  /// \brief Retrieve or create a "symbolic" memory region.
+  const SymbolicRegion* getSymbolicRegion(SymbolRef Sym);
+
+  /// \brief Return a unique symbolic region belonging to heap memory space.
+  const SymbolicRegion *getSymbolicHeapRegion(SymbolRef sym);
 
   const StringRegion *getStringRegion(const StringLiteral* Str);
 

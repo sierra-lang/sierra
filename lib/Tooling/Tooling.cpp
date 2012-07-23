@@ -19,7 +19,6 @@
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/Tool.h"
 #include "clang/Frontend/CompilerInstance.h"
-#include "clang/Frontend/FrontendAction.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "llvm/ADT/STLExtras.h"
@@ -37,9 +36,6 @@
 namespace clang {
 namespace tooling {
 
-// Exists solely for the purpose of lookup of the resource path.
-static int StaticSymbol;
-
 FrontendActionFactory::~FrontendActionFactory() {}
 
 // FIXME: This file contains structural duplication with other parts of the
@@ -50,19 +46,8 @@ FrontendActionFactory::~FrontendActionFactory() {}
 static clang::driver::Driver *newDriver(clang::DiagnosticsEngine *Diagnostics,
                                         const char *BinaryName) {
   const std::string DefaultOutputName = "a.out";
-  // This just needs to be some symbol in the binary.
-  void *const SymbolAddr = &StaticSymbol;
-  // The driver detects the builtin header path based on the path of
-  // the executable.
-  // FIXME: On linux, GetMainExecutable is independent of the content
-  // of BinaryName, thus allowing ClangTool and runToolOnCode to just
-  // pass in made-up names here (in the case of ClangTool this being
-  // the original compiler invocation). Make sure this works on other
-  // platforms.
-  llvm::sys::Path MainExecutable =
-    llvm::sys::Path::GetMainExecutable(BinaryName, SymbolAddr);
   clang::driver::Driver *CompilerDriver = new clang::driver::Driver(
-    MainExecutable.str(), llvm::sys::getDefaultTargetTriple(),
+    BinaryName, llvm::sys::getDefaultTargetTriple(),
     DefaultOutputName, false, *Diagnostics);
   CompilerDriver->setTitle("clang_based_tool");
   return CompilerDriver;
@@ -130,20 +115,13 @@ bool runToolOnCode(clang::FrontendAction *ToolAction, const Twine &Code,
   return Invocation.run();
 }
 
-/// \brief Returns the absolute path of 'File', by prepending it with
-/// 'BaseDirectory' if 'File' is not absolute.
-///
-/// Otherwise returns 'File'.
-/// If 'File' starts with "./", the returned path will not contain the "./".
-/// Otherwise, the returned path will contain the literal path-concatenation of
-/// 'BaseDirectory' and 'File'.
-///
-/// \param File Either an absolute or relative path.
-/// \param BaseDirectory An absolute path.
-static std::string getAbsolutePath(
-    StringRef File, StringRef BaseDirectory) {
+std::string getAbsolutePath(StringRef File) {
+  llvm::SmallString<1024> BaseDirectory;
+  if (const char *PWD = ::getenv("PWD"))
+    BaseDirectory = PWD;
+  else
+    llvm::sys::fs::current_path(BaseDirectory);
   SmallString<1024> PathStorage;
-  assert(llvm::sys::path::is_absolute(BaseDirectory));
   if (llvm::sys::path::is_absolute(File)) {
     llvm::sys::path::native(File, PathStorage);
     return PathStorage.str();
@@ -166,7 +144,9 @@ ToolInvocation::ToolInvocation(
 }
 
 void ToolInvocation::mapVirtualFile(StringRef FilePath, StringRef Content) {
-  MappedFileContents[FilePath] = Content;
+  SmallString<1024> PathStorage;
+  llvm::sys::path::native(FilePath, PathStorage);
+  MappedFileContents[PathStorage] = Content;
 }
 
 bool ToolInvocation::run() {
@@ -193,17 +173,15 @@ bool ToolInvocation::run() {
   }
   llvm::OwningPtr<clang::CompilerInvocation> Invocation(
       newInvocation(&Diagnostics, *CC1Args));
-  return runInvocation(BinaryName, Compilation.get(),
-                       Invocation.take(), *CC1Args, ToolAction.take());
+  return runInvocation(BinaryName, Compilation.get(), Invocation.take(),
+                       *CC1Args);
 }
 
 bool ToolInvocation::runInvocation(
     const char *BinaryName,
     clang::driver::Compilation *Compilation,
     clang::CompilerInvocation *Invocation,
-    const clang::driver::ArgStringList &CC1Args,
-    clang::FrontendAction *ToolAction) {
-  llvm::OwningPtr<clang::FrontendAction> ScopedToolAction(ToolAction);
+    const clang::driver::ArgStringList &CC1Args) {
   // Show the invocation, with -v.
   if (Invocation->getHeaderSearchOpts().Verbose) {
     llvm::errs() << "clang Invocation:\n";
@@ -217,6 +195,11 @@ bool ToolInvocation::runInvocation(
   Compiler.setFileManager(Files);
   // FIXME: What about LangOpts?
 
+  // ToolAction can have lifetime requirements for Compiler or its members, and
+  // we need to ensure it's deleted earlier than Compiler. So we pass it to an
+  // OwningPtr declared after the Compiler variable.
+  llvm::OwningPtr<FrontendAction> ScopedToolAction(ToolAction.take());
+
   // Create the compilers actual diagnostics engine.
   Compiler.createDiagnostics(CC1Args.size(),
                              const_cast<char**>(CC1Args.data()));
@@ -226,16 +209,7 @@ bool ToolInvocation::runInvocation(
   Compiler.createSourceManager(*Files);
   addFileMappingsTo(Compiler.getSourceManager());
 
-  // Infer the builtin include path if unspecified.
-  if (Compiler.getHeaderSearchOpts().UseBuiltinIncludes &&
-      Compiler.getHeaderSearchOpts().ResourceDir.empty()) {
-    // This just needs to be some symbol in the binary.
-    void *const SymbolAddr = &StaticSymbol;
-    Compiler.getHeaderSearchOpts().ResourceDir =
-        clang::CompilerInvocation::GetResourcesPath(BinaryName, SymbolAddr);
-  }
-
-  const bool Success = Compiler.ExecuteAction(*ToolAction);
+  const bool Success = Compiler.ExecuteAction(*ScopedToolAction);
 
   Compiler.resetAndLeakFileManager();
   return Success;
@@ -251,8 +225,7 @@ void ToolInvocation::addFileMappingsTo(SourceManager &Sources) {
     // FIXME: figure out what '0' stands for.
     const FileEntry *FromFile = Files->getVirtualFile(
         It->getKey(), Input->getBufferSize(), 0);
-    // FIXME: figure out memory management ('true').
-    Sources.overrideFileContents(FromFile, Input, true);
+    Sources.overrideFileContents(FromFile, Input);
   }
 }
 
@@ -260,14 +233,8 @@ ClangTool::ClangTool(const CompilationDatabase &Compilations,
                      ArrayRef<std::string> SourcePaths)
     : Files((FileSystemOptions())),
       ArgsAdjuster(new ClangSyntaxOnlyAdjuster()) {
-  llvm::SmallString<1024> BaseDirectory;
-  if (const char *PWD = ::getenv("PWD"))
-    BaseDirectory = PWD;
-  else
-    llvm::sys::fs::current_path(BaseDirectory);
   for (unsigned I = 0, E = SourcePaths.size(); I != E; ++I) {
-    llvm::SmallString<1024> File(getAbsolutePath(
-        SourcePaths[I], BaseDirectory));
+    llvm::SmallString<1024> File(getAbsolutePath(SourcePaths[I]));
 
     std::vector<CompileCommand> CompileCommandsForFile =
       Compilations.getCompileCommands(File.str());
@@ -296,6 +263,17 @@ void ClangTool::setArgumentsAdjuster(ArgumentsAdjuster *Adjuster) {
 }
 
 int ClangTool::run(FrontendActionFactory *ActionFactory) {
+  // Exists solely for the purpose of lookup of the resource path.
+  // This just needs to be some symbol in the binary.
+  static int StaticSymbol;
+  // The driver detects the builtin header path based on the path of the
+  // executable.
+  // FIXME: On linux, GetMainExecutable is independent of the value of the
+  // first argument, thus allowing ClangTool and runToolOnCode to just
+  // pass in made-up names here. Make sure this works on other platforms.
+  std::string MainExecutable =
+    llvm::sys::Path::GetMainExecutable("clang_tool", &StaticSymbol).str();
+
   bool ProcessingFailed = false;
   for (unsigned I = 0; I < CompileCommands.size(); ++I) {
     std::string File = CompileCommands[I].first;
@@ -303,7 +281,7 @@ int ClangTool::run(FrontendActionFactory *ActionFactory) {
     // behavior as chdir is complex: chdir resolves the path once, thus
     // guaranteeing that all subsequent relative path operations work
     // on the same path the original chdir resulted in. This makes a difference
-    // for example on network filesystems, where symlinks might be switched 
+    // for example on network filesystems, where symlinks might be switched
     // during runtime of the tool. Fixing this depends on having a file system
     // abstraction that allows openat() style interactions.
     if (chdir(CompileCommands[I].second.Directory.c_str()))
@@ -311,6 +289,8 @@ int ClangTool::run(FrontendActionFactory *ActionFactory) {
                                CompileCommands[I].second.Directory + "\n!");
     std::vector<std::string> CommandLine =
       ArgsAdjuster->Adjust(CompileCommands[I].second.CommandLine);
+    assert(!CommandLine.empty());
+    CommandLine[0] = MainExecutable;
     llvm::outs() << "Processing: " << File << ".\n";
     ToolInvocation Invocation(CommandLine, ActionFactory->create(), &Files);
     for (int I = 0, E = MappedFileContents.size(); I != E; ++I) {

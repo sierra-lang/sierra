@@ -168,6 +168,34 @@ shouldConsiderTemplateVis(const ClassTemplateSpecializationDecl *d) {
   return !d->hasAttr<VisibilityAttr>() || d->isExplicitSpecialization();
 }
 
+static bool useInlineVisibilityHidden(const NamedDecl *D) {
+  // FIXME: we should warn if -fvisibility-inlines-hidden is used with c.
+  const LangOptions &Opts = D->getASTContext().getLangOpts();
+  if (!Opts.CPlusPlus || !Opts.InlineVisibilityHidden)
+    return false;
+
+  const FunctionDecl *FD = dyn_cast<FunctionDecl>(D);
+  if (!FD)
+    return false;
+
+  TemplateSpecializationKind TSK = TSK_Undeclared;
+  if (FunctionTemplateSpecializationInfo *spec
+      = FD->getTemplateSpecializationInfo()) {
+    TSK = spec->getTemplateSpecializationKind();
+  } else if (MemberSpecializationInfo *MSI =
+             FD->getMemberSpecializationInfo()) {
+    TSK = MSI->getTemplateSpecializationKind();
+  }
+
+  const FunctionDecl *Def = 0;
+  // InlineVisibilityHidden only applies to definitions, and
+  // isInlined() only gives meaningful answers on definitions
+  // anyway.
+  return TSK != TSK_ExplicitInstantiationDeclaration &&
+    TSK != TSK_ExplicitInstantiationDefinition &&
+    FD->hasBody(Def) && Def->isInlined();
+}
+
 static LinkageInfo getLVForNamespaceScopeDecl(const NamedDecl *D,
                                               bool OnlyTemplate) {
   assert(D->getDeclContext()->getRedeclContext()->isFileContext() &&
@@ -266,8 +294,13 @@ static LinkageInfo getLVForNamespaceScopeDecl(const NamedDecl *D,
     }
   }
 
-  if (!OnlyTemplate)
+  if (!OnlyTemplate) {
     LV.mergeVisibility(Context.getLangOpts().getVisibilityMode());
+    // If we're paying attention to global visibility, apply
+    // -finline-visibility-hidden if this is an inline method.
+    if (!LV.visibilityExplicit() && useInlineVisibilityHidden(D))
+      LV.mergeVisibility(HiddenVisibility, true);
+  }
 
   // C++ [basic.link]p4:
 
@@ -381,7 +414,7 @@ static LinkageInfo getLVForNamespaceScopeDecl(const NamedDecl *D,
       LinkageInfo ArgsLV = getLVForTemplateArgumentList(templateArgs,
                                                         OnlyTemplate);
       if (shouldConsiderTemplateVis(Function, specInfo)) {
-        LV.merge(TempLV);
+        LV.mergeWithMin(TempLV);
         LV.mergeWithMin(ArgsLV);
       } else {
         LV.mergeLinkage(TempLV);
@@ -412,7 +445,7 @@ static LinkageInfo getLVForNamespaceScopeDecl(const NamedDecl *D,
       LinkageInfo ArgsLV = getLVForTemplateArgumentList(TemplateArgs,
                                                         OnlyTemplate);
       if (shouldConsiderTemplateVis(spec)) {
-        LV.merge(TempLV);
+        LV.mergeWithMin(TempLV);
         LV.mergeWithMin(ArgsLV);
       } else {
         LV.mergeLinkage(TempLV);
@@ -473,40 +506,19 @@ static LinkageInfo getLVForClassMember(const NamedDecl *D, bool OnlyTemplate) {
   if (!OnlyTemplate) {
     if (llvm::Optional<Visibility> Vis = D->getExplicitVisibility())
       LV.mergeVisibility(*Vis, true);
+    // If we're paying attention to global visibility, apply
+    // -finline-visibility-hidden if this is an inline method.
+    //
+    // Note that we do this before merging information about
+    // the class visibility.
+    if (!LV.visibilityExplicit() && useInlineVisibilityHidden(D))
+      LV.mergeVisibility(HiddenVisibility, true);
   }
 
   // If this class member has an explicit visibility attribute, the only
   // thing that can change its visibility is the template arguments, so
-  // only look for them when processing the the class.
+  // only look for them when processing the class.
   bool ClassOnlyTemplate =  LV.visibilityExplicit() ? true : OnlyTemplate;
-
-  // If we're paying attention to global visibility, apply
-  // -finline-visibility-hidden if this is an inline method.
-  //
-  // Note that we do this before merging information about
-  // the class visibility.
-  if (const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(D)) {
-    TemplateSpecializationKind TSK = TSK_Undeclared;
-    if (FunctionTemplateSpecializationInfo *spec
-        = MD->getTemplateSpecializationInfo()) {
-      TSK = spec->getTemplateSpecializationKind();
-    } else if (MemberSpecializationInfo *MSI =
-               MD->getMemberSpecializationInfo()) {
-      TSK = MSI->getTemplateSpecializationKind();
-    }
-
-    const FunctionDecl *Def = 0;
-    // InlineVisibilityHidden only applies to definitions, and
-    // isInlined() only gives meaningful answers on definitions
-    // anyway.
-    if (TSK != TSK_ExplicitInstantiationDeclaration &&
-        TSK != TSK_ExplicitInstantiationDefinition &&
-        !OnlyTemplate &&
-        !LV.visibilityExplicit() &&
-        MD->getASTContext().getLangOpts().InlineVisibilityHidden &&
-        MD->hasBody(Def) && Def->isInlined())
-      LV.mergeVisibility(HiddenVisibility, true);
-  }
 
   // If this member has an visibility attribute, ClassF will exclude
   // attributes on the class or command line options, keeping only information
@@ -544,7 +556,7 @@ static LinkageInfo getLVForClassMember(const NamedDecl *D, bool OnlyTemplate) {
       if (shouldConsiderTemplateVis(MD, spec)) {
         LV.mergeWithMin(ArgsLV);
         if (!OnlyTemplate)
-          LV.merge(ParamsLV);
+          LV.mergeWithMin(ParamsLV);
       } else {
         LV.mergeLinkage(ArgsLV);
         if (!OnlyTemplate)
@@ -569,7 +581,7 @@ static LinkageInfo getLVForClassMember(const NamedDecl *D, bool OnlyTemplate) {
       if (shouldConsiderTemplateVis(spec)) {
         LV.mergeWithMin(ArgsLV);
         if (!OnlyTemplate)
-          LV.merge(ParamsLV);
+          LV.mergeWithMin(ParamsLV);
       } else {
         LV.mergeLinkage(ArgsLV);
         if (!OnlyTemplate)
@@ -1684,6 +1696,13 @@ void FunctionDecl::setPure(bool P) {
       Parent->markedVirtualFunctionPure();
 }
 
+void FunctionDecl::setConstexpr(bool IC) {
+  IsConstexpr = IC;
+  CXXConstructorDecl *CD = dyn_cast<CXXConstructorDecl>(this);
+  if (IC && CD)
+    CD->getParent()->markedConstructorConstexpr(CD);
+}
+
 bool FunctionDecl::isMain() const {
   const TranslationUnitDecl *tunit =
     dyn_cast<TranslationUnitDecl>(getDeclContext()->getRedeclContext());
@@ -2458,15 +2477,15 @@ FieldDecl *FieldDecl::Create(const ASTContext &C, DeclContext *DC,
                              SourceLocation StartLoc, SourceLocation IdLoc,
                              IdentifierInfo *Id, QualType T,
                              TypeSourceInfo *TInfo, Expr *BW, bool Mutable,
-                             bool HasInit) {
+                             InClassInitStyle InitStyle) {
   return new (C) FieldDecl(Decl::Field, DC, StartLoc, IdLoc, Id, T, TInfo,
-                           BW, Mutable, HasInit);
+                           BW, Mutable, InitStyle);
 }
 
 FieldDecl *FieldDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
   void *Mem = AllocateDeserializedDecl(C, ID, sizeof(FieldDecl));
   return new (Mem) FieldDecl(Field, 0, SourceLocation(), SourceLocation(),
-                             0, QualType(), 0, 0, false, false);
+                             0, QualType(), 0, 0, false, ICIS_NoInit);
 }
 
 bool FieldDecl::isAnonymousStructOrUnion() const {
@@ -2499,11 +2518,11 @@ unsigned FieldDecl::getFieldIndex() const {
 
     if (IsMsStruct) {
       // Zero-length bitfields following non-bitfield members are ignored.
-      if (getASTContext().ZeroBitfieldFollowsNonBitfield(&*I, LastFD)) {
+      if (getASTContext().ZeroBitfieldFollowsNonBitfield(*I, LastFD)) {
         --Index;
         continue;
       }
-      LastFD = &*I;
+      LastFD = *I;
     }
   }
 
@@ -2517,11 +2536,16 @@ SourceRange FieldDecl::getSourceRange() const {
   return DeclaratorDecl::getSourceRange();
 }
 
+void FieldDecl::setBitWidth(Expr *Width) {
+  assert(!InitializerOrBitWidth.getPointer() && !hasInClassInitializer() &&
+         "bit width or initializer already set");
+  InitializerOrBitWidth.setPointer(Width);
+}
+
 void FieldDecl::setInClassInitializer(Expr *Init) {
-  assert(!InitializerOrBitWidth.getPointer() &&
+  assert(!InitializerOrBitWidth.getPointer() && hasInClassInitializer() &&
          "bit width or initializer already set");
   InitializerOrBitWidth.setPointer(Init);
-  InitializerOrBitWidth.setInt(0);
 }
 
 //===----------------------------------------------------------------------===//

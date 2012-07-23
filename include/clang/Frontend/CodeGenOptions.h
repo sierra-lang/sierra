@@ -44,13 +44,20 @@ public:
     FullDebugInfo         // Generate complete debug info.
   };
 
+  enum TLSModel {
+    GeneralDynamicTLSModel,
+    LocalDynamicTLSModel,
+    InitialExecTLSModel,
+    LocalExecTLSModel
+  };
+
   unsigned AsmVerbose        : 1; ///< -dA, -fverbose-asm.
   unsigned ObjCAutoRefCountExceptions : 1; ///< Whether ARC should be EH-safe.
   unsigned CUDAIsDevice      : 1; ///< Set when compiling for CUDA device.
   unsigned CXAAtExit         : 1; ///< Use __cxa_atexit for calling destructors.
   unsigned CXXCtorDtorAliases: 1; ///< Emit complete ctors/dtors as linker
                                   ///< aliases to base ctors when possible.
-  unsigned DataSections      : 1; ///< Set when -fdata-sections is enabled
+  unsigned DataSections      : 1; ///< Set when -fdata-sections is enabled.
   unsigned DisableFPElim     : 1; ///< Set when -fomit-frame-pointer is enabled.
   unsigned DisableLLVMOpts   : 1; ///< Don't run any optimizations, for use in
                                   ///< getting .bc files that correspond to the
@@ -64,16 +71,19 @@ public:
                                   ///< subroutine.
   unsigned EmitGcovArcs      : 1; ///< Emit coverage data files, aka. GCDA.
   unsigned EmitGcovNotes     : 1; ///< Emit coverage "notes" files, aka GCNO.
+  unsigned EmitOpenCLArgMetadata : 1; ///< Emit OpenCL kernel arg metadata.
+  unsigned EmitMicrosoftInlineAsm : 1; ///< Enable emission of MS-style inline
+                                       ///< assembly.
   unsigned ForbidGuardVariables : 1; ///< Issue errors if C++ guard variables
-                                     ///< are required
-  unsigned FunctionSections  : 1; ///< Set when -ffunction-sections is enabled
+                                     ///< are required.
+  unsigned FunctionSections  : 1; ///< Set when -ffunction-sections is enabled.
   unsigned HiddenWeakTemplateVTables : 1; ///< Emit weak vtables and RTTI for
                                   ///< template classes with hidden visibility
   unsigned HiddenWeakVTables : 1; ///< Emit weak vtables, RTTI, and thunks with
                                   ///< hidden visibility.
   unsigned InstrumentFunctions : 1; ///< Set when -finstrument-functions is
                                     ///< enabled.
-  unsigned InstrumentForProfiling : 1; ///< Set when -pg is enabled
+  unsigned InstrumentForProfiling : 1; ///< Set when -pg is enabled.
   unsigned LessPreciseFPMAD  : 1; ///< Enable less precise MAD instructions to
                                   ///< be generated.
   unsigned MergeAllConstants : 1; ///< Merge identical constants.
@@ -88,10 +98,8 @@ public:
   unsigned NoInline          : 1; ///< Set when -fno-inline is enabled. Disables
                                   ///< use of the inline keyword.
   unsigned NoNaNsFPMath      : 1; ///< Assume FP arguments, results not NaN.
-  unsigned NoZeroInitializedInBSS : 1; ///< -fno-zero-initialized-in-bss
+  unsigned NoZeroInitializedInBSS : 1; ///< -fno-zero-initialized-in-bss.
   unsigned ObjCDispatchMethod : 2; ///< Method of Objective-C dispatch to use.
-  unsigned ObjCRuntimeHasARC : 1; ///< The target runtime supports ARC natively
-  unsigned ObjCRuntimeHasTerminate : 1; ///< The ObjC runtime has objc_terminate
   unsigned OmitLeafFramePointer : 1; ///< Set when -momit-leaf-frame-pointer is
                                      ///< enabled.
   unsigned OptimizationLevel : 3; ///< The -O[0-4] option specified.
@@ -104,7 +112,7 @@ public:
   unsigned StrictEnums       : 1; ///< Optimize based on strict enum definition.
   unsigned TimePasses        : 1; ///< Set when -ftime-report is enabled.
   unsigned UnitAtATime       : 1; ///< Unused. For mirroring GCC optimization
-                                  /// selection.
+                                  ///< selection.
   unsigned UnrollLoops       : 1; ///< Control whether loops are unrolled.
   unsigned UnsafeFPMath      : 1; ///< Allow unsafe floating point optzns.
   unsigned UnwindTables      : 1; ///< Emit unwind tables.
@@ -118,6 +126,8 @@ public:
 
   unsigned StackRealignment  : 1; ///< Control whether to permit stack
                                   ///< realignment.
+  unsigned UseInitArray      : 1; ///< Control whether to use .init_array or
+                                  ///< .ctors.
   unsigned StackAlignment;        ///< Overrides default stack alignment,
                                   ///< if not 0.
 
@@ -175,6 +185,9 @@ public:
   /// The run-time penalty for bounds checking, or 0 to disable.
   unsigned char BoundsChecking;
 
+  /// The default TLS model to use.
+  TLSModel DefaultTLSModel;
+
 public:
   CodeGenOptions() {
     AsmVerbose = 0;
@@ -189,6 +202,8 @@ public:
     EmitDeclMetadata = 0;
     EmitGcovArcs = 0;
     EmitGcovNotes = 0;
+    EmitOpenCLArgMetadata = 0;
+    EmitMicrosoftInlineAsm = 0;
     ForbidGuardVariables = 0;
     FunctionSections = 0;
     HiddenWeakTemplateVTables = 0;
@@ -207,8 +222,6 @@ public:
     NumRegisterParameters = 0;
     ObjCAutoRefCountExceptions = 0;
     ObjCDispatchMethod = Legacy;
-    ObjCRuntimeHasARC = 0;
-    ObjCRuntimeHasTerminate = 0;
     OmitLeafFramePointer = 0;
     OptimizationLevel = 0;
     OptimizeSize = 0;
@@ -228,10 +241,12 @@ public:
     StackRealignment = 0;
     StackAlignment = 0;
     BoundsChecking = 0;
+    UseInitArray = 0;
 
     DebugInfo = NoDebugInfo;
     Inlining = NoInlining;
     RelocationModel = "pic";
+    DefaultTLSModel = GeneralDynamicTLSModel;
   }
 
   ObjCDispatchMethodKind getObjCDispatchMethod() const {

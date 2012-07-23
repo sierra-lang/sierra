@@ -20,7 +20,7 @@
 #include "clang/Analysis/Analyses/LiveVariables.h"
 #include "clang/Analysis/AnalysisContext.h"
 #include "clang/Basic/TargetInfo.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/ObjCMessage.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/Calls.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramStateTrait.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/MemRegion.h"
@@ -252,7 +252,7 @@ public:
                              const Expr *E, unsigned Count,
                              const LocationContext *LCtx,
                              InvalidatedSymbols &IS,
-                             const CallOrObjCMessage *Call,
+                             const CallEvent *Call,
                              InvalidatedRegions *Invalidated);
 
 public:   // Made public for helper classes.
@@ -389,11 +389,7 @@ public: // Part of public interface to class.
   ///  It returns a new Store with these values removed.
   StoreRef removeDeadBindings(Store store, const StackFrameContext *LCtx,
                               SymbolReaper& SymReaper);
-
-  StoreRef enterStackFrame(ProgramStateRef state,
-                           const LocationContext *callerCtx,
-                           const StackFrameContext *calleeCtx);
-
+  
   //===------------------------------------------------------------------===//
   // Region "extents".
   //===------------------------------------------------------------------===//
@@ -784,7 +780,7 @@ StoreRef RegionStoreManager::invalidateRegions(Store store,
                                                const Expr *Ex, unsigned Count,
                                                const LocationContext *LCtx,
                                                InvalidatedSymbols &IS,
-                                               const CallOrObjCMessage *Call,
+                                               const CallEvent *Call,
                                               InvalidatedRegions *Invalidated) {
   invalidateRegionsWorker W(*this, StateMgr,
                             RegionStoreManager::GetRegionBindings(store),
@@ -881,10 +877,22 @@ SVal RegionStoreManager::ArrayToPointer(Loc Array) {
   return loc::MemRegionVal(MRMgr.getElementRegion(T, ZeroIdx, ArrayR, Ctx));
 }
 
+// This mirrors Type::getCXXRecordDeclForPointerType(), but there doesn't
+// appear to be another need for this in the rest of the codebase.
+static const CXXRecordDecl *GetCXXRecordDeclForReferenceType(QualType Ty) {
+  if (const ReferenceType *RT = Ty->getAs<ReferenceType>())
+    if (const RecordType *RCT = RT->getPointeeType()->getAs<RecordType>())
+      return dyn_cast<CXXRecordDecl>(RCT->getDecl());
+  return 0;
+}
+
 SVal RegionStoreManager::evalDerivedToBase(SVal derived, QualType baseType) {
   const CXXRecordDecl *baseDecl;
+  
   if (baseType->isPointerType())
     baseDecl = baseType->getCXXRecordDeclForPointerType();
+  else if (baseType->isReferenceType())
+    baseDecl = GetCXXRecordDeclForReferenceType(baseType);
   else
     baseDecl = baseType->getAsCXXRecordDecl();
 
@@ -1049,8 +1057,12 @@ SVal RegionStoreManager::getBinding(Store store, Loc L, QualType T) {
   if (RTy->isUnionType())
     return UnknownVal();
 
-  if (RTy->isArrayType())
-    return getBindingForArray(store, R);
+  if (RTy->isArrayType()) {
+    if (RTy->isConstantArrayType())
+      return getBindingForArray(store, R);
+    else
+      return UnknownVal();
+  }
 
   // FIXME: handle Vector types.
   if (RTy->isVectorType())
@@ -1437,16 +1449,27 @@ SVal RegionStoreManager::getBindingForLazySymbol(const TypedValueRegion *R) {
   return svalBuilder.getRegionValueSymbolVal(R);
 }
 
+static bool mayHaveLazyBinding(QualType Ty) {
+  return Ty->isArrayType() || Ty->isStructureOrClassType();
+}
+
 SVal RegionStoreManager::getBindingForStruct(Store store, 
                                         const TypedValueRegion* R) {
-  assert(R->getValueType()->isStructureOrClassType());
-  
-  // If we already have a lazy binding, don't create a new one.
-  RegionBindings B = GetRegionBindings(store);
-  BindingKey K = BindingKey::Make(R, BindingKey::Default);
-  if (const nonloc::LazyCompoundVal *V =
-      dyn_cast_or_null<nonloc::LazyCompoundVal>(lookup(B, K))) {
-    return *V;
+  const RecordDecl *RD = R->getValueType()->castAs<RecordType>()->getDecl();
+  if (RD->field_empty())
+    return UnknownVal();
+
+  // If we already have a lazy binding, don't create a new one,
+  // unless the first field might have a lazy binding of its own.
+  // (Right now we can't tell the difference.)
+  QualType FirstFieldType = RD->field_begin()->getType();
+  if (!mayHaveLazyBinding(FirstFieldType)) {
+    RegionBindings B = GetRegionBindings(store);
+    BindingKey K = BindingKey::Make(R, BindingKey::Default);
+    if (const nonloc::LazyCompoundVal *V =
+          dyn_cast_or_null<nonloc::LazyCompoundVal>(lookup(B, K))) {
+      return *V;
+    }
   }
 
   return svalBuilder.makeLazyCompoundVal(StoreRef(store, *this), R);
@@ -1454,14 +1477,19 @@ SVal RegionStoreManager::getBindingForStruct(Store store,
 
 SVal RegionStoreManager::getBindingForArray(Store store,
                                        const TypedValueRegion * R) {
-  assert(Ctx.getAsConstantArrayType(R->getValueType()));
+  const ConstantArrayType *Ty = Ctx.getAsConstantArrayType(R->getValueType());
+  assert(Ty && "Only constant array types can have compound bindings.");
   
-  // If we already have a lazy binding, don't create a new one.
-  RegionBindings B = GetRegionBindings(store);
-  BindingKey K = BindingKey::Make(R, BindingKey::Default);
-  if (const nonloc::LazyCompoundVal *V =
-      dyn_cast_or_null<nonloc::LazyCompoundVal>(lookup(B, K))) {
-    return *V;
+  // If we already have a lazy binding, don't create a new one,
+  // unless the first element might have a lazy binding of its own.
+  // (Right now we can't tell the difference.)
+  if (!mayHaveLazyBinding(Ty->getElementType())) {
+    RegionBindings B = GetRegionBindings(store);
+    BindingKey K = BindingKey::Make(R, BindingKey::Default);
+    if (const nonloc::LazyCompoundVal *V =
+        dyn_cast_or_null<nonloc::LazyCompoundVal>(lookup(B, K))) {
+      return *V;
+    }
   }
 
   return svalBuilder.makeLazyCompoundVal(StoreRef(store, *this), R);
@@ -1740,7 +1768,7 @@ StoreRef RegionStoreManager::BindStruct(Store store, const TypedValueRegion* R,
       continue;
 
     QualType FTy = FI->getType();
-    const FieldRegion* FR = MRMgr.getFieldRegion(&*FI, R);
+    const FieldRegion* FR = MRMgr.getFieldRegion(*FI, R);
 
     if (FTy->isArrayType())
       newStore = BindArray(newStore.getStore(), FR, *VI);
@@ -1944,8 +1972,18 @@ void removeDeadBindingsWorker::VisitBinding(SVal V) {
   }
 
   // If V is a region, then add it to the worklist.
-  if (const MemRegion *R = V.getAsRegion())
+  if (const MemRegion *R = V.getAsRegion()) {
     AddToWorkList(R);
+    
+    // All regions captured by a block are also live.
+    if (const BlockDataRegion *BR = dyn_cast<BlockDataRegion>(R)) {
+      BlockDataRegion::referenced_vars_iterator I = BR->referenced_vars_begin(),
+                                                E = BR->referenced_vars_end();
+        for ( ; I != E; ++I)
+          AddToWorkList(I.getCapturedRegion());
+    }
+  }
+    
 
   // Update the set of live symbols.
   for (SymExpr::symbol_iterator SI = V.symbol_begin(), SE = V.symbol_end();
@@ -1964,21 +2002,6 @@ void removeDeadBindingsWorker::VisitBindingKey(BindingKey K) {
     // should continue to track that symbol.
     if (const SymbolicRegion *SymR = dyn_cast<SymbolicRegion>(R))
       SymReaper.markLive(SymR->getSymbol());
-
-    // For BlockDataRegions, enqueue the VarRegions for variables marked
-    // with __block (passed-by-reference).
-    // via BlockDeclRefExprs.
-    if (const BlockDataRegion *BD = dyn_cast<BlockDataRegion>(R)) {
-      for (BlockDataRegion::referenced_vars_iterator
-           RI = BD->referenced_vars_begin(), RE = BD->referenced_vars_end();
-           RI != RE; ++RI) {
-        if ((*RI)->getDecl()->getAttr<BlocksAttr>())
-          AddToWorkList(*RI);
-      }
-
-      // No possible data bindings on a BlockDataRegion.
-      return;
-    }
   }
 
   // Visit the data binding for K.
@@ -2043,46 +2066,6 @@ StoreRef RegionStoreManager::removeDeadBindings(Store store,
   }
 
   return StoreRef(B.getRootWithoutRetain(), *this);
-}
-
-
-StoreRef RegionStoreManager::enterStackFrame(ProgramStateRef state,
-                                             const LocationContext *callerCtx,
-                                             const StackFrameContext *calleeCtx)
-{
-  FunctionDecl const *FD = cast<FunctionDecl>(calleeCtx->getDecl());
-  FunctionDecl::param_const_iterator PI = FD->param_begin(), 
-                                     PE = FD->param_end();
-  StoreRef store = StoreRef(state->getStore(), *this);
-
-  if (CallExpr const *CE = dyn_cast<CallExpr>(calleeCtx->getCallSite())) {
-    CallExpr::const_arg_iterator AI = CE->arg_begin(), AE = CE->arg_end();
-
-    // Copy the arg expression value to the arg variables.  We check that
-    // PI != PE because the actual number of arguments may be different than
-    // the function declaration.
-    for (; AI != AE && PI != PE; ++AI, ++PI) {
-      SVal ArgVal = state->getSVal(*AI, callerCtx);
-      store = Bind(store.getStore(),
-                   svalBuilder.makeLoc(MRMgr.getVarRegion(*PI, calleeCtx)),
-                   ArgVal);
-    }
-  } else if (const CXXConstructExpr *CE =
-               dyn_cast<CXXConstructExpr>(calleeCtx->getCallSite())) {
-    CXXConstructExpr::const_arg_iterator AI = CE->arg_begin(),
-      AE = CE->arg_end();
-
-    // Copy the arg expression value to the arg variables.
-    for (; AI != AE; ++AI, ++PI) {
-      SVal ArgVal = state->getSVal(*AI, callerCtx);
-      store = Bind(store.getStore(),
-                   svalBuilder.makeLoc(MRMgr.getVarRegion(*PI, calleeCtx)),
-                   ArgVal);
-    }
-  } else
-    assert(isa<CXXDestructorDecl>(calleeCtx->getDecl()));
-
-  return store;
 }
 
 //===----------------------------------------------------------------------===//

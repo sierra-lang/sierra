@@ -26,6 +26,8 @@
 using namespace clang;
 using namespace ento;
 
+STATISTIC(NumSteps,
+            "The # of steps executed.");
 STATISTIC(NumReachedMaxSteps,
             "The # of times we reached the max number of steps.");
 STATISTIC(NumPathsExplored,
@@ -74,7 +76,7 @@ public:
   }
 
   virtual void enqueue(const WorkListUnit& U) {
-    Queue.push_front(U);
+    Queue.push_back(U);
   }
 
   virtual WorkListUnit dequeue() {
@@ -207,6 +209,8 @@ bool CoreEngine::ExecuteWorkList(const LocationContext *L, unsigned Steps,
       --Steps;
     }
 
+    NumSteps++;
+
     const WorkListUnit& WU = WList->dequeue();
 
     // Set the current block counter.
@@ -261,7 +265,8 @@ void CoreEngine::dispatchWorkItem(ExplodedNode* Pred, ProgramPoint Loc,
     }
     default:
       assert(isa<PostStmt>(Loc) ||
-             isa<PostInitializer>(Loc));
+             isa<PostInitializer>(Loc) ||
+             isa<CallExitEnd>(Loc));
       HandlePostStmt(WU.getBlock(), WU.getIndex(), Pred);
       break;
   }
@@ -535,10 +540,9 @@ ExplodedNode *CoreEngine::generateCallExitBeginNode(ExplodedNode *N) {
   // Create a CallExitBegin node and enqueue it.
   const StackFrameContext *LocCtx
                          = cast<StackFrameContext>(N->getLocationContext());
-  const Stmt *CE = LocCtx->getCallSite();
 
-  // Use the the callee location context.
-  CallExitBegin Loc(CE, LocCtx);
+  // Use the callee location context.
+  CallExitBegin Loc(LocCtx);
 
   bool isNew;
   ExplodedNode *Node = G->getNode(Loc, N->getState(), false, &isNew);

@@ -1,7 +1,5 @@
 set(LLVM_LINK_COMPONENTS support)
 
-set(LLVM_USED_LIBS clangBasic clangLex)
-
 add_clang_library(clangAST
   APValue.cpp
   ASTConsumer.cpp
@@ -10,6 +8,12 @@ add_clang_library(clangAST
   ASTImporter.cpp
   AttrImpl.cpp
   CXXInheritance.cpp
+  Comment.cpp
+  CommentBriefParser.cpp
+  CommentDumper.cpp
+  CommentLexer.cpp
+  CommentParser.cpp
+  CommentSema.cpp
   Decl.cpp
   DeclarationName.cpp
   DeclBase.cpp
@@ -35,6 +39,7 @@ add_clang_library(clangAST
   NestedNameSpecifier.cpp
   NSAPI.cpp
   ParentMap.cpp
+  RawCommentList.cpp
   RecordLayout.cpp
   RecordLayoutBuilder.cpp
   SelectorLocationsKind.cpp
@@ -53,5 +58,19 @@ add_clang_library(clangAST
   VTTBuilder.cpp
   )
 
-add_dependencies(clangAST ClangARMNeon ClangAttrClasses ClangAttrList 
-                 ClangAttrImpl ClangDiagnosticAST ClangDeclNodes ClangStmtNodes)
+add_dependencies(clangAST
+  ClangARMNeon
+  ClangAttrClasses
+  ClangAttrList
+  ClangAttrImpl
+  ClangDiagnosticAST
+  ClangDiagnosticComment
+  ClangCommentNodes
+  ClangDeclNodes
+  ClangStmtNodes
+  )
+
+target_link_libraries(clangAST
+  clangBasic
+  clangLex
+  )

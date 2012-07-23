@@ -18,7 +18,7 @@
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/ObjCMessage.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/Calls.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramStateTrait.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/SymbolManager.h"
@@ -34,15 +34,24 @@ using namespace ento;
 namespace {
 
 class RefState {
-  enum Kind { AllocateUnchecked, AllocateFailed, Released, Escaped,
+  enum Kind { // Reference to allocated memory.
+              Allocated,
+              // Reference to released/freed memory.
+              Released,
+              // Reference to escaped memory - no assumptions can be made of
+              // the state after the reference escapes.
+              Escaped,
+              // The responsibility for freeing resources has transfered from
+              // this reference. A relinquished symbol should not be freed.
               Relinquished } K;
   const Stmt *S;
 
 public:
   RefState(Kind k, const Stmt *s) : K(k), S(s) {}
 
-  bool isAllocated() const { return K == AllocateUnchecked; }
+  bool isAllocated() const { return K == Allocated; }
   bool isReleased() const { return K == Released; }
+  bool isRelinquished() const { return K == Relinquished; }
 
   const Stmt *getStmt() const { return S; }
 
@@ -50,11 +59,8 @@ public:
     return K == X.K && S == X.S;
   }
 
-  static RefState getAllocateUnchecked(const Stmt *s) { 
-    return RefState(AllocateUnchecked, s); 
-  }
-  static RefState getAllocateFailed() {
-    return RefState(AllocateFailed, 0);
+  static RefState getAllocated(const Stmt *s) {
+    return RefState(Allocated, s);
   }
   static RefState getReleased(const Stmt *s) { return RefState(Released, s); }
   static RefState getEscaped(const Stmt *s) { return RefState(Escaped, s); }
@@ -90,6 +96,7 @@ class MallocChecker : public Checker<check::DeadSymbols,
                                      check::PreStmt<CallExpr>,
                                      check::PostStmt<CallExpr>,
                                      check::PostStmt<BlockExpr>,
+                                     check::PreObjCMessage,
                                      check::Location,
                                      check::Bind,
                                      eval::Assume,
@@ -117,6 +124,7 @@ public:
 
   void checkPreStmt(const CallExpr *S, CheckerContext &C) const;
   void checkPostStmt(const CallExpr *CE, CheckerContext &C) const;
+  void checkPreObjCMessage(const ObjCMethodCall &Call, CheckerContext &C) const;
   void checkPostStmt(const BlockExpr *BE, CheckerContext &C) const;
   void checkDeadSymbols(SymbolReaper &SymReaper, CheckerContext &C) const;
   void checkEndPath(CheckerContext &C) const;
@@ -132,7 +140,7 @@ public:
                      const StoreManager::InvalidatedSymbols *invalidated,
                      ArrayRef<const MemRegion *> ExplicitRegions,
                      ArrayRef<const MemRegion *> Regions,
-                     const CallOrObjCMessage *Call) const;
+                     const CallEvent *Call) const;
   bool wantsRegionChangeUpdate(ProgramStateRef state) const {
     return true;
   }
@@ -172,8 +180,12 @@ private:
   ProgramStateRef FreeMemAttr(CheckerContext &C, const CallExpr *CE,
                               const OwnershipAttr* Att) const;
   ProgramStateRef FreeMemAux(CheckerContext &C, const CallExpr *CE,
-                                 ProgramStateRef state, unsigned Num,
-                                 bool Hold) const;
+                             ProgramStateRef state, unsigned Num,
+                             bool Hold) const;
+  ProgramStateRef FreeMemAux(CheckerContext &C, const Expr *Arg,
+                             const Expr *ParentExpr,
+                             ProgramStateRef state,
+                             bool Hold) const;
 
   ProgramStateRef ReallocMem(CheckerContext &C, const CallExpr *CE,
                              bool FreesMemOnFailure) const;
@@ -188,7 +200,7 @@ private:
 
   /// Check if the function is not known to us. So, for example, we could
   /// conservatively assume it can free/reallocate it's pointer arguments.
-  bool doesNotFreeMemory(const CallOrObjCMessage *Call,
+  bool doesNotFreeMemory(const CallEvent *Call,
                          ProgramStateRef State) const;
 
   static bool SummarizeValue(raw_ostream &os, SVal V);
@@ -247,6 +259,15 @@ private:
       // Did not track -> released. Other state (allocated) -> released.
       return (Stmt && isa<CallExpr>(Stmt) &&
               (S && S->isReleased()) && (!SPrev || !SPrev->isReleased()));
+    }
+
+    inline bool isRelinquished(const RefState *S, const RefState *SPrev,
+                               const Stmt *Stmt) {
+      // Did not track -> relinquished. Other state (allocated) -> relinquished.
+      return (Stmt && (isa<CallExpr>(Stmt) || isa<ObjCMessageExpr>(Stmt) ||
+                                              isa<ObjCPropertyRefExpr>(Stmt)) &&
+              (S && S->isRelinquished()) &&
+              (!SPrev || !SPrev->isRelinquished()));
     }
 
     inline bool isReallocFailedCheck(const RefState *S, const RefState *SPrev,
@@ -366,16 +387,15 @@ bool MallocChecker::isAllocationFunction(const FunctionDecl *FD,
   if (!FD)
     return false;
 
-  IdentifierInfo *FunI = FD->getIdentifier();
-  if (!FunI)
-    return false;
+  if (FD->getKind() == Decl::Function) {
+    IdentifierInfo *FunI = FD->getIdentifier();
+    initIdentifierInfo(C);
 
-  initIdentifierInfo(C);
-
-  if (FunI == II_malloc || FunI == II_realloc ||
-      FunI == II_reallocf || FunI == II_calloc || FunI == II_valloc ||
-      FunI == II_strdup || FunI == II_strndup)
-    return true;
+    if (FunI == II_malloc || FunI == II_realloc ||
+        FunI == II_reallocf || FunI == II_calloc || FunI == II_valloc ||
+        FunI == II_strdup || FunI == II_strndup)
+      return true;
+  }
 
   if (Filter.CMallocOptimistic && FD->hasAttrs())
     for (specific_attr_iterator<OwnershipAttr>
@@ -391,14 +411,13 @@ bool MallocChecker::isFreeFunction(const FunctionDecl *FD, ASTContext &C) const 
   if (!FD)
     return false;
 
-  IdentifierInfo *FunI = FD->getIdentifier();
-  if (!FunI)
-    return false;
+  if (FD->getKind() == Decl::Function) {
+    IdentifierInfo *FunI = FD->getIdentifier();
+    initIdentifierInfo(C);
 
-  initIdentifierInfo(C);
-
-  if (FunI == II_free || FunI == II_realloc || FunI == II_reallocf)
-    return true;
+    if (FunI == II_free || FunI == II_realloc || FunI == II_reallocf)
+      return true;
+  }
 
   if (Filter.CMallocOptimistic && FD->hasAttrs())
     for (specific_attr_iterator<OwnershipAttr>
@@ -416,29 +435,32 @@ void MallocChecker::checkPostStmt(const CallExpr *CE, CheckerContext &C) const {
   if (!FD)
     return;
 
-  initIdentifierInfo(C.getASTContext());
-  IdentifierInfo *FunI = FD->getIdentifier();
-  if (!FunI)
-    return;
-
   ProgramStateRef State = C.getState();
-  if (FunI == II_malloc || FunI == II_valloc) {
-    if (CE->getNumArgs() < 1)
-      return;
-    State = MallocMemAux(C, CE, CE->getArg(0), UndefinedVal(), State);
-  } else if (FunI == II_realloc) {
-    State = ReallocMem(C, CE, false);
-  } else if (FunI == II_reallocf) {
-    State = ReallocMem(C, CE, true);
-  } else if (FunI == II_calloc) {
-    State = CallocMem(C, CE);
-  } else if (FunI == II_free) {
-    State = FreeMemAux(C, CE, C.getState(), 0, false);
-  } else if (FunI == II_strdup) {
-    State = MallocUpdateRefState(C, CE, State);
-  } else if (FunI == II_strndup) {
-    State = MallocUpdateRefState(C, CE, State);
-  } else if (Filter.CMallocOptimistic) {
+
+  if (FD->getKind() == Decl::Function) {
+    initIdentifierInfo(C.getASTContext());
+    IdentifierInfo *FunI = FD->getIdentifier();
+
+    if (FunI == II_malloc || FunI == II_valloc) {
+      if (CE->getNumArgs() < 1)
+        return;
+      State = MallocMemAux(C, CE, CE->getArg(0), UndefinedVal(), State);
+    } else if (FunI == II_realloc) {
+      State = ReallocMem(C, CE, false);
+    } else if (FunI == II_reallocf) {
+      State = ReallocMem(C, CE, true);
+    } else if (FunI == II_calloc) {
+      State = CallocMem(C, CE);
+    } else if (FunI == II_free) {
+      State = FreeMemAux(C, CE, State, 0, false);
+    } else if (FunI == II_strdup) {
+      State = MallocUpdateRefState(C, CE, State);
+    } else if (FunI == II_strndup) {
+      State = MallocUpdateRefState(C, CE, State);
+    }
+  }
+
+  if (Filter.CMallocOptimistic) {
     // Check all the attributes, if there are any.
     // There can be multiple of these attributes.
     if (FD->hasAttrs())
@@ -460,6 +482,34 @@ void MallocChecker::checkPostStmt(const CallExpr *CE, CheckerContext &C) const {
   C.addTransition(State);
 }
 
+static bool isFreeWhenDoneSetToZero(const ObjCMethodCall &Call) {
+  Selector S = Call.getSelector();
+  for (unsigned i = 1; i < S.getNumArgs(); ++i)
+    if (S.getNameForSlot(i).equals("freeWhenDone"))
+      if (Call.getArgSVal(i).isConstant(0))
+        return true;
+
+  return false;
+}
+
+void MallocChecker::checkPreObjCMessage(const ObjCMethodCall &Call,
+                                        CheckerContext &C) const {
+  // If the first selector is dataWithBytesNoCopy, assume that the memory will
+  // be released with 'free' by the new object.
+  // Ex:  [NSData dataWithBytesNoCopy:bytes length:10];
+  // Unless 'freeWhenDone' param set to 0.
+  // TODO: Check that the memory was allocated with malloc.
+  Selector S = Call.getSelector();
+  if ((S.getNameForSlot(0) == "dataWithBytesNoCopy" ||
+       S.getNameForSlot(0) == "initWithBytesNoCopy" ||
+       S.getNameForSlot(0) == "initWithCharactersNoCopy") &&
+      !isFreeWhenDoneSetToZero(Call)){
+    unsigned int argIdx  = 0;
+    C.addTransition(FreeMemAux(C, Call.getArgExpr(argIdx),
+                    Call.getOriginExpr(), C.getState(), true));
+  }
+}
+
 ProgramStateRef MallocChecker::MallocMemReturnsAttr(CheckerContext &C,
                                                     const CallExpr *CE,
                                                     const OwnershipAttr* Att) {
@@ -477,19 +527,27 @@ ProgramStateRef MallocChecker::MallocMemAux(CheckerContext &C,
                                            const CallExpr *CE,
                                            SVal Size, SVal Init,
                                            ProgramStateRef state) {
-  // Get the return value.
-  SVal retVal = state->getSVal(CE, C.getLocationContext());
+
+  // Bind the return value to the symbolic value from the heap region.
+  // TODO: We could rewrite post visit to eval call; 'malloc' does not have
+  // side effects other than what we model here.
+  unsigned Count = C.getCurrentBlockCount();
+  SValBuilder &svalBuilder = C.getSValBuilder();
+  const LocationContext *LCtx = C.getPredecessor()->getLocationContext();
+  DefinedSVal RetVal =
+    cast<DefinedSVal>(svalBuilder.getConjuredHeapSymbolVal(CE, LCtx, Count));
+  state = state->BindExpr(CE, C.getLocationContext(), RetVal);
 
   // We expect the malloc functions to return a pointer.
-  if (!isa<Loc>(retVal))
+  if (!isa<Loc>(RetVal))
     return 0;
 
   // Fill the region with the initialization value.
-  state = state->bindDefault(retVal, Init);
+  state = state->bindDefault(RetVal, Init);
 
   // Set the region's extent equal to the Size parameter.
   const SymbolicRegion *R =
-      dyn_cast_or_null<SymbolicRegion>(retVal.getAsRegion());
+      dyn_cast_or_null<SymbolicRegion>(RetVal.getAsRegion());
   if (!R)
     return 0;
   if (isa<DefinedOrUnknownSVal>(Size)) {
@@ -520,7 +578,7 @@ ProgramStateRef MallocChecker::MallocUpdateRefState(CheckerContext &C,
   assert(Sym);
 
   // Set the symbol's state to Allocated.
-  return state->set<RegionState>(Sym, RefState::getAllocateUnchecked(CE));
+  return state->set<RegionState>(Sym, RefState::getAllocated(CE));
 
 }
 
@@ -550,7 +608,15 @@ ProgramStateRef MallocChecker::FreeMemAux(CheckerContext &C,
   if (CE->getNumArgs() < (Num + 1))
     return 0;
 
-  const Expr *ArgExpr = CE->getArg(Num);
+  return FreeMemAux(C, CE->getArg(Num), CE, state, Hold);
+}
+
+ProgramStateRef MallocChecker::FreeMemAux(CheckerContext &C,
+                                          const Expr *ArgExpr,
+                                          const Expr *ParentExpr,
+                                          ProgramStateRef state,
+                                          bool Hold) const {
+
   SVal ArgVal = state->getSVal(ArgExpr, C.getLocationContext());
   if (!isa<DefinedOrUnknownSVal>(ArgVal))
     return 0;
@@ -620,13 +686,14 @@ ProgramStateRef MallocChecker::FreeMemAux(CheckerContext &C,
     return 0;
 
   // Check double free.
-  if (RS->isReleased()) {
+  if (RS->isReleased() || RS->isRelinquished()) {
     if (ExplodedNode *N = C.generateSink()) {
       if (!BT_DoubleFree)
         BT_DoubleFree.reset(
           new BugType("Double free", "Memory Error"));
       BugReport *R = new BugReport(*BT_DoubleFree, 
-                        "Attempt to free released memory", N);
+        (RS->isReleased() ? "Attempt to free released memory" : 
+                            "Attempt to free non-owned memory"), N);
       R->addRange(ArgExpr->getSourceRange());
       R->markInteresting(Sym);
       R->addVisitor(new MallocBugVisitor(Sym));
@@ -637,8 +704,8 @@ ProgramStateRef MallocChecker::FreeMemAux(CheckerContext &C,
 
   // Normal free.
   if (Hold)
-    return state->set<RegionState>(Sym, RefState::getRelinquished(CE));
-  return state->set<RegionState>(Sym, RefState::getReleased(CE));
+    return state->set<RegionState>(Sym, RefState::getRelinquished(ParentExpr));
+  return state->set<RegionState>(Sym, RefState::getReleased(ParentExpr));
 }
 
 bool MallocChecker::SummarizeValue(raw_ostream &os, SVal V) {
@@ -906,8 +973,10 @@ MallocChecker::getAllocationSite(const ExplodedNode *N, SymbolRef Sym,
 
   ProgramPoint P = AllocNode->getLocation();
   const Stmt *AllocationStmt = 0;
-  if (isa<StmtPoint>(P))
-    AllocationStmt = cast<StmtPoint>(P).getStmt();
+  if (CallExitEnd *Exit = dyn_cast<CallExitEnd>(&P))
+    AllocationStmt = Exit->getCalleeContext()->getCallSite();
+  else if (StmtPoint *SP = dyn_cast<StmtPoint>(&P))
+    AllocationStmt = SP->getStmt();
 
   return LeakInfo(AllocationStmt, ReferenceRegion);
 }
@@ -1229,7 +1298,7 @@ ProgramStateRef MallocChecker::evalAssume(ProgramStateRef state,
       if (RS) {
         if (RS->isReleased() && ! I.getData().IsFreeOnFailure)
           state = state->set<RegionState>(ReallocSym,
-                             RefState::getAllocateUnchecked(RS->getStmt()));
+                             RefState::getAllocated(RS->getStmt()));
       }
       state = state->remove<ReallocPairs>(I.getKey());
     }
@@ -1239,123 +1308,30 @@ ProgramStateRef MallocChecker::evalAssume(ProgramStateRef state,
 }
 
 // Check if the function is known to us. So, for example, we could
-// conservatively assume it can free/reallocate it's pointer arguments.
+// conservatively assume it can free/reallocate its pointer arguments.
 // (We assume that the pointers cannot escape through calls to system
 // functions not handled by this checker.)
-bool MallocChecker::doesNotFreeMemory(const CallOrObjCMessage *Call,
+bool MallocChecker::doesNotFreeMemory(const CallEvent *Call,
                                       ProgramStateRef State) const {
-  if (!Call)
-    return false;
+  assert(Call);
 
   // For now, assume that any C++ call can free memory.
   // TODO: If we want to be more optimistic here, we'll need to make sure that
   // regions escape to C++ containers. They seem to do that even now, but for
   // mysterious reasons.
-  if (Call->isCXXCall())
+  if (!(isa<FunctionCall>(Call) || isa<ObjCMethodCall>(Call)))
     return false;
 
-  const Decl *D = Call->getDecl();
-  if (!D)
-    return false;
-
-  ASTContext &ASTC = State->getStateManager().getContext();
-
-  // If it's one of the allocation functions we can reason about, we model
-  // its behavior explicitly.
-  if (isa<FunctionDecl>(D) && isMemFunction(cast<FunctionDecl>(D), ASTC)) {
-    return true;
-  }
-
-  // If it's not a system call, assume it frees memory.
-  SourceManager &SM = ASTC.getSourceManager();
-  if (!SM.isInSystemHeader(D->getLocation()))
-    return false;
-
-  // Process C/ObjC functions.
-  if (const FunctionDecl *FD  = dyn_cast<FunctionDecl>(D)) {
-    // White list the system functions whose arguments escape.
-    const IdentifierInfo *II = FD->getIdentifier();
-    if (!II)
-      return true;
-    StringRef FName = II->getName();
-
-    // White list thread local storage.
-    if (FName.equals("pthread_setspecific"))
+  // Check Objective-C messages by selector name.
+  if (const ObjCMethodCall *Msg = dyn_cast<ObjCMethodCall>(Call)) {
+    // If it's not a framework call, or if it takes a callback, assume it
+    // can free memory.
+    if (!Call->isInSystemHeader() || Call->hasNonZeroCallbackArg())
       return false;
 
-    // White list the 'XXXNoCopy' ObjC functions.
-    if (FName.endswith("NoCopy")) {
-      // Look for the deallocator argument. We know that the memory ownership
-      // is not transfered only if the deallocator argument is
-      // 'kCFAllocatorNull'.
-      for (unsigned i = 1; i < Call->getNumArgs(); ++i) {
-        const Expr *ArgE = Call->getArg(i)->IgnoreParenCasts();
-        if (const DeclRefExpr *DE = dyn_cast<DeclRefExpr>(ArgE)) {
-          StringRef DeallocatorName = DE->getFoundDecl()->getName();
-          if (DeallocatorName == "kCFAllocatorNull")
-            return true;
-        }
-      }
-      return false;
-    }
+    Selector S = Msg->getSelector();
 
-    // PR12101
-    // Many CoreFoundation and CoreGraphics might allow a tracked object 
-    // to escape.
-    if (Call->isCFCGAllowingEscape(FName))
-      return false;
-
-    // Associating streams with malloced buffers. The pointer can escape if
-    // 'closefn' is specified (and if that function does free memory).
-    // Currently, we do not inspect the 'closefn' function (PR12101).
-    if (FName == "funopen")
-      if (Call->getNumArgs() >= 4 && !Call->getArgSVal(4).isConstant(0))
-        return false;
-
-    // Do not warn on pointers passed to 'setbuf' when used with std streams,
-    // these leaks might be intentional when setting the buffer for stdio.
-    // http://stackoverflow.com/questions/2671151/who-frees-setvbuf-buffer
-    if (FName == "setbuf" || FName =="setbuffer" ||
-        FName == "setlinebuf" || FName == "setvbuf") {
-      if (Call->getNumArgs() >= 1)
-        if (const DeclRefExpr *Arg =
-              dyn_cast<DeclRefExpr>(Call->getArg(0)->IgnoreParenCasts()))
-          if (const VarDecl *D = dyn_cast<VarDecl>(Arg->getDecl()))
-              if (D->getCanonicalDecl()->getName().find("std")
-                                                   != StringRef::npos)
-                return false;
-    }
-
-    // A bunch of other functions, which take ownership of a pointer (See retain
-    // release checker). Not all the parameters here are invalidated, but the
-    // Malloc checker cannot differentiate between them. The right way of doing
-    // this would be to implement a pointer escapes callback.
-    if (FName == "CVPixelBufferCreateWithBytes" ||
-        FName == "CGBitmapContextCreateWithData" ||
-        FName == "CVPixelBufferCreateWithPlanarBytes" ||
-        FName == "OSAtomicEnqueue") {
-      return false;
-    }
-
-    // Whitelist NSXXInsertXX, for example NSMapInsertIfAbsent, since they can
-    // be deallocated by NSMapRemove.
-    if (FName.startswith("NS") && (FName.find("Insert") != StringRef::npos))
-      return false;
-
-    // If the call has a callback as an argument, assume the memory
-    // can be freed.
-    if (Call->hasNonZeroCallbackArg())
-      return false;
-
-    // Otherwise, assume that the function does not free memory.
-    // Most system calls, do not free the memory.
-    return true;
-
-  // Process ObjC functions.
-  } else if (const ObjCMethodDecl * ObjCD = dyn_cast<ObjCMethodDecl>(D)) {
-    Selector S = ObjCD->getSelector();
-
-    // White list the ObjC functions which do free memory.
+    // Whitelist the ObjC methods which do free memory.
     // - Anything containing 'freeWhenDone' param set to 1.
     //   Ex: dataWithBytesNoCopy:length:freeWhenDone.
     for (unsigned i = 1; i < S.getNumArgs(); ++i) {
@@ -1368,25 +1344,111 @@ bool MallocChecker::doesNotFreeMemory(const CallOrObjCMessage *Call,
     }
 
     // If the first selector ends with NoCopy, assume that the ownership is
-    // transfered as well.
+    // transferred as well.
     // Ex:  [NSData dataWithBytesNoCopy:bytes length:10];
-    if (S.getNameForSlot(0).endswith("NoCopy")) {
+    StringRef FirstSlot = S.getNameForSlot(0);
+    if (FirstSlot.endswith("NoCopy"))
+      return false;
+
+    // If the first selector starts with addPointer, insertPointer,
+    // or replacePointer, assume we are dealing with NSPointerArray or similar.
+    // This is similar to C++ containers (vector); we still might want to check
+    // that the pointers get freed by following the container itself.
+    if (FirstSlot.startswith("addPointer") ||
+        FirstSlot.startswith("insertPointer") ||
+        FirstSlot.startswith("replacePointer")) {
       return false;
     }
 
-    // If the call has a callback as an argument, assume the memory
-    // can be freed.
-    if (Call->hasNonZeroCallbackArg())
-      return false;
-
-    // Otherwise, assume that the function does not free memory.
-    // Most system calls, do not free the memory.
+    // Otherwise, assume that the method does not free memory.
+    // Most framework methods do not free memory.
     return true;
   }
 
-  // Otherwise, assume that the function can free memory.
-  return false;
+  // At this point the only thing left to handle is straight function calls.
+  const FunctionDecl *FD = cast<FunctionCall>(Call)->getDecl();
+  if (!FD)
+    return false;
 
+  ASTContext &ASTC = State->getStateManager().getContext();
+
+  // If it's one of the allocation functions we can reason about, we model
+  // its behavior explicitly.
+  if (isMemFunction(FD, ASTC))
+    return true;
+
+  // If it's not a system call, assume it frees memory.
+  if (!Call->isInSystemHeader())
+    return false;
+
+  // White list the system functions whose arguments escape.
+  const IdentifierInfo *II = FD->getIdentifier();
+  if (!II)
+    return false;
+  StringRef FName = II->getName();
+
+  // White list the 'XXXNoCopy' CoreFoundation functions.
+  // We specifically check these before 
+  if (FName.endswith("NoCopy")) {
+    // Look for the deallocator argument. We know that the memory ownership
+    // is not transferred only if the deallocator argument is
+    // 'kCFAllocatorNull'.
+    for (unsigned i = 1; i < Call->getNumArgs(); ++i) {
+      const Expr *ArgE = Call->getArgExpr(i)->IgnoreParenCasts();
+      if (const DeclRefExpr *DE = dyn_cast<DeclRefExpr>(ArgE)) {
+        StringRef DeallocatorName = DE->getFoundDecl()->getName();
+        if (DeallocatorName == "kCFAllocatorNull")
+          return true;
+      }
+    }
+    return false;
+  }
+
+  // Associating streams with malloced buffers. The pointer can escape if
+  // 'closefn' is specified (and if that function does free memory),
+  // but it will not if closefn is not specified.
+  // Currently, we do not inspect the 'closefn' function (PR12101).
+  if (FName == "funopen")
+    if (Call->getNumArgs() >= 4 && Call->getArgSVal(4).isConstant(0))
+      return true;
+
+  // Do not warn on pointers passed to 'setbuf' when used with std streams,
+  // these leaks might be intentional when setting the buffer for stdio.
+  // http://stackoverflow.com/questions/2671151/who-frees-setvbuf-buffer
+  if (FName == "setbuf" || FName =="setbuffer" ||
+      FName == "setlinebuf" || FName == "setvbuf") {
+    if (Call->getNumArgs() >= 1) {
+      const Expr *ArgE = Call->getArgExpr(0)->IgnoreParenCasts();
+      if (const DeclRefExpr *ArgDRE = dyn_cast<DeclRefExpr>(ArgE))
+        if (const VarDecl *D = dyn_cast<VarDecl>(ArgDRE->getDecl()))
+          if (D->getCanonicalDecl()->getName().find("std") != StringRef::npos)
+            return false;
+    }
+  }
+
+  // A bunch of other functions which either take ownership of a pointer or
+  // wrap the result up in a struct or object, meaning it can be freed later.
+  // (See RetainCountChecker.) Not all the parameters here are invalidated,
+  // but the Malloc checker cannot differentiate between them. The right way
+  // of doing this would be to implement a pointer escapes callback.
+  if (FName == "CGBitmapContextCreate" ||
+      FName == "CGBitmapContextCreateWithData" ||
+      FName == "CVPixelBufferCreateWithBytes" ||
+      FName == "CVPixelBufferCreateWithPlanarBytes" ||
+      FName == "OSAtomicEnqueue") {
+    return false;
+  }
+
+  // Handle cases where we know a buffer's /address/ can escape.
+  // Note that the above checks handle some special cases where we know that
+  // even though the address escapes, it's still our responsibility to free the
+  // buffer.
+  if (Call->argumentsMayEscape())
+    return false;
+
+  // Otherwise, assume that the function does not free memory.
+  // Most system calls do not free the memory.
+  return true;
 }
 
 // If the symbol we are tracking is invalidated, but not explicitly (ex: the &p
@@ -1397,7 +1459,7 @@ MallocChecker::checkRegionChanges(ProgramStateRef State,
                             const StoreManager::InvalidatedSymbols *invalidated,
                                     ArrayRef<const MemRegion *> ExplicitRegions,
                                     ArrayRef<const MemRegion *> Regions,
-                                    const CallOrObjCMessage *Call) const {
+                                    const CallEvent *Call) const {
   if (!invalidated || invalidated->empty())
     return State;
   llvm::SmallPtrSet<SymbolRef, 8> WhitelistedSymbols;
@@ -1419,9 +1481,14 @@ MallocChecker::checkRegionChanges(ProgramStateRef State,
     SymbolRef sym = *I;
     if (WhitelistedSymbols.count(sym))
       continue;
-    // The symbol escaped.
-    if (const RefState *RS = State->get<RegionState>(sym))
-      State = State->set<RegionState>(sym, RefState::getEscaped(RS->getStmt()));
+    // The symbol escaped. Note, we assume that if the symbol is released,
+    // passing it out will result in a use after free. We also keep tracking
+    // relinquished symbols.
+    if (const RefState *RS = State->get<RegionState>(sym)) {
+      if (RS->isAllocated())
+        State = State->set<RegionState>(sym,
+                                        RefState::getEscaped(RS->getStmt()));
+    }
   }
   return State;
 }
@@ -1460,16 +1527,21 @@ MallocChecker::MallocBugVisitor::VisitNode(const ExplodedNode *N,
 
   // Retrieve the associated statement.
   ProgramPoint ProgLoc = N->getLocation();
-  if (isa<StmtPoint>(ProgLoc))
-    S = cast<StmtPoint>(ProgLoc).getStmt();
+  if (StmtPoint *SP = dyn_cast<StmtPoint>(&ProgLoc))
+    S = SP->getStmt();
+  else if (CallExitEnd *Exit = dyn_cast<CallExitEnd>(&ProgLoc))
+    S = Exit->getCalleeContext()->getCallSite();
   // If an assumption was made on a branch, it should be caught
   // here by looking at the state transition.
-  if (isa<BlockEdge>(ProgLoc)) {
-    const CFGBlock *srcBlk = cast<BlockEdge>(ProgLoc).getSrc();
+  else if (BlockEdge *Edge = dyn_cast<BlockEdge>(&ProgLoc)) {
+    const CFGBlock *srcBlk = Edge->getSrc();
     S = srcBlk->getTerminator();
   }
   if (!S)
     return 0;
+
+  // FIXME: We will eventually need to handle non-statement-based events
+  // (__attribute__((cleanup))).
 
   // Find out if this is an interesting point and what is the kind.
   if (Mode == Normal) {
@@ -1481,6 +1553,9 @@ MallocChecker::MallocBugVisitor::VisitNode(const ExplodedNode *N,
       Msg = "Memory is released";
       StackHint = new StackHintGeneratorForSymbol(Sym,
                                                   "Returned released memory");
+    } else if (isRelinquished(RS, RSPrev, S)) {
+      Msg = "Memory ownership is transfered";
+      StackHint = new StackHintGeneratorForSymbol(Sym, "");
     } else if (isReallocFailedCheck(RS, RSPrev, S)) {
       Mode = ReallocationFailed;
       Msg = "Reallocation failed";

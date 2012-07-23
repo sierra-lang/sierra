@@ -33,6 +33,21 @@
 #include <cstring>
 using namespace clang;
 
+const CXXRecordDecl *Expr::getBestDynamicClassType() const {
+  const Expr *E = ignoreParenBaseCasts();
+
+  QualType DerivedType = E->getType();
+  if (const PointerType *PTy = DerivedType->getAs<PointerType>())
+    DerivedType = PTy->getPointeeType();
+
+  if (DerivedType->isDependentType())
+    return NULL;
+
+  const RecordType *Ty = DerivedType->castAs<RecordType>();
+  Decl *D = Ty->getDecl();
+  return cast<CXXRecordDecl>(D);
+}
+
 /// isKnownToHaveBooleanValue - Return true if this is an integer expression
 /// that is known to return 0 or 1.  This happens for _Bool/bool expressions
 /// but also int expressions which are produced by things like comparisons in
@@ -543,6 +558,17 @@ void APNumericStorage::setIntValue(ASTContext &C, const llvm::APInt &Val) {
     VAL = 0;
 }
 
+IntegerLiteral::IntegerLiteral(ASTContext &C, const llvm::APInt &V,
+                               QualType type, SourceLocation l)
+  : Expr(IntegerLiteralClass, type, VK_RValue, OK_Ordinary, false, false,
+         false, false),
+    Loc(l) {
+  assert(type->isIntegerType() && "Illegal type in IntegerLiteral");
+  assert(V.getBitWidth() == C.getIntWidth(type) &&
+         "Integer type is not the correct size for constant.");
+  setValue(C, V);
+}
+
 IntegerLiteral *
 IntegerLiteral::Create(ASTContext &C, const llvm::APInt &V,
                        QualType type, SourceLocation l) {
@@ -552,6 +578,23 @@ IntegerLiteral::Create(ASTContext &C, const llvm::APInt &V,
 IntegerLiteral *
 IntegerLiteral::Create(ASTContext &C, EmptyShell Empty) {
   return new (C) IntegerLiteral(Empty);
+}
+
+FloatingLiteral::FloatingLiteral(ASTContext &C, const llvm::APFloat &V,
+                                 bool isexact, QualType Type, SourceLocation L)
+  : Expr(FloatingLiteralClass, Type, VK_RValue, OK_Ordinary, false, false,
+         false, false), Loc(L) {
+  FloatingLiteralBits.IsIEEE =
+    &C.getTargetInfo().getLongDoubleFormat() == &llvm::APFloat::IEEEquad;
+  FloatingLiteralBits.IsExact = isexact;
+  setValue(C, V);
+}
+
+FloatingLiteral::FloatingLiteral(ASTContext &C, EmptyShell Empty)
+  : Expr(FloatingLiteralClass, Empty) {
+  FloatingLiteralBits.IsIEEE =
+    &C.getTargetInfo().getLongDoubleFormat() == &llvm::APFloat::IEEEquad;
+  FloatingLiteralBits.IsExact = false;
 }
 
 FloatingLiteral *
@@ -633,6 +676,99 @@ StringLiteral *StringLiteral::CreateEmpty(ASTContext &C, unsigned NumStrs) {
   return SL;
 }
 
+void StringLiteral::outputString(raw_ostream &OS) {
+  switch (getKind()) {
+  case Ascii: break; // no prefix.
+  case Wide:  OS << 'L'; break;
+  case UTF8:  OS << "u8"; break;
+  case UTF16: OS << 'u'; break;
+  case UTF32: OS << 'U'; break;
+  }
+  OS << '"';
+  static const char Hex[] = "0123456789ABCDEF";
+
+  unsigned LastSlashX = getLength();
+  for (unsigned I = 0, N = getLength(); I != N; ++I) {
+    switch (uint32_t Char = getCodeUnit(I)) {
+    default:
+      // FIXME: Convert UTF-8 back to codepoints before rendering.
+
+      // Convert UTF-16 surrogate pairs back to codepoints before rendering.
+      // Leave invalid surrogates alone; we'll use \x for those.
+      if (getKind() == UTF16 && I != N - 1 && Char >= 0xd800 && 
+          Char <= 0xdbff) {
+        uint32_t Trail = getCodeUnit(I + 1);
+        if (Trail >= 0xdc00 && Trail <= 0xdfff) {
+          Char = 0x10000 + ((Char - 0xd800) << 10) + (Trail - 0xdc00);
+          ++I;
+        }
+      }
+
+      if (Char > 0xff) {
+        // If this is a wide string, output characters over 0xff using \x
+        // escapes. Otherwise, this is a UTF-16 or UTF-32 string, and Char is a
+        // codepoint: use \x escapes for invalid codepoints.
+        if (getKind() == Wide ||
+            (Char >= 0xd800 && Char <= 0xdfff) || Char >= 0x110000) {
+          // FIXME: Is this the best way to print wchar_t?
+          OS << "\\x";
+          int Shift = 28;
+          while ((Char >> Shift) == 0)
+            Shift -= 4;
+          for (/**/; Shift >= 0; Shift -= 4)
+            OS << Hex[(Char >> Shift) & 15];
+          LastSlashX = I;
+          break;
+        }
+
+        if (Char > 0xffff)
+          OS << "\\U00"
+             << Hex[(Char >> 20) & 15]
+             << Hex[(Char >> 16) & 15];
+        else
+          OS << "\\u";
+        OS << Hex[(Char >> 12) & 15]
+           << Hex[(Char >>  8) & 15]
+           << Hex[(Char >>  4) & 15]
+           << Hex[(Char >>  0) & 15];
+        break;
+      }
+
+      // If we used \x... for the previous character, and this character is a
+      // hexadecimal digit, prevent it being slurped as part of the \x.
+      if (LastSlashX + 1 == I) {
+        switch (Char) {
+          case '0': case '1': case '2': case '3': case '4':
+          case '5': case '6': case '7': case '8': case '9':
+          case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
+          case 'A': case 'B': case 'C': case 'D': case 'E': case 'F':
+            OS << "\"\"";
+        }
+      }
+
+      assert(Char <= 0xff &&
+             "Characters above 0xff should already have been handled.");
+
+      if (isprint(Char))
+        OS << (char)Char;
+      else  // Output anything hard as an octal escape.
+        OS << '\\'
+           << (char)('0' + ((Char >> 6) & 7))
+           << (char)('0' + ((Char >> 3) & 7))
+           << (char)('0' + ((Char >> 0) & 7));
+      break;
+    // Handle some common non-printable cases to make dumps prettier.
+    case '\\': OS << "\\\\"; break;
+    case '"': OS << "\\\""; break;
+    case '\n': OS << "\\n"; break;
+    case '\t': OS << "\\t"; break;
+    case '\a': OS << "\\a"; break;
+    case '\b': OS << "\\b"; break;
+    }
+  }
+  OS << '"';
+}
+
 void StringLiteral::setString(ASTContext &C, StringRef Str,
                               StringKind Kind, bool IsPascal) {
   //FIXME: we assume that the string data comes from a target that uses the same
@@ -679,7 +815,8 @@ void StringLiteral::setString(ASTContext &C, StringRef Str,
 SourceLocation StringLiteral::
 getLocationOfByte(unsigned ByteNo, const SourceManager &SM,
                   const LangOptions &Features, const TargetInfo &Target) const {
-  assert(Kind == StringLiteral::Ascii && "This only works for ASCII strings");
+  assert((Kind == StringLiteral::Ascii || Kind == StringLiteral::UTF8) &&
+         "Only narrow string literals are currently supported");
 
   // Loop over all of the tokens in this string until we find the one that
   // contains the byte we're looking for.
@@ -701,11 +838,6 @@ getLocationOfByte(unsigned ByteNo, const SourceManager &SM,
       return StrTokSpellingLoc;
     
     const char *StrData = Buffer.data()+LocInfo.second;
-    
-    // Create a langops struct and enable trigraphs.  This is sufficient for
-    // relexing tokens.
-    LangOptions LangOpts;
-    LangOpts.Trigraphs = true;
     
     // Create a lexer starting at the beginning of this token.
     Lexer TheLexer(SM.getLocForStartOfFile(LocInfo.first), Features,
@@ -2116,7 +2248,27 @@ Expr *Expr::IgnoreParenLValueCasts() {
   }
   return E;
 }
-  
+
+Expr *Expr::ignoreParenBaseCasts() {
+  Expr *E = this;
+  while (true) {
+    if (ParenExpr *P = dyn_cast<ParenExpr>(E)) {
+      E = P->getSubExpr();
+      continue;
+    }
+    if (CastExpr *CE = dyn_cast<CastExpr>(E)) {
+      if (CE->getCastKind() == CK_DerivedToBase ||
+          CE->getCastKind() == CK_UncheckedDerivedToBase ||
+          CE->getCastKind() == CK_NoOp) {
+        E = CE->getSubExpr();
+        continue;
+      }
+    }
+
+    return E;
+  }
+}
+
 Expr *Expr::IgnoreParenImpCasts() {
   Expr *E = this;
   while (true) {
@@ -2286,6 +2438,10 @@ bool Expr::isTemporaryObject(ASTContext &C, const CXXRecordDecl *TempTy) const {
   // - member expressions (all)
   if (isa<MemberExpr>(E))
     return false;
+
+  if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(E))
+    if (BO->isPtrMemOp())
+      return false;
 
   // - opaque values (all)
   if (isa<OpaqueValueExpr>(E))

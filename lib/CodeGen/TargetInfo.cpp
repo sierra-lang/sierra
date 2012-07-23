@@ -161,7 +161,7 @@ static bool isEmptyRecord(ASTContext &Context, QualType T, bool AllowArrays) {
 
   for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
          i != e; ++i)
-    if (!isEmptyField(Context, &*i, AllowArrays))
+    if (!isEmptyField(Context, *i, AllowArrays))
       return false;
   return true;
 }
@@ -229,7 +229,7 @@ static const Type *isSingleElementStruct(QualType T, ASTContext &Context) {
   // Check for single element.
   for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
          i != e; ++i) {
-    const FieldDecl *FD = &*i;
+    const FieldDecl *FD = *i;
     QualType FT = FD->getType();
 
     // Ignore empty fields.
@@ -301,7 +301,7 @@ static bool canExpandIndirectArgument(QualType Ty, ASTContext &Context) {
 
   for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
          i != e; ++i) {
-    const FieldDecl *FD = &*i;
+    const FieldDecl *FD = *i;
 
     if (!is32Or64BitBasicType(FD->getType(), Context))
       return false;
@@ -534,7 +534,7 @@ bool X86_32ABIInfo::shouldReturnTypeInRegister(QualType Ty,
   // passed in a register.
   for (RecordDecl::field_iterator i = RT->getDecl()->field_begin(),
          e = RT->getDecl()->field_end(); i != e; ++i) {
-    const FieldDecl *FD = &*i;
+    const FieldDecl *FD = *i;
 
     // Empty fields are ignored.
     if (isEmptyField(Context, FD, true))
@@ -626,6 +626,10 @@ ABIArgInfo X86_32ABIInfo::classifyReturnType(QualType RetTy,
           ABIArgInfo::getExtend() : ABIArgInfo::getDirect());
 }
 
+static bool isSSEVectorType(ASTContext &Context, QualType Ty) {
+  return Ty->getAs<VectorType>() && Context.getTypeSize(Ty) == 128;
+}
+
 static bool isRecordWithSSEVectorType(ASTContext &Context, QualType Ty) {
   const RecordType *RT = Ty->getAs<RecordType>();
   if (!RT)
@@ -643,7 +647,7 @@ static bool isRecordWithSSEVectorType(ASTContext &Context, QualType Ty) {
        i != e; ++i) {
     QualType FT = i->getType();
 
-    if (FT->getAs<VectorType>() && Context.getTypeSize(FT) == 128)
+    if (isSSEVectorType(Context, FT))
       return true;
 
     if (isRecordWithSSEVectorType(Context, FT))
@@ -667,7 +671,8 @@ unsigned X86_32ABIInfo::getTypeStackAlignInBytes(QualType Ty,
   }
 
   // Otherwise, if the type contains an SSE vector type, the alignment is 16.
-  if (Align >= 16 && isRecordWithSSEVectorType(getContext(), Ty))
+  if (Align >= 16 && (isSSEVectorType(getContext(), Ty) ||
+                      isRecordWithSSEVectorType(getContext(), Ty)))
     return 16;
 
   return MinABIStackAlignInBytes;
@@ -1345,7 +1350,8 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
         // single eightbyte, each is classified separately. Each eightbyte gets
         // initialized to class NO_CLASS.
         Class FieldLo, FieldHi;
-        uint64_t Offset = OffsetBase + Layout.getBaseClassOffsetInBits(Base);
+        uint64_t Offset =
+          OffsetBase + getContext().toBits(Layout.getBaseClassOffset(Base));
         classify(i->getType(), Offset, FieldLo, FieldHi);
         Lo = merge(Lo, FieldLo);
         Hi = merge(Hi, FieldHi);
@@ -1584,7 +1590,7 @@ static bool BitsContainNoUserData(QualType Ty, unsigned StartBit,
           cast<CXXRecordDecl>(i->getType()->getAs<RecordType>()->getDecl());
 
         // If the base is after the span we care about, ignore it.
-        unsigned BaseOffset = (unsigned)Layout.getBaseClassOffsetInBits(Base);
+        unsigned BaseOffset = Context.toBits(Layout.getBaseClassOffset(Base));
         if (BaseOffset >= EndBit) continue;
 
         unsigned BaseStart = BaseOffset < StartBit ? StartBit-BaseOffset :0;
@@ -2598,7 +2604,7 @@ static bool isHomogeneousAggregate(QualType Ty, const Type *&Base,
     Members = 0;
     for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
          i != e; ++i) {
-      const FieldDecl *FD = &*i;
+      const FieldDecl *FD = *i;
       uint64_t FldMembers;
       if (!isHomogeneousAggregate(FD->getType(), Base, Context, &FldMembers))
         return false;
@@ -2617,7 +2623,8 @@ static bool isHomogeneousAggregate(QualType Ty, const Type *&Base,
     // double, or 64-bit or 128-bit vectors.
     if (const BuiltinType *BT = Ty->getAs<BuiltinType>()) {
       if (BT->getKind() != BuiltinType::Float && 
-          BT->getKind() != BuiltinType::Double)
+          BT->getKind() != BuiltinType::Double &&
+          BT->getKind() != BuiltinType::LongDouble)
         return false;
     } else if (const VectorType *VT = Ty->getAs<VectorType>()) {
       unsigned VecSize = Context.getTypeSize(VT);
@@ -2675,17 +2682,21 @@ ABIArgInfo ARMABIInfo::classifyArgumentType(QualType Ty) const {
 
   // Otherwise, pass by coercing to a structure of the appropriate size.
   //
-  // FIXME: This is kind of nasty... but there isn't much choice because the ARM
-  // backend doesn't support byval.
   // FIXME: This doesn't handle alignment > 64 bits.
   llvm::Type* ElemTy;
   unsigned SizeRegs;
-  if (getContext().getTypeAlign(Ty) > 32) {
-    ElemTy = llvm::Type::getInt64Ty(getVMContext());
-    SizeRegs = (getContext().getTypeSize(Ty) + 63) / 64;
-  } else {
+  if (getContext().getTypeSizeInChars(Ty) <= CharUnits::fromQuantity(64)) {
     ElemTy = llvm::Type::getInt32Ty(getVMContext());
     SizeRegs = (getContext().getTypeSize(Ty) + 31) / 32;
+  } else if (getABIKind() == ARMABIInfo::APCS) {
+    // Initial ARM ByVal support is APCS-only.
+    return ABIArgInfo::getIndirect(0, /*ByVal=*/true);
+  } else {
+    // FIXME: This is kind of nasty... but there isn't much choice
+    // because most of the ARM calling conventions don't yet support
+    // byval.
+    ElemTy = llvm::Type::getInt64Ty(getVMContext());
+    SizeRegs = (getContext().getTypeSize(Ty) + 63) / 64;
   }
 
   llvm::Type *STy =
@@ -2741,7 +2752,7 @@ static bool isIntegerLikeType(QualType Ty, ASTContext &Context,
   unsigned idx = 0;
   for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
        i != e; ++i, ++idx) {
-    const FieldDecl *FD = &*i;
+    const FieldDecl *FD = *i;
 
     // Bit-fields are not addressable, we only need to verify they are "integer
     // like". We still have to disallow a subsequent non-bitfield, for example:
@@ -3157,14 +3168,16 @@ void MSP430TargetCodeGenInfo::SetTargetAttributes(const Decl *D,
 namespace {
 class MipsABIInfo : public ABIInfo {
   bool IsO32;
-  unsigned MinABIStackAlignInBytes;
-  llvm::Type* CoerceToIntArgs(uint64_t TySize) const;
+  unsigned MinABIStackAlignInBytes, StackAlignInBytes;
+  void CoerceToIntArgs(uint64_t TySize,
+                       SmallVector<llvm::Type*, 8> &ArgList) const;
   llvm::Type* HandleAggregates(QualType Ty, uint64_t TySize) const;
   llvm::Type* returnAggregateInRegs(QualType RetTy, uint64_t Size) const;
   llvm::Type* getPaddingType(uint64_t Align, uint64_t Offset) const;
 public:
   MipsABIInfo(CodeGenTypes &CGT, bool _IsO32) :
-    ABIInfo(CGT), IsO32(_IsO32), MinABIStackAlignInBytes(IsO32 ? 4 : 8) {}
+    ABIInfo(CGT), IsO32(_IsO32), MinABIStackAlignInBytes(IsO32 ? 4 : 8),
+    StackAlignInBytes(IsO32 ? 8 : 16) {}
 
   ABIArgInfo classifyReturnType(QualType RetTy) const;
   ABIArgInfo classifyArgumentType(QualType RetTy, uint64_t &Offset) const;
@@ -3193,10 +3206,10 @@ public:
 };
 }
 
-llvm::Type* MipsABIInfo::CoerceToIntArgs(uint64_t TySize) const {
-  SmallVector<llvm::Type*, 8> ArgList;
-  llvm::IntegerType *IntTy = llvm::IntegerType::get(getVMContext(),
-                                                    MinABIStackAlignInBytes * 8);
+void MipsABIInfo::CoerceToIntArgs(uint64_t TySize,
+                                  SmallVector<llvm::Type*, 8> &ArgList) const {
+  llvm::IntegerType *IntTy =
+    llvm::IntegerType::get(getVMContext(), MinABIStackAlignInBytes * 8);
 
   // Add (TySize / MinABIStackAlignInBytes) args of IntTy.
   for (unsigned N = TySize / (MinABIStackAlignInBytes * 8); N; --N)
@@ -3207,24 +3220,28 @@ llvm::Type* MipsABIInfo::CoerceToIntArgs(uint64_t TySize) const {
 
   if (R)
     ArgList.push_back(llvm::IntegerType::get(getVMContext(), R));
-
-  return llvm::StructType::get(getVMContext(), ArgList);
 }
 
 // In N32/64, an aligned double precision floating point field is passed in
 // a register.
 llvm::Type* MipsABIInfo::HandleAggregates(QualType Ty, uint64_t TySize) const {
-  if (IsO32)
-    return CoerceToIntArgs(TySize);
+  SmallVector<llvm::Type*, 8> ArgList, IntArgList;
+
+  if (IsO32) {
+    CoerceToIntArgs(TySize, ArgList);
+    return llvm::StructType::get(getVMContext(), ArgList);
+  }
 
   if (Ty->isComplexType())
     return CGT.ConvertType(Ty);
 
   const RecordType *RT = Ty->getAs<RecordType>();
 
-  // Unions are passed in integer registers.
-  if (!RT || !RT->isStructureOrClassType())
-    return CoerceToIntArgs(TySize);
+  // Unions/vectors are passed in integer registers.
+  if (!RT || !RT->isStructureOrClassType()) {
+    CoerceToIntArgs(TySize, ArgList);
+    return llvm::StructType::get(getVMContext(), ArgList);
+  }
 
   const RecordDecl *RD = RT->getDecl();
   const ASTRecordLayout &Layout = getContext().getASTRecordLayout(RD);
@@ -3233,7 +3250,6 @@ llvm::Type* MipsABIInfo::HandleAggregates(QualType Ty, uint64_t TySize) const {
   uint64_t LastOffset = 0;
   unsigned idx = 0;
   llvm::IntegerType *I64 = llvm::IntegerType::get(getVMContext(), 64);
-  SmallVector<llvm::Type*, 8> ArgList;
 
   // Iterate over fields in the struct/class and check if there are any aligned
   // double fields.
@@ -3258,15 +3274,8 @@ llvm::Type* MipsABIInfo::HandleAggregates(QualType Ty, uint64_t TySize) const {
     LastOffset = Offset + 64;
   }
 
-  // Add ((TySize - LastOffset) / 64) args of type i64.
-  for (unsigned N = (TySize - LastOffset) / 64; N; --N)
-    ArgList.push_back(I64);
-
-  // If the size of the remainder is not zero, add one more integer type to
-  // ArgList.
-  unsigned R = (TySize - LastOffset) % 64;
-  if (R)
-    ArgList.push_back(llvm::IntegerType::get(getVMContext(), R));
+  CoerceToIntArgs(TySize - LastOffset, IntArgList);
+  ArgList.append(IntArgList.begin(), IntArgList.end());
 
   return llvm::StructType::get(getVMContext(), ArgList);
 }
@@ -3286,11 +3295,12 @@ MipsABIInfo::classifyArgumentType(QualType Ty, uint64_t &Offset) const {
   uint64_t TySize = getContext().getTypeSize(Ty);
   uint64_t Align = getContext().getTypeAlign(Ty) / 8;
 
-  Align = std::max(Align, (uint64_t)MinABIStackAlignInBytes);
+  Align = std::min(std::max(Align, (uint64_t)MinABIStackAlignInBytes),
+                   (uint64_t)StackAlignInBytes);
   Offset = llvm::RoundUpToAlignment(Offset, Align);
   Offset += llvm::RoundUpToAlignment(TySize, Align * 8) / 8;
 
-  if (isAggregateTypeForABI(Ty)) {
+  if (isAggregateTypeForABI(Ty) || Ty->isVectorType()) {
     // Ignore empty aggregates.
     if (TySize == 0)
       return ABIArgInfo::getIgnore();
@@ -3322,7 +3332,7 @@ MipsABIInfo::classifyArgumentType(QualType Ty, uint64_t &Offset) const {
 llvm::Type*
 MipsABIInfo::returnAggregateInRegs(QualType RetTy, uint64_t Size) const {
   const RecordType *RT = RetTy->getAs<RecordType>();
-  SmallVector<llvm::Type*, 2> RTList;
+  SmallVector<llvm::Type*, 8> RTList;
 
   if (RT && RT->isStructureOrClassType()) {
     const RecordDecl *RD = RT->getDecl();
@@ -3357,11 +3367,7 @@ MipsABIInfo::returnAggregateInRegs(QualType RetTy, uint64_t Size) const {
     }
   }
 
-  RTList.push_back(llvm::IntegerType::get(getVMContext(),
-                                          std::min(Size, (uint64_t)64)));
-  if (Size > 64)
-    RTList.push_back(llvm::IntegerType::get(getVMContext(), Size - 64));
-
+  CoerceToIntArgs(Size, RTList);
   return llvm::StructType::get(getVMContext(), RTList);
 }
 
@@ -3375,6 +3381,10 @@ ABIArgInfo MipsABIInfo::classifyReturnType(QualType RetTy) const {
     if (Size <= 128) {
       if (RetTy->isAnyComplexType())
         return ABIArgInfo::getDirect();
+
+      // O32 returns integer vectors in registers.
+      if (IsO32 && RetTy->isVectorType() && !RetTy->hasFloatingRepresentation())
+        return ABIArgInfo::getDirect(returnAggregateInRegs(RetTy, Size));
 
       if (!IsO32 && !isRecordWithNonTrivialDestructorOrCopyConstructor(RetTy))
         return ABIArgInfo::getDirect(returnAggregateInRegs(RetTy, Size));

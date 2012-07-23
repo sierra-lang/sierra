@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "clang/AST/CXXInheritance.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/DeclCXX.h"
 #include <algorithm>
@@ -505,12 +506,17 @@ void FinalOverriderCollector::Collect(const CXXRecordDecl *RD,
       CXXFinalOverriderMap *BaseOverriders = &ComputedBaseOverriders;
       if (Base->isVirtual()) {
         CXXFinalOverriderMap *&MyVirtualOverriders = VirtualOverriders[BaseDecl];
+        BaseOverriders = MyVirtualOverriders;
         if (!MyVirtualOverriders) {
           MyVirtualOverriders = new CXXFinalOverriderMap;
+
+          // Collect may cause VirtualOverriders to reallocate, invalidating the
+          // MyVirtualOverriders reference. Set BaseOverriders to the right
+          // value now.
+          BaseOverriders = MyVirtualOverriders;
+
           Collect(BaseDecl, true, BaseDecl, *MyVirtualOverriders);
         }
-
-        BaseOverriders = MyVirtualOverriders;
       } else
         Collect(BaseDecl, false, InVirtualSubobject, ComputedBaseOverriders);
 

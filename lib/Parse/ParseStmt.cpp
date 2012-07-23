@@ -20,6 +20,7 @@
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/PrettyStackTrace.h"
 #include "clang/Basic/SourceManager.h"
+#include "llvm/ADT/SmallString.h"
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
@@ -895,7 +896,7 @@ bool Parser::ParseParenExprOrCondition(ExprResult &ExprResult,
 
   // Otherwise the condition is valid or the rparen is present.
   T.consumeClose();
-  
+
   // Check for extraneous ')'s to catch things like "if (foo())) {".  We know
   // that all callers are looking for a statement after the condition, so ")"
   // isn't valid.
@@ -904,7 +905,7 @@ bool Parser::ParseParenExprOrCondition(ExprResult &ExprResult,
       << FixItHint::CreateRemoval(Tok.getLocation());
     ConsumeParen();
   }
-  
+
   return false;
 }
 
@@ -1258,6 +1259,12 @@ StmtResult Parser::ParseDoStatement() {
   // Parse the parenthesized condition.
   BalancedDelimiterTracker T(*this, tok::l_paren);
   T.consumeOpen();
+
+  // FIXME: Do not just parse the attribute contents and throw them away
+  ParsedAttributesWithRange attrs(AttrFactory);
+  MaybeParseCXX0XAttributes(attrs);
+  ProhibitAttributes(attrs);
+
   ExprResult Cond = ParseExpression();
   T.consumeClose();
   DoScope.Exit();
@@ -1298,7 +1305,8 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
     return StmtError();
   }
 
-  bool C99orCXXorObjC = getLangOpts().C99 || getLangOpts().CPlusPlus || getLangOpts().ObjC1;
+  bool C99orCXXorObjC = getLangOpts().C99 || getLangOpts().CPlusPlus ||
+    getLangOpts().ObjC1;
 
   // C99 6.8.5p5 - In C99, the for statement is a block.  This is not
   // the case for C90.  Start the loop scope.
@@ -1346,8 +1354,12 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
     return StmtError();
   }
 
+  ParsedAttributesWithRange attrs(AttrFactory);
+  MaybeParseCXX0XAttributes(attrs);
+
   // Parse the first part of the for specifier.
   if (Tok.is(tok::semi)) {  // for (;
+    ProhibitAttributes(attrs);
     // no first part, eat the ';'.
     ConsumeToken();
   } else if (isForInitDeclaration()) {  // for (int X = 4;
@@ -1392,6 +1404,7 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
       Diag(Tok, diag::err_expected_semi_for);
     }
   } else {
+    ProhibitAttributes(attrs);
     Value = ParseExpression();
 
     ForEach = isTokIdentifier_in();
@@ -1479,6 +1492,8 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
   // statememt before parsing the body, in order to be able to deduce the type
   // of an auto-typed loop variable.
   StmtResult ForRangeStmt;
+  StmtResult ForEachStmt;
+
   if (ForRange) {
     ForRangeStmt = Actions.ActOnCXXForRangeStmt(ForLoc, T.getOpenLocation(),
                                                 FirstPart.take(),
@@ -1490,9 +1505,10 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
   // Similarly, we need to do the semantic analysis for a for-range
   // statement immediately in order to close over temporaries correctly.
   } else if (ForEach) {
-    if (!Collection.isInvalid())
-      Collection =
-        Actions.ActOnObjCForCollectionOperand(ForLoc, Collection.take());
+    ForEachStmt = Actions.ActOnObjCForCollectionStmt(ForLoc, T.getOpenLocation(),
+                                                     FirstPart.take(),
+                                                     Collection.take(),
+                                                     T.getCloseLocation());
   }
 
   // C99 6.8.5p5 - In C99, the body of the if statement is a scope, even if
@@ -1522,11 +1538,8 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
     return StmtError();
 
   if (ForEach)
-   return Actions.ActOnObjCForCollectionStmt(ForLoc, T.getOpenLocation(),
-                                             FirstPart.take(),
-                                             Collection.take(), 
-                                             T.getCloseLocation(),
-                                             Body.take());
+   return Actions.FinishObjCForCollectionStmt(ForEachStmt.take(),
+                                              Body.take());
 
   if (ForRange)
     return Actions.FinishCXXForRangeStmt(ForRangeStmt.take(), Body.take());
@@ -1625,11 +1638,61 @@ StmtResult Parser::ParseReturnStatement() {
   return Actions.ActOnReturnStmt(ReturnLoc, R.take());
 }
 
+// needSpaceAsmToken - This function handles whitespace around asm punctuation.
+// Returns true if a space should be emitted.
+static inline bool needSpaceAsmToken(Token currTok) {
+  static Token prevTok;
+
+  // No need for space after prevToken.
+  switch(prevTok.getKind()) {
+  default:
+    break;
+  case tok::l_square:
+  case tok::r_square:
+  case tok::l_brace:
+  case tok::r_brace:
+  case tok::colon:
+    prevTok = currTok;
+    return false;
+  }
+
+  // No need for a space before currToken.
+  switch(currTok.getKind()) {
+  default:
+    break;
+  case tok::l_square:
+  case tok::r_square:
+  case tok::l_brace:
+  case tok::r_brace:
+  case tok::comma:
+  case tok::colon:
+    prevTok = currTok;
+    return false;
+  }
+  prevTok = currTok;
+  return true;
+}
+
 /// ParseMicrosoftAsmStatement. When -fms-extensions/-fasm-blocks is enabled,
 /// this routine is called to collect the tokens for an MS asm statement.
+///
+/// [MS]  ms-asm-statement:
+///         ms-asm-block
+///         ms-asm-block ms-asm-statement
+///
+/// [MS]  ms-asm-block:
+///         '__asm' ms-asm-line '\n'
+///         '__asm' '{' ms-asm-instruction-block[opt] '}' ';'[opt]
+///
+/// [MS]  ms-asm-instruction-block
+///         ms-asm-line
+///         ms-asm-line '\n' ms-asm-instruction-block
+///
 StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
   SourceManager &SrcMgr = PP.getSourceManager();
   SourceLocation EndLoc = AsmLoc;
+  SmallVector<Token, 4> AsmToks;
+  SmallVector<unsigned, 4> LineEnds;
   do {
     bool InBraces = false;
     unsigned short savedBraceCount = 0;
@@ -1658,8 +1721,10 @@ StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
       // If we hit EOF, we're done, period.
       if (Tok.is(tok::eof))
         break;
-      // When we consume the closing brace, we're done.
-      if (InBraces && BraceCount == savedBraceCount)
+
+      // The asm keyword is a statement separator, so multiple asm statements
+      // are allowed.
+      if (!InAsmComment && Tok.is(tok::kw_asm))
         break;
 
       if (!InAsmComment && Tok.is(tok::semi)) {
@@ -1691,17 +1756,27 @@ StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
           break;
         }
       }
+      if (!InAsmComment && InBraces && Tok.is(tok::r_brace) &&
+          BraceCount == (savedBraceCount + 1)) {
+        // Consume the closing brace, and finish
+        EndLoc = ConsumeBrace();
+        break;
+      }
 
       // Consume the next token; make sure we don't modify the brace count etc.
       // if we are in a comment.
       EndLoc = TokLoc;
       if (InAsmComment)
         PP.Lex(Tok);
-      else
+      else {
+        AsmToks.push_back(Tok);
         ConsumeAnyToken();
+      }
       TokLoc = Tok.getLocation();
       ++NumTokensRead;
     } while (1);
+
+    LineEnds.push_back(AsmToks.size());
 
     if (InBraces && BraceCount != savedBraceCount) {
       // __asm without closing brace (this can happen at EOF).
@@ -1719,24 +1794,34 @@ StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
       break;
     EndLoc = ConsumeToken();
   } while (1);
-  // FIXME: Need to actually grab the data and pass it on to Sema.  Ideally,
-  // what Sema wants is a string of the entire inline asm, with one instruction
-  // per line and all the __asm keywords stripped out, and a way of mapping
-  // from any character of that string to its location in the original source
-  // code. I'm not entirely sure how to go about that, though.
-  Token t;
-  t.setKind(tok::string_literal);
-  t.setLiteralData("\"/*FIXME: not done*/\"");
-  t.clearFlag(Token::NeedsCleaning);
-  t.setLength(21);
-  ExprResult AsmString(Actions.ActOnStringLiteral(&t, 1));
-  ExprVector Constraints(Actions);
-  ExprVector Exprs(Actions);
-  ExprVector Clobbers(Actions);
-  return Actions.ActOnAsmStmt(AsmLoc, true, true, 0, 0, 0,
-                              move_arg(Constraints), move_arg(Exprs),
-                              AsmString.take(), move_arg(Clobbers),
-                              EndLoc, true);
+
+  // Collect the tokens into a string
+  SmallString<512> Asm;
+  SmallString<512> TokenBuf;
+  TokenBuf.resize(512);
+  unsigned AsmLineNum = 0;
+  for (unsigned i = 0, e = AsmToks.size(); i < e; ++i) {
+    const char *ThisTokBuf = &TokenBuf[0];
+    bool StringInvalid = false;
+    unsigned ThisTokLen =
+      Lexer::getSpelling(AsmToks[i], ThisTokBuf, PP.getSourceManager(),
+                         PP.getLangOpts(), &StringInvalid);
+    if (i && (!AsmLineNum || i != LineEnds[AsmLineNum-1]) &&
+        needSpaceAsmToken(AsmToks[i]))
+      Asm += ' ';
+    Asm += StringRef(ThisTokBuf, ThisTokLen);
+    if (i + 1 == LineEnds[AsmLineNum] && i + 1 != AsmToks.size()) {
+      Asm += '\n';
+      ++AsmLineNum;
+    }
+  }
+
+  // FIXME: We should be passing the tokens and source locations, rather than
+  // (or possibly in addition to the) AsmString.  Sema is going to interact with
+  // MC to determine Constraints, Clobbers, etc., which would be simplest to
+  // do with the tokens.
+  std::string AsmString = Asm.c_str();
+  return Actions.ActOnMSAsmStmt(AsmLoc, AsmString, EndLoc);
 }
 
 /// ParseAsmStatement - Parse a GNU extended asm statement.
@@ -1758,23 +1843,12 @@ StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
 ///         asm-string-literal
 ///         asm-clobbers ',' asm-string-literal
 ///
-/// [MS]  ms-asm-statement:
-///         ms-asm-block
-///         ms-asm-block ms-asm-statement
-///
-/// [MS]  ms-asm-block:
-///         '__asm' ms-asm-line '\n'
-///         '__asm' '{' ms-asm-instruction-block[opt] '}' ';'[opt]
-///
-/// [MS]  ms-asm-instruction-block
-///         ms-asm-line
-///         ms-asm-line '\n' ms-asm-instruction-block
-///
 StmtResult Parser::ParseAsmStatement(bool &msAsm) {
   assert(Tok.is(tok::kw_asm) && "Not an asm stmt");
   SourceLocation AsmLoc = ConsumeToken();
 
-  if (getLangOpts().MicrosoftExt && Tok.isNot(tok::l_paren) && !isTypeQualifier()) {
+  if (getLangOpts().MicrosoftExt && Tok.isNot(tok::l_paren) &&
+      !isTypeQualifier()) {
     msAsm = true;
     return ParseMicrosoftAsmStatement(AsmLoc);
   }
@@ -2077,7 +2151,7 @@ StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc) {
     return move(TryBlock);
 
   // Borland allows SEH-handlers with 'try'
-  
+
   if ((Tok.is(tok::identifier) &&
        Tok.getIdentifierInfo() == getSEHExceptKeyword()) ||
       Tok.is(tok::kw___finally)) {
@@ -2117,7 +2191,7 @@ StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc) {
     if (Handlers.empty())
       return StmtError();
 
-    return Actions.ActOnCXXTryBlock(TryLoc, TryBlock.take(), move_arg(Handlers));
+    return Actions.ActOnCXXTryBlock(TryLoc, TryBlock.take(),move_arg(Handlers));
   }
 }
 
@@ -2213,10 +2287,10 @@ void Parser::ParseMicrosoftIfExistsStatement(StmtVector &Stmts) {
   case IEB_Parse:
     // Parse the statements below.
     break;
-      
+
   case IEB_Dependent:
     llvm_unreachable("Dependent case handled above");
-      
+
   case IEB_Skip:
     Braces.skipToEnd();
     return;

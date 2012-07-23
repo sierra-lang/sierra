@@ -19,10 +19,11 @@
 
 #include "Transforms.h"
 #include "Internals.h"
-#include "clang/Sema/SemaDiagnostic.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/ParentMap.h"
-#include "clang/Lex/Lexer.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Lex/Lexer.h"
+#include "clang/Sema/SemaDiagnostic.h"
 
 using namespace clang;
 using namespace arcmt;
@@ -49,7 +50,7 @@ public:
         Pass.Ctx.Selectors.getNullarySelector(&Pass.Ctx.Idents.get("finalize"));
   }
 
-  void transformBody(Stmt *body) {
+  void transformBody(Stmt *body, Decl *ParentD) {
     Body = body;
     collectRemovables(body, Removables);
     StmtMap.reset(new ParentMap(body));

@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Serialization/ASTWriter.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
@@ -108,6 +109,7 @@ void ASTStmtWriter::VisitLabelStmt(LabelStmt *S) {
 
 void ASTStmtWriter::VisitAttributedStmt(AttributedStmt *S) {
   VisitStmt(S);
+  Record.push_back(S->getAttrs().size());
   Writer.WriteAttributes(S->getAttrs(), Record);
   Writer.AddStmt(S->getSubStmt());
   Writer.AddSourceLocation(S->getAttrLoc(), Record);
@@ -247,6 +249,11 @@ void ASTStmtWriter::VisitAsmStmt(AsmStmt *S) {
     Writer.AddStmt(S->getClobber(I));
 
   Code = serialization::STMT_ASM;
+}
+
+void ASTStmtWriter::VisitMSAsmStmt(MSAsmStmt *S) {
+  // FIXME: Statement writer not yet implemented for MS style inline asm.
+  VisitStmt(S);
 }
 
 void ASTStmtWriter::VisitExpr(Expr *E) {
