@@ -803,6 +803,18 @@ def EnableIf : InheritableAttr {
   let Documentation = [EnableIfDocs];
 }
 
+def SierraSpmd : TypeAttr {
+  let Spellings = [GNU<"sierra_spmd">];
+  let Args = [IntArgument<"SPMD">];
+  let Documentation = [Undocumented]; // TODO
+}
+
+def SierraVectorType : TypeAttr {
+  let Spellings = [GNU<"sierra_vector">];
+  let Args = [ExprArgument<"NumElements">];
+  let Documentation = [Undocumented]; // TODO
+}
+
 def ExtVectorType : Attr {
   let Spellings = [GNU<"ext_vector_type">];
   let Subjects = SubjectList<[TypedefName], ErrorDiag>;
