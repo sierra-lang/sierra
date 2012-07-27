@@ -1,3 +1,16 @@
+//===--- SemaSierra.cpp - Semantic Analysis Helpers for Sierra ------------===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+//
+//  This file implements Sierra-related semantic analysis.
+//
+//===----------------------------------------------------------------------===//
+
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/SemaSierra.h"
