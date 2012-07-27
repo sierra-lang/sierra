@@ -1,3 +1,16 @@
+//===--- CGSierra.h - Code Generation for Sierra ---------------*- C++ -*-===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+//
+// This file provides the interface for Sierra-related code generation.
+//
+//===----------------------------------------------------------------------===//
+
 #ifndef LLVM_CLANG_CODEGEN_CGSIERRA_H
 #define LLVM_CLANG_CODEGEN_CGSIERRA_H
 
