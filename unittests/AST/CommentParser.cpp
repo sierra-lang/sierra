@@ -205,10 +205,15 @@ template <typename T>
         << " direction, "
            "expected " << (IsDirectionExplicit ? "explicit" : "implicit");
 
+  if (!PCC->hasParamName())
+    return ::testing::AssertionFailure()
+        << "ParamCommandComment has no parameter name";
+
   StringRef ActualParamName = PCC->getParamName();
   if (ActualParamName != ParamName)
     return ::testing::AssertionFailure()
-        << "ParamCommandComment has name \"" << ActualParamName.str() << "\", "
+        << "ParamCommandComment has parameter name \"" << ActualParamName.str()
+        << "\", "
            "expected \"" << ParamName.str() << "\"";
 
   Paragraph = PCC->getParagraph();
@@ -385,6 +390,32 @@ struct NoAttrs {};
   return ::testing::AssertionSuccess();
 }
 
+::testing::AssertionResult HasParagraphCommentAt(const Comment *C,
+                                                 size_t Idx,
+                                                 StringRef Text) {
+  ParagraphComment *PC;
+
+  {
+    ::testing::AssertionResult AR = GetChildAt(C, Idx, PC);
+    if (!AR)
+      return AR;
+  }
+
+  {
+    ::testing::AssertionResult AR = HasChildCount(PC, 1);
+    if (!AR)
+      return AR;
+  }
+
+  {
+    ::testing::AssertionResult AR = HasTextAt(PC, 0, Text);
+    if (!AR)
+      return AR;
+  }
+
+  return ::testing::AssertionSuccess();
+}
+
 ::testing::AssertionResult HasVerbatimBlockAt(const Comment *C,
                                               size_t Idx,
                                               VerbatimBlockComment *&VBC,
@@ -529,13 +560,7 @@ TEST_F(CommentParserTest, Basic2) {
   FullComment *FC = parseString(Source);
   ASSERT_TRUE(HasChildCount(FC, 1));
 
-  {
-    ParagraphComment *PC;
-    ASSERT_TRUE(GetChildAt(FC, 0, PC));
-
-    ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " Meow"));
-  }
+  ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " Meow"));
 }
 
 TEST_F(CommentParserTest, Basic3) {
@@ -573,20 +598,8 @@ TEST_F(CommentParserTest, Paragraph1) {
     FullComment *FC = parseString(Sources[i]);
     ASSERT_TRUE(HasChildCount(FC, 2));
 
-    {
-      ParagraphComment *PC;
-      ASSERT_TRUE(GetChildAt(FC, 0, PC));
-
-      ASSERT_TRUE(HasChildCount(PC, 1));
-        ASSERT_TRUE(HasTextAt(PC, 0, " Aaa"));
-    }
-    {
-      ParagraphComment *PC;
-      ASSERT_TRUE(GetChildAt(FC, 1, PC));
-
-      ASSERT_TRUE(HasChildCount(PC, 1));
-        ASSERT_TRUE(HasTextAt(PC, 0, " Bbb"));
-    }
+    ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " Aaa"));
+    ASSERT_TRUE(HasParagraphCommentAt(FC, 1, " Bbb"));
   }
 }
 
@@ -599,30 +612,15 @@ TEST_F(CommentParserTest, Paragraph2) {
   FullComment *FC = parseString(Source);
   ASSERT_TRUE(HasChildCount(FC, 3));
 
-  {
-    ParagraphComment *PC;
-    ASSERT_TRUE(GetChildAt(FC, 0, PC));
-
-    ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " "));
-  }
+  ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
   {
     BlockCommandComment *BCC;
     ParagraphComment *PC;
     ASSERT_TRUE(HasBlockCommandAt(FC, 1, BCC, "brief", PC));
 
-    ASSERT_TRUE(GetChildAt(BCC, 0, PC));
-
-    ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " Aaa"));
+    ASSERT_TRUE(HasParagraphCommentAt(BCC, 0, " Aaa"));
   }
-  {
-    ParagraphComment *PC;
-    ASSERT_TRUE(GetChildAt(FC, 2, PC));
-
-    ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " Bbb"));
-  }
+  ASSERT_TRUE(HasParagraphCommentAt(FC, 2, " Bbb"));
 }
 
 TEST_F(CommentParserTest, Paragraph3) {
@@ -631,21 +629,13 @@ TEST_F(CommentParserTest, Paragraph3) {
   FullComment *FC = parseString(Source);
   ASSERT_TRUE(HasChildCount(FC, 3));
 
-  {
-    ParagraphComment *PC;
-    ASSERT_TRUE(GetChildAt(FC, 0, PC));
-
-    ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " "));
-  }
+  ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
   {
     BlockCommandComment *BCC;
     ParagraphComment *PC;
     ASSERT_TRUE(HasBlockCommandAt(FC, 1, BCC, "brief", PC));
 
-    ASSERT_TRUE(GetChildAt(BCC, 0, PC));
-      ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " "));
+    ASSERT_TRUE(HasParagraphCommentAt(BCC, 0, " "));
   }
   {
     BlockCommandComment *BCC;
@@ -666,13 +656,7 @@ TEST_F(CommentParserTest, Paragraph4) {
   FullComment *FC = parseString(Source);
   ASSERT_TRUE(HasChildCount(FC, 3));
 
-  {
-    ParagraphComment *PC;
-    ASSERT_TRUE(GetChildAt(FC, 0, PC));
-
-    ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " "));
-  }
+  ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
   {
     BlockCommandComment *BCC;
     ParagraphComment *PC;
@@ -688,30 +672,135 @@ TEST_F(CommentParserTest, Paragraph4) {
     ParagraphComment *PC;
     ASSERT_TRUE(HasBlockCommandAt(FC, 2, BCC, "author", PC));
 
-    ASSERT_TRUE(GetChildAt(BCC, 0, PC));
-      ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " Ccc"));
+    ASSERT_TRUE(HasParagraphCommentAt(BCC, 0, " Ccc"));
   }
 }
 
 TEST_F(CommentParserTest, ParamCommand1) {
-  const char *Source =
+  const char *Sources[] = {
+    "// \\param aaa Bbb\n",
+    "// \\param\n"
+    "//     aaa Bbb\n",
+    "// \\param \n"
+    "//     aaa Bbb\n",
     "// \\param aaa\n"
+    "// Bbb\n"
+  };
+
+  for (size_t i = 0, e = array_lengthof(Sources); i != e; i++) {
+    FullComment *FC = parseString(Sources[i]);
+    ASSERT_TRUE(HasChildCount(FC, 2));
+
+    ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
+    {
+      ParamCommandComment *PCC;
+      ParagraphComment *PC;
+      ASSERT_TRUE(HasParamCommandAt(FC, 1, PCC, "param",
+                                    ParamCommandComment::In,
+                                    /* IsDirectionExplicit = */ false,
+                                    "aaa", PC));
+      ASSERT_TRUE(HasChildCount(PCC, 1));
+      ASSERT_TRUE(HasParagraphCommentAt(PCC, 0, " Bbb"));
+    }
+  }
+}
+
+TEST_F(CommentParserTest, ParamCommand2) {
+  const char *Sources[] = {
+    "// \\param [in] aaa Bbb\n",
+    "// \\param\n"
+    "//     [in] aaa Bbb\n",
+    "// \\param [in]\n"
+    "//     aaa Bbb\n",
     "// \\param [in] aaa\n"
+    "// Bbb\n",
+  };
+
+  for (size_t i = 0, e = array_lengthof(Sources); i != e; i++) {
+    FullComment *FC = parseString(Sources[i]);
+    ASSERT_TRUE(HasChildCount(FC, 2));
+
+    ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
+    {
+      ParamCommandComment *PCC;
+      ParagraphComment *PC;
+      ASSERT_TRUE(HasParamCommandAt(FC, 1, PCC, "param",
+                                    ParamCommandComment::In,
+                                    /* IsDirectionExplicit = */ true,
+                                    "aaa", PC));
+      ASSERT_TRUE(HasChildCount(PCC, 1));
+      ASSERT_TRUE(HasParagraphCommentAt(PCC, 0, " Bbb"));
+    }
+  }
+}
+
+TEST_F(CommentParserTest, ParamCommand3) {
+  const char *Sources[] = {
+    "// \\param [out] aaa Bbb\n",
+    "// \\param\n"
+    "//     [out] aaa Bbb\n",
+    "// \\param [out]\n"
+    "//     aaa Bbb\n",
     "// \\param [out] aaa\n"
+    "// Bbb\n",
+  };
+
+  for (size_t i = 0, e = array_lengthof(Sources); i != e; i++) {
+    FullComment *FC = parseString(Sources[i]);
+    ASSERT_TRUE(HasChildCount(FC, 2));
+
+    ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
+    {
+      ParamCommandComment *PCC;
+      ParagraphComment *PC;
+      ASSERT_TRUE(HasParamCommandAt(FC, 1, PCC, "param",
+                                    ParamCommandComment::Out,
+                                    /* IsDirectionExplicit = */ true,
+                                    "aaa", PC));
+      ASSERT_TRUE(HasChildCount(PCC, 1));
+      ASSERT_TRUE(HasParagraphCommentAt(PCC, 0, " Bbb"));
+    }
+  }
+}
+
+TEST_F(CommentParserTest, ParamCommand4) {
+  const char *Sources[] = {
+    "// \\param [in,out] aaa Bbb\n",
+    "// \\param [in, out] aaa Bbb\n",
+    "// \\param [in,\n"
+    "//     out] aaa Bbb\n",
+    "// \\param [in,out]\n"
+    "//     aaa Bbb\n",
     "// \\param [in,out] aaa\n"
-    "// \\param [in, out] aaa\n";
+    "// Bbb\n"
+  };
+
+  for (size_t i = 0, e = array_lengthof(Sources); i != e; i++) {
+    FullComment *FC = parseString(Sources[i]);
+    ASSERT_TRUE(HasChildCount(FC, 2));
+
+    ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
+    {
+      ParamCommandComment *PCC;
+      ParagraphComment *PC;
+      ASSERT_TRUE(HasParamCommandAt(FC, 1, PCC, "param",
+                                    ParamCommandComment::InOut,
+                                    /* IsDirectionExplicit = */ true,
+                                    "aaa", PC));
+      ASSERT_TRUE(HasChildCount(PCC, 1));
+      ASSERT_TRUE(HasParagraphCommentAt(PCC, 0, " Bbb"));
+    }
+  }
+}
+
+TEST_F(CommentParserTest, ParamCommand5) {
+  const char *Source =
+    "// \\param aaa \\% Bbb \\$ ccc\n";
 
   FullComment *FC = parseString(Source);
-  ASSERT_TRUE(HasChildCount(FC, 6));
+  ASSERT_TRUE(HasChildCount(FC, 2));
 
-  {
-    ParagraphComment *PC;
-    ASSERT_TRUE(GetChildAt(FC, 0, PC));
-
-    ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " "));
-  }
+  ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
   {
     ParamCommandComment *PCC;
     ParagraphComment *PC;
@@ -720,51 +809,13 @@ TEST_F(CommentParserTest, ParamCommand1) {
                                   /* IsDirectionExplicit = */ false,
                                   "aaa", PC));
     ASSERT_TRUE(HasChildCount(PCC, 1));
-    ASSERT_TRUE(HasChildCount(PC, 1));
+
+    ASSERT_TRUE(HasChildCount(PC, 5));
       ASSERT_TRUE(HasTextAt(PC, 0, " "));
-  }
-  {
-    ParamCommandComment *PCC;
-    ParagraphComment *PC;
-    ASSERT_TRUE(HasParamCommandAt(FC, 2, PCC, "param",
-                                  ParamCommandComment::In,
-                                  /* IsDirectionExplicit = */ true,
-                                  "aaa", PC));
-    ASSERT_TRUE(HasChildCount(PCC, 1));
-    ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " "));
-  }
-  {
-    ParamCommandComment *PCC;
-    ParagraphComment *PC;
-    ASSERT_TRUE(HasParamCommandAt(FC, 3, PCC, "param",
-                                  ParamCommandComment::Out,
-                                  /* IsDirectionExplicit = */ true,
-                                  "aaa", PC));
-    ASSERT_TRUE(HasChildCount(PCC, 1));
-    ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " "));
-  }
-  {
-    ParamCommandComment *PCC;
-    ParagraphComment *PC;
-    ASSERT_TRUE(HasParamCommandAt(FC, 4, PCC, "param",
-                                  ParamCommandComment::InOut,
-                                  /* IsDirectionExplicit = */ true,
-                                  "aaa", PC));
-    ASSERT_TRUE(HasChildCount(PCC, 1));
-    ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " "));
-  }
-  {
-    ParamCommandComment *PCC;
-    ParagraphComment *PC;
-    ASSERT_TRUE(HasParamCommandAt(FC, 5, PCC, "param",
-                                  ParamCommandComment::InOut,
-                                  /* IsDirectionExplicit = */ true,
-                                  "aaa", PC));
-    ASSERT_TRUE(HasChildCount(PCC, 1));
-    ASSERT_TRUE(HasChildCount(PC, 0));
+      ASSERT_TRUE(HasTextAt(PC, 1, "%"));
+      ASSERT_TRUE(HasTextAt(PC, 2, " Bbb "));
+      ASSERT_TRUE(HasTextAt(PC, 3, "$"));
+      ASSERT_TRUE(HasTextAt(PC, 4, " ccc"));
   }
 }
 
@@ -1002,13 +1053,7 @@ TEST_F(CommentParserTest, VerbatimBlock1) {
   FullComment *FC = parseString(Source);
   ASSERT_TRUE(HasChildCount(FC, 2));
 
-  {
-    ParagraphComment *PC;
-    ASSERT_TRUE(GetChildAt(FC, 0, PC));
-
-    ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " "));
-  }
+  ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
   {
     VerbatimBlockComment *VCC;
     ASSERT_TRUE(HasVerbatimBlockAt(FC, 1, VCC, "verbatim", "endverbatim",
@@ -1022,13 +1067,7 @@ TEST_F(CommentParserTest, VerbatimBlock2) {
   FullComment *FC = parseString(Source);
   ASSERT_TRUE(HasChildCount(FC, 2));
 
-  {
-    ParagraphComment *PC;
-    ASSERT_TRUE(GetChildAt(FC, 0, PC));
-
-    ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " "));
-  }
+  ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
   {
     VerbatimBlockComment *VBC;
     ASSERT_TRUE(HasVerbatimBlockAt(FC, 1, VBC, "verbatim", "endverbatim",
@@ -1042,13 +1081,7 @@ TEST_F(CommentParserTest, VerbatimBlock3) {
   FullComment *FC = parseString(Source);
   ASSERT_TRUE(HasChildCount(FC, 2));
 
-  {
-    ParagraphComment *PC;
-    ASSERT_TRUE(GetChildAt(FC, 0, PC));
-
-    ASSERT_TRUE(HasChildCount(PC, 1));
-      ASSERT_TRUE(HasTextAt(PC, 0, " "));
-  }
+  ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
   {
     VerbatimBlockComment *VBC;
     ASSERT_TRUE(HasVerbatimBlockAt(FC, 1, VBC, "verbatim", "",
@@ -1109,13 +1142,7 @@ TEST_F(CommentParserTest, VerbatimBlock6) {
     FullComment *FC = parseString(Sources[i]);
     ASSERT_TRUE(HasChildCount(FC, 2));
 
-    {
-      ParagraphComment *PC;
-      ASSERT_TRUE(GetChildAt(FC, 0, PC));
-
-      ASSERT_TRUE(HasChildCount(PC, 1));
-        ASSERT_TRUE(HasTextAt(PC, 0, " "));
-    }
+    ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
     {
       VerbatimBlockComment *VBC;
       ASSERT_TRUE(HasVerbatimBlockAt(FC, 1, VBC, "verbatim", "endverbatim",
@@ -1141,13 +1168,7 @@ TEST_F(CommentParserTest, VerbatimBlock7) {
     FullComment *FC = parseString(Sources[i]);
     ASSERT_TRUE(HasChildCount(FC, 2));
 
-    {
-      ParagraphComment *PC;
-      ASSERT_TRUE(GetChildAt(FC, 0, PC));
-
-      ASSERT_TRUE(HasChildCount(PC, 1));
-        ASSERT_TRUE(HasTextAt(PC, 0, " "));
-    }
+    ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
     {
       VerbatimBlockComment *VBC;
       ASSERT_TRUE(HasVerbatimBlockAt(FC, 1, VBC, "verbatim", "endverbatim",
@@ -1174,13 +1195,7 @@ TEST_F(CommentParserTest, VerbatimBlock8) {
     FullComment *FC = parseString(Sources[i]);
     ASSERT_TRUE(HasChildCount(FC, 2));
 
-    {
-      ParagraphComment *PC;
-      ASSERT_TRUE(GetChildAt(FC, 0, PC));
-
-      ASSERT_TRUE(HasChildCount(PC, 1));
-        ASSERT_TRUE(HasTextAt(PC, 0, " "));
-    }
+    ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
     {
       VerbatimBlockComment *VBC;
       ASSERT_TRUE(HasVerbatimBlockAt(FC, 1, VBC, "verbatim", "endverbatim"));
@@ -1202,13 +1217,7 @@ TEST_F(CommentParserTest, VerbatimLine1) {
     FullComment *FC = parseString(Sources[i]);
     ASSERT_TRUE(HasChildCount(FC, 2));
 
-    {
-      ParagraphComment *PC;
-      ASSERT_TRUE(GetChildAt(FC, 0, PC));
-
-      ASSERT_TRUE(HasChildCount(PC, 1));
-        ASSERT_TRUE(HasTextAt(PC, 0, " "));
-    }
+    ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
     {
       VerbatimLineComment *VLC;
       ASSERT_TRUE(HasVerbatimLineAt(FC, 1, VLC, "fn", ""));
@@ -1226,13 +1235,7 @@ TEST_F(CommentParserTest, VerbatimLine2) {
     FullComment *FC = parseString(Sources[i]);
     ASSERT_TRUE(HasChildCount(FC, 2));
 
-    {
-      ParagraphComment *PC;
-      ASSERT_TRUE(GetChildAt(FC, 0, PC));
-
-      ASSERT_TRUE(HasChildCount(PC, 1));
-        ASSERT_TRUE(HasTextAt(PC, 0, " "));
-    }
+    ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
     {
       VerbatimLineComment *VLC;
       ASSERT_TRUE(HasVerbatimLineAt(FC, 1, VLC, "fn",
