@@ -1,3 +1,16 @@
+//===--- CGSierra.cpp - Code Generation for Sierra ------------------------===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+//
+//  This file implements Sierra-related code generation.
+//
+//===----------------------------------------------------------------------===//
+
 #include "clang/AST/Type.h"
 #include "CGSierra.h"
 #include "CodeGenFunction.h"
@@ -6,7 +19,6 @@
 #include "llvm/DerivedTypes.h"
 #include "llvm/Value.h"
 #include "llvm/Intrinsics.h"
-
 
 using llvm::Value;
 
