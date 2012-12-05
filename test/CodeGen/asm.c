@@ -220,3 +220,22 @@ typedef long long __m256i __attribute__((__vector_size__(32)));
 void t26 (__m256i *p) {
   __asm__ volatile("vmovaps  %0, %%ymm0" :: "m" (*(__m256i*)p) : "ymm0");
 }
+
+// Check to make sure the inline asm non-standard dialect attribute _not_ is
+// emitted.
+void t27(void) {
+  asm volatile("nop");
+// CHECK: @t27
+// CHECK: call void asm sideeffect "nop"
+// CHECK-NOT: ia_nsdialect
+// CHECK: ret void
+}
+
+// Check handling of '*' and '#' constraint modifiers.
+void t28(void)
+{
+  asm volatile ("/* %0 */" : : "i#*X,*r" (1));
+// CHECK: @t28
+// CHECK: call void asm sideeffect "/* $0 */", "i|r,~{dirflag},~{fpsr},~{flags}"(i32 1)
+}
+

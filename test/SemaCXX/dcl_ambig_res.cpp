@@ -1,5 +1,8 @@
 // RUN: %clang_cc1 -fsyntax-only -pedantic -verify %s
 
+// PR13819
+// REQUIRES: LP64
+
 // [dcl.ambig.res]p1:
 struct S { 
   S(int); 
@@ -10,9 +13,9 @@ int returns_an_int();
 
 void foo(double a) 
 { 
-  S w(int(a)); // expected-warning{{disambiguated}}
+  S w(int(a)); // expected-warning{{disambiguated as a function declaration}} expected-note{{add a pair of parentheses}} 
   w(17);
-  S x1(int()); // expected-warning{{disambiguated}}
+  S x1(int()); // expected-warning{{disambiguated as a function declaration}} expected-note{{add a pair of parentheses}} 
   x1(&returns_an_int);
   S y((int)a); 
   y.bar();
@@ -69,7 +72,7 @@ struct S5 {
   static bool const value = false;
 };
 int foo8() {
-  int v(int(S5::value)); // expected-warning{{disambiguated}} expected-error{{parameter declarator cannot be qualified}}
+  int v(int(S5::value)); // expected-warning{{disambiguated as a function declaration}} expected-note{{add a pair of parentheses}} expected-error{{parameter declarator cannot be qualified}}
 }
 
 template<typename T>

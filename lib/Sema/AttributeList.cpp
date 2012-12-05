@@ -15,12 +15,14 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Expr.h"
 #include "clang/Basic/IdentifierTable.h"
-#include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringSwitch.h"
 using namespace clang;
 
 size_t AttributeList::allocated_size() const {
   if (IsAvailability) return AttributeFactory::AvailabilityAllocSize;
+  else if (IsTypeTagForDatatype)
+    return AttributeFactory::TypeTagForDatatypeAllocSize;
   return (sizeof(AttributeList) + NumArgs * sizeof(Expr*));
 }
 

@@ -61,6 +61,8 @@ void test34(int cond) {
   // CHECK-NEXT: [[WEAK:%.*]] = alloca i8*
   // CHECK-NEXT: [[TEMP1:%.*]] = alloca i8*
   // CHECK-NEXT: [[TEMP2:%.*]] = alloca i8*
+  // CHECK-NEXT: [[CONDCLEANUPSAVE:%.*]] = alloca i8*
+  // CHECK-NEXT: [[CONDCLEANUP:%.*]] = alloca i1
   // CHECK-NEXT: store i32
   // CHECK-NEXT: store i8* null, i8** [[STRONG]]
   // CHECK-NEXT: call i8* @objc_initWeak(i8** [[WEAK]], i8* null)
@@ -89,8 +91,11 @@ void test34(int cond) {
   // CHECK:      [[ARG:%.*]] = phi i8**
   // CHECK-NEXT: [[T0:%.*]] = icmp eq i8** [[ARG]], null
   // CHECK-NEXT: [[T1:%.*]] = select i1 [[T0]], i8** null, i8** [[TEMP2]]
+  // CHECK-NEXT: store i1 false, i1* [[CONDCLEANUP]]
   // CHECK-NEXT: br i1 [[T0]],
-  // CHECK:      [[T0:%.*]] = call i8* @objc_loadWeak(i8** [[ARG]])
+  // CHECK:      [[T0:%.*]] = call i8* @objc_loadWeakRetained(i8** [[ARG]])
+  // CHECK-NEXT: store i8* [[T0]], i8** [[CONDCLEANUPSAVE]]
+  // CHECK-NEXT: store i1 true, i1* [[CONDCLEANUP]]
   // CHECK-NEXT: store i8* [[T0]], i8** [[TEMP2]]
   // CHECK-NEXT: br label
   // CHECK:      call void @_Z11test34_sinkPU15__autoreleasingP11objc_object(i8** [[T1]])
@@ -252,3 +257,19 @@ template <class T> class Test38 {
 };
 // CHECK: define weak_odr void @_ZN6Test38IiE4testEi(
 template class Test38<int>;
+
+// rdar://problem/11964832
+class Test39_base1 {
+  virtual void foo();
+};
+class Test39_base2 {
+  virtual id bar();
+};
+class Test39 : Test39_base1, Test39_base2 { // base2 is at non-zero offset
+  virtual id bar();
+};
+id Test39::bar() { return 0; }
+// Note lack of autorelease.
+// CHECK:    define i8* @_ZThn8_N6Test393barEv(
+// CHECK:      call i8* @_ZN6Test393barEv(
+// CHECK-NEXT: ret i8*

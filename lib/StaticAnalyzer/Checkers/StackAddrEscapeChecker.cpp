@@ -13,13 +13,15 @@
 //===----------------------------------------------------------------------===//
 
 #include "ClangSACheckers.h"
+#include "clang/AST/ExprCXX.h"
+#include "clang/Basic/SourceManager.h"
+#include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
-#include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h"
-#include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/Support/raw_ostream.h"
 using namespace clang;
 using namespace ento;
 
@@ -109,7 +111,7 @@ void StackAddrEscapeChecker::EmitStackError(CheckerContext &C, const MemRegion *
   if (range.isValid())
     report->addRange(range);
 
-  C.EmitReport(report);
+  C.emitReport(report);
 }
 
 void StackAddrEscapeChecker::checkPreStmt(const ReturnStmt *RS,
@@ -118,8 +120,10 @@ void StackAddrEscapeChecker::checkPreStmt(const ReturnStmt *RS,
   const Expr *RetE = RS->getRetValue();
   if (!RetE)
     return;
- 
-  SVal V = C.getState()->getSVal(RetE, C.getLocationContext());
+  RetE = RetE->IgnoreParens();
+
+  const LocationContext *LCtx = C.getLocationContext();
+  SVal V = C.getState()->getSVal(RetE, LCtx);
   const MemRegion *R = V.getAsRegion();
 
   if (!R)
@@ -132,13 +136,22 @@ void StackAddrEscapeChecker::checkPreStmt(const ReturnStmt *RS,
     return;
 
   // Return stack memory in an ancestor stack frame is fine.
-  const StackFrameContext *SFC = SS->getStackFrame();
-  if (SFC != C.getLocationContext()->getCurrentStackFrame())
+  const StackFrameContext *CurFrame = LCtx->getCurrentStackFrame();
+  const StackFrameContext *MemFrame = SS->getStackFrame();
+  if (MemFrame != CurFrame)
     return;
 
   // Automatic reference counting automatically copies blocks.
   if (C.getASTContext().getLangOpts().ObjCAutoRefCount &&
       isa<BlockDataRegion>(R))
+    return;
+
+  // Returning a record by value is fine. (In this case, the returned
+  // expression will be a copy-constructor, possibly wrapped in an
+  // ExprWithCleanups node.)
+  if (const ExprWithCleanups *Cleanup = dyn_cast<ExprWithCleanups>(RetE))
+    RetE = Cleanup->getSubExpr();
+  if (isa<CXXConstructExpr>(RetE) && RetE->getType()->isRecordType())
     return;
 
   EmitStackError(C, R, RetE);
@@ -221,7 +234,7 @@ void StackAddrEscapeChecker::checkEndPath(CheckerContext &Ctx) const {
     if (range.isValid())
       report->addRange(range);
 
-    Ctx.EmitReport(report);
+    Ctx.emitReport(report);
   }
 }
 

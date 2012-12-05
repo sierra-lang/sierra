@@ -19,8 +19,8 @@
 #include "clang/Lex/PPCallbacks.h"
 #include "clang/Lex/Preprocessor.h"
 #include "llvm/ADT/SetVector.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/GraphWriter.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
 namespace DOT = llvm::DOT;
@@ -51,10 +51,11 @@ public:
                                   const Token &IncludeTok,
                                   StringRef FileName,
                                   bool IsAngled,
+                                  CharSourceRange FilenameRange,
                                   const FileEntry *File,
-                                  SourceLocation EndLoc,
                                   StringRef SearchPath,
-                                  StringRef RelativePath);
+                                  StringRef RelativePath,
+                                  const Module *Imported);
 
   virtual void EndOfMainFile() {
     OutputGraphFile();
@@ -72,10 +73,11 @@ void DependencyGraphCallback::InclusionDirective(SourceLocation HashLoc,
                                                  const Token &IncludeTok,
                                                  StringRef FileName,
                                                  bool IsAngled,
+                                                 CharSourceRange FilenameRange,
                                                  const FileEntry *File,
-                                                 SourceLocation EndLoc,
                                                  StringRef SearchPath,
-                                                 StringRef RelativePath) {
+                                                 StringRef RelativePath,
+                                                 const Module *Imported) {
   if (!File)
     return;
   

@@ -15,6 +15,7 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h"
 #include "clang/AST/ExprObjC.h"
 #include "clang/Basic/IdentifierTable.h"
+#include "llvm/Support/raw_ostream.h"
 using namespace clang;
 using namespace ento;
 using llvm::APSInt;
@@ -51,7 +52,8 @@ const FunctionDecl *SVal::getAsFunctionDecl() const {
   if (const loc::MemRegionVal* X = dyn_cast<loc::MemRegionVal>(this)) {
     const MemRegion* R = X->getRegion();
     if (const FunctionTextRegion *CTR = R->getAs<FunctionTextRegion>())
-      return CTR->getDecl();
+      if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(CTR->getDecl()))
+        return FD;
   }
 
   return 0;
@@ -133,9 +135,9 @@ const MemRegion *SVal::getAsRegion() const {
   return 0;
 }
 
-const MemRegion *loc::MemRegionVal::stripCasts() const {
+const MemRegion *loc::MemRegionVal::stripCasts(bool StripBaseCasts) const {
   const MemRegion *R = getRegion();
-  return R ?  R->StripCasts() : NULL;
+  return R ?  R->StripCasts(StripBaseCasts) : NULL;
 }
 
 const void *nonloc::LazyCompoundVal::getStore() const {

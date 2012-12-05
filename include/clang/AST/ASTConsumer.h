@@ -17,14 +17,17 @@
 namespace clang {
   class ASTContext;
   class CXXRecordDecl;
+  class Decl;
   class DeclGroupRef;
   class HandleTagDeclDefinition;
+  class PPMutationListener;
   class ASTMutationListener;
   class ASTDeserializationListener; // layering violation because void* is ugly
   class SemaConsumer; // layering violation required for safe SemaConsumer
   class TagDecl;
   class VarDecl;
   class FunctionDecl;
+  class ImportDecl;
 
 /// ASTConsumer - This is an abstract interface that should be implemented by
 /// clients that read ASTs.  This abstraction layer allows the client to be
@@ -79,6 +82,11 @@ public:
   /// The default implementation ignored them.
   virtual void HandleTopLevelDeclInObjCContainer(DeclGroupRef D);
 
+  /// \brief Handle an ImportDecl that was implicitly created due to an
+  /// inclusion directive.
+  /// The default implementation passes it to HandleTopLevelDecl.
+  virtual void HandleImplicitImportDecl(ImportDecl *D);
+
   /// CompleteTentativeDefinition - Callback invoked at the end of a translation
   /// unit to notify the consumer that the given tentative definition should be
   /// completed.
@@ -105,6 +113,11 @@ public:
   /// it was actually used.
   virtual void HandleVTable(CXXRecordDecl *RD, bool DefinitionRequired) {}
 
+  /// \brief If the consumer is interested in preprocessor entities getting
+  /// modified after their initial creation, it should return a pointer to
+  /// a PPMutationListener here.
+  virtual PPMutationListener *GetPPMutationListener() { return 0; }
+
   /// \brief If the consumer is interested in entities getting modified after
   /// their initial creation, it should return a pointer to
   /// an ASTMutationListener here.
@@ -119,8 +132,13 @@ public:
   /// PrintStats - If desired, print any statistics.
   virtual void PrintStats() {}
 
-  // Support isa/cast/dyn_cast
-  static bool classof(const ASTConsumer *) { return true; }
+  /// \brief This callback is called for each function if the Parser was
+  /// initialized with \c SkipFunctionBodies set to \c true.
+  ///
+  /// \return \c true if the function's body should be skipped. The function
+  /// body may be parsed anyway if it is needed (for instance, if it contains
+  /// the code completion point or is constexpr).
+  virtual bool shouldSkipFunctionBody(Decl *D) { return true; }
 };
 
 } // end namespace clang.

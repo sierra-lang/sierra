@@ -14,8 +14,8 @@
 #ifndef LLVM_CLANG_AST_EXTERNAL_AST_SOURCE_H
 #define LLVM_CLANG_AST_EXTERNAL_AST_SOURCE_H
 
-#include "clang/AST/DeclBase.h"
 #include "clang/AST/CharUnits.h"
+#include "clang/AST/DeclBase.h"
 #include "llvm/ADT/DenseMap.h"
 
 namespace clang {
@@ -24,7 +24,9 @@ class ASTConsumer;
 class CXXBaseSpecifier;
 class DeclarationName;
 class ExternalSemaSource; // layering violation required for downcasting
+class FieldDecl;
 class NamedDecl;
+class RecordDecl;
 class Selector;
 class Stmt;
 class TagDecl;
@@ -162,7 +164,7 @@ public:
   }
 
   /// \brief Get the decls that are contained in a file in the Offset/Length
-  /// range. \arg Length can be 0 to indicate a point at \arg Offset instead of
+  /// range. \p Length can be 0 to indicate a point at \p Offset instead of
   /// a range. 
   virtual void FindFileRegionDecls(FileID File, unsigned Offset,unsigned Length,
                                    SmallVectorImpl<Decl *> &Decls) {}

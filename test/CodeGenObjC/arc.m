@@ -9,6 +9,9 @@ void test0(id x) {
   // CHECK-NEXT: [[TMP:%.*]] = load i8** [[X]]
   // CHECK-NEXT: call void @objc_release(i8* [[TMP]])
   // CHECK-NEXT: ret void
+// rdar://12040837
+  // CHECK: declare extern_weak i8* @objc_retain(i8*) nonlazybind
+  // CHECK: declare extern_weak void @objc_release(i8*) nonlazybind
 }
 
 // CHECK: define i8* @test1(i8*
@@ -599,7 +602,10 @@ void test22(_Bool cond) {
 
 // rdar://problem/8922540
 //   Note that we no longer emit .release_ivars flags.
-// CHECK-GLOBALS: @"\01l_OBJC_CLASS_RO_$_Test23" = internal global [[RO_T:%.*]] { i32 134,
+// rdar://problem/12492434
+//   Note that we set the flag saying that we need destruction *and*
+//   the flag saying that we don't also need construction.
+// CHECK-GLOBALS: @"\01l_OBJC_CLASS_RO_$_Test23" = internal global [[RO_T:%.*]] { i32 390,
 @interface Test23 { id x; } @end
 @implementation Test23 @end
 
@@ -952,6 +958,8 @@ void test34(int cond) {
   // CHECK-NEXT: [[WEAK:%.*]] = alloca i8*
   // CHECK-NEXT: [[TEMP1:%.*]] = alloca i8*
   // CHECK-NEXT: [[TEMP2:%.*]] = alloca i8*
+  // CHECK-NEXT: [[CONDCLEANUPSAVE:%.*]] = alloca i8*
+  // CHECK-NEXT: [[CONDCLEANUP:%.*]] = alloca i1
   // CHECK-NEXT: store i32
   // CHECK-NEXT: store i8* null, i8** [[STRONG]]
   // CHECK-NEXT: call i8* @objc_initWeak(i8** [[WEAK]], i8* null)
@@ -980,8 +988,11 @@ void test34(int cond) {
   // CHECK:      [[ARG:%.*]] = phi i8**
   // CHECK-NEXT: [[T0:%.*]] = icmp eq i8** [[ARG]], null
   // CHECK-NEXT: [[T1:%.*]] = select i1 [[T0]], i8** null, i8** [[TEMP2]]
+  // CHECK-NEXT: store i1 false, i1* [[CONDCLEANUP]]
   // CHECK-NEXT: br i1 [[T0]],
-  // CHECK:      [[T0:%.*]] = call i8* @objc_loadWeak(i8** [[ARG]])
+  // CHECK:      [[T0:%.*]] = call i8* @objc_loadWeakRetained(i8** [[ARG]])
+  // CHECK-NEXT: store i8* [[T0]], i8** [[CONDCLEANUPSAVE]]
+  // CHECK-NEXT: store i1 true, i1* [[CONDCLEANUP]]
   // CHECK-NEXT: store i8* [[T0]], i8** [[TEMP2]]
   // CHECK-NEXT: br label
   // CHECK:      call void @test34_sink(i8** [[T1]])
@@ -1355,9 +1366,9 @@ void test59(void) {
   // CHECK:    define void @test59()
   // CHECK:      [[T0:%.*]] = call i8* @test59_getlock()
   // CHECK-NEXT: [[T1:%.*]] = call i8* @objc_retainAutoreleasedReturnValue(i8* [[T0]])
-  // CHECK-NEXT: call void @objc_sync_enter(i8* [[T1]])
+  // CHECK-NEXT: call i32 @objc_sync_enter(i8* [[T1]])
   // CHECK-NEXT: call void @test59_body()
-  // CHECK-NEXT: call void @objc_sync_exit(i8* [[T1]])
+  // CHECK-NEXT: call i32 @objc_sync_exit(i8* [[T1]])
   // CHECK-NEXT: call void @objc_release(i8* [[T1]])
   // CHECK-NEXT: ret void
 }

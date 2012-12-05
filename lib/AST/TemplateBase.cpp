@@ -23,6 +23,7 @@
 #include "clang/Basic/Diagnostic.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <cctype>
 
@@ -77,7 +78,7 @@ TemplateArgument TemplateArgument::CreatePackCopy(ASTContext &Context,
                                                   const TemplateArgument *Args,
                                                   unsigned NumArgs) {
   if (NumArgs == 0)
-    return TemplateArgument(0, 0);
+    return getEmptyPack();
   
   TemplateArgument *Storage = new (Context) TemplateArgument [NumArgs];
   std::copy(Args, Args + NumArgs, Storage);
@@ -99,12 +100,11 @@ bool TemplateArgument::isDependent() const {
     return true;
 
   case Declaration:
-    if (Decl *D = getAsDecl()) {
-      if (DeclContext *DC = dyn_cast<DeclContext>(D))
-        return DC->isDependentContext();
-      return D->getDeclContext()->isDependentContext();
-    }
-      
+    if (DeclContext *DC = dyn_cast<DeclContext>(getAsDecl()))
+      return DC->isDependentContext();
+    return getAsDecl()->getDeclContext()->isDependentContext();
+
+  case NullPtr:
     return false;
 
   case Integral:
@@ -141,11 +141,11 @@ bool TemplateArgument::isInstantiationDependent() const {
     return true;
     
   case Declaration:
-    if (Decl *D = getAsDecl()) {
-      if (DeclContext *DC = dyn_cast<DeclContext>(D))
-        return DC->isDependentContext();
-      return D->getDeclContext()->isDependentContext();
-    }
+    if (DeclContext *DC = dyn_cast<DeclContext>(getAsDecl()))
+      return DC->isDependentContext();
+    return getAsDecl()->getDeclContext()->isDependentContext();
+
+  case NullPtr:
     return false;
       
   case Integral:
@@ -174,6 +174,7 @@ bool TemplateArgument::isPackExpansion() const {
   case Integral:
   case Pack:    
   case Template:
+  case NullPtr:
     return false;
       
   case TemplateExpansion:
@@ -195,6 +196,7 @@ bool TemplateArgument::containsUnexpandedParameterPack() const {
   case Declaration:
   case Integral:
   case TemplateExpansion:
+  case NullPtr:
     break;
 
   case Type:
@@ -286,11 +288,15 @@ bool TemplateArgument::structurallyEquals(const TemplateArgument &Other) const {
   switch (getKind()) {
   case Null:
   case Type:
-  case Declaration:
   case Expression:      
   case Template:
   case TemplateExpansion:
+  case NullPtr:
     return TypeOrValue == Other.TypeOrValue;
+
+  case Declaration:
+    return getAsDecl() == Other.getAsDecl() && 
+           isDeclForReferenceParam() && Other.isDeclForReferenceParam();
 
   case Integral:
     return getIntegralType() == Other.getIntegralType() &&
@@ -319,12 +325,13 @@ TemplateArgument TemplateArgument::getPackExpansionPattern() const {
     
   case TemplateExpansion:
     return TemplateArgument(getAsTemplateOrTemplatePattern());
-    
+
   case Declaration:
   case Integral:
   case Pack:
   case Null:
   case Template:
+  case NullPtr:
     return TemplateArgument();
   }
 
@@ -348,18 +355,20 @@ void TemplateArgument::print(const PrintingPolicy &Policy,
   }
     
   case Declaration: {
-    if (NamedDecl *ND = dyn_cast_or_null<NamedDecl>(getAsDecl())) {
-      if (ND->getDeclName()) {
-        Out << *ND;
-      } else {
-        Out << "<anonymous>";
-      }
+    NamedDecl *ND = cast<NamedDecl>(getAsDecl());
+    if (ND->getDeclName()) {
+      // FIXME: distinguish between pointer and reference args?
+      Out << *ND;
     } else {
-      Out << "nullptr";
+      Out << "<anonymous>";
     }
     break;
   }
-    
+
+  case NullPtr:
+    Out << "nullptr";
+    break;
+
   case Template:
     getAsTemplate().print(Out, Policy);
     break;
@@ -411,6 +420,9 @@ SourceRange TemplateArgumentLoc::getSourceRange() const {
   case TemplateArgument::Declaration:
     return getSourceDeclExpression()->getSourceRange();
 
+  case TemplateArgument::NullPtr:
+    return getSourceNullPtrExpression()->getSourceRange();
+
   case TemplateArgument::Type:
     if (TypeSourceInfo *TSI = getTypeSourceInfo())
       return TSI->getTypeLoc().getSourceRange();
@@ -430,6 +442,8 @@ SourceRange TemplateArgumentLoc::getSourceRange() const {
     return SourceRange(getTemplateNameLoc(), getTemplateEllipsisLoc());
 
   case TemplateArgument::Integral:
+    return getSourceIntegralExpression()->getSourceRange();
+
   case TemplateArgument::Pack:
   case TemplateArgument::Null:
     return SourceRange();
@@ -490,6 +504,7 @@ TemplateArgumentLoc::getPackExpansionPattern(SourceLocation &Ellipsis,
                                getTemplateNameLoc());
     
   case TemplateArgument::Declaration:
+  case TemplateArgument::NullPtr:
   case TemplateArgument::Template:
   case TemplateArgument::Integral:
   case TemplateArgument::Pack:
@@ -512,8 +527,9 @@ const DiagnosticBuilder &clang::operator<<(const DiagnosticBuilder &DB,
     return DB << Arg.getAsType();
       
   case TemplateArgument::Declaration:
-    if (Decl *D = Arg.getAsDecl())
-      return DB << D;
+    return DB << Arg.getAsDecl();
+
+  case TemplateArgument::NullPtr:
     return DB << "nullptr";
       
   case TemplateArgument::Integral:
@@ -556,8 +572,7 @@ const DiagnosticBuilder &clang::operator<<(const DiagnosticBuilder &DB,
 const ASTTemplateArgumentListInfo *
 ASTTemplateArgumentListInfo::Create(ASTContext &C,
                                     const TemplateArgumentListInfo &List) {
-  std::size_t size = sizeof(CXXDependentScopeMemberExpr) +
-                     ASTTemplateArgumentListInfo::sizeFor(List.size());
+  std::size_t size = ASTTemplateArgumentListInfo::sizeFor(List.size());
   void *Mem = C.Allocate(size, llvm::alignOf<ASTTemplateArgumentListInfo>());
   ASTTemplateArgumentListInfo *TAI = new (Mem) ASTTemplateArgumentListInfo();
   TAI->initializeFrom(List);
@@ -642,6 +657,7 @@ ASTTemplateKWAndArgsInfo::initializeFrom(SourceLocation TemplateKWLoc) {
 std::size_t
 ASTTemplateKWAndArgsInfo::sizeFor(unsigned NumTemplateArgs) {
   // Add space for the template keyword location.
+  // FIXME: There's room for this in the padding before the template args in
+  //        64-bit builds.
   return Base::sizeFor(NumTemplateArgs) + sizeof(SourceLocation);
 }
-

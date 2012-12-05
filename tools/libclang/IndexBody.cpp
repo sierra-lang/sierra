@@ -8,7 +8,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "IndexingContext.h"
-
 #include "RecursiveASTVisitor.h"
 
 using namespace clang;
@@ -130,8 +129,20 @@ public:
   }
 
   bool VisitDeclStmt(DeclStmt *S) {
-    if (IndexCtx.shouldIndexFunctionLocalSymbols())
+    if (IndexCtx.shouldIndexFunctionLocalSymbols()) {
       IndexCtx.indexDeclGroupRef(S->getDeclGroup());
+      return true;
+    }
+
+    DeclGroupRef DG = S->getDeclGroup();
+    for (DeclGroupRef::iterator I = DG.begin(), E = DG.end(); I != E; ++I) {
+      const Decl *D = *I;
+      if (!D)
+        continue;
+      if (!IndexCtx.isFunctionLocalDecl(D))
+        IndexCtx.indexTopLevelDecl(D);
+    }
+
     return true;
   }
 

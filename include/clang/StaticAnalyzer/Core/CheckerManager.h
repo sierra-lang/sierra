@@ -14,12 +14,12 @@
 #ifndef LLVM_CLANG_SA_CORE_CHECKERMANAGER_H
 #define LLVM_CLANG_SA_CORE_CHECKERMANAGER_H
 
+#include "clang/Analysis/ProgramPoint.h"
 #include "clang/Basic/LangOptions.h"
-#include "llvm/ADT/SmallVector.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/Store.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/Store.h"
-#include "clang/Analysis/ProgramPoint.h"
+#include "llvm/ADT/SmallVector.h"
 #include <vector>
 
 namespace clang {
@@ -211,15 +211,18 @@ public:
   void runCheckersForPostObjCMessage(ExplodedNodeSet &Dst,
                                      const ExplodedNodeSet &Src,
                                      const ObjCMethodCall &msg,
-                                     ExprEngine &Eng) {
-    runCheckersForObjCMessage(/*isPreVisit=*/false, Dst, Src, msg, Eng);
+                                     ExprEngine &Eng,
+                                     bool wasInlined = false) {
+    runCheckersForObjCMessage(/*isPreVisit=*/false, Dst, Src, msg, Eng,
+                              wasInlined);
   }
 
   /// \brief Run checkers for visiting obj-c messages.
   void runCheckersForObjCMessage(bool isPreVisit,
                                  ExplodedNodeSet &Dst,
                                  const ExplodedNodeSet &Src,
-                                 const ObjCMethodCall &msg, ExprEngine &Eng);
+                                 const ObjCMethodCall &msg, ExprEngine &Eng,
+                                 bool wasInlined = false);
 
   /// \brief Run checkers for pre-visiting obj-c messages.
   void runCheckersForPreCall(ExplodedNodeSet &Dst, const ExplodedNodeSet &Src,
@@ -229,14 +232,17 @@ public:
 
   /// \brief Run checkers for post-visiting obj-c messages.
   void runCheckersForPostCall(ExplodedNodeSet &Dst, const ExplodedNodeSet &Src,
-                              const CallEvent &Call, ExprEngine &Eng) {
-    runCheckersForCallEvent(/*isPreVisit=*/false, Dst, Src, Call, Eng);
+                              const CallEvent &Call, ExprEngine &Eng,
+                              bool wasInlined = false) {
+    runCheckersForCallEvent(/*isPreVisit=*/false, Dst, Src, Call, Eng,
+                            wasInlined);
   }
 
   /// \brief Run checkers for visiting obj-c messages.
   void runCheckersForCallEvent(bool isPreVisit, ExplodedNodeSet &Dst,
                                const ExplodedNodeSet &Src,
-                               const CallEvent &Call, ExprEngine &Eng);
+                               const CallEvent &Call, ExprEngine &Eng,
+                               bool wasInlined = false);
 
   /// \brief Run checkers for load/store of a location.
   void runCheckersForLocation(ExplodedNodeSet &Dst,
@@ -252,7 +258,7 @@ public:
                           const ExplodedNodeSet &Src,
                           SVal location, SVal val,
                           const Stmt *S, ExprEngine &Eng,
-                          ProgramPoint::Kind PointKind);
+                          const ProgramPoint &PP);
 
   /// \brief Run checkers for end of analysis.
   void runCheckersForEndAnalysis(ExplodedGraph &G, BugReporter &BR,
@@ -261,6 +267,7 @@ public:
   /// \brief Run checkers for end of path.
   void runCheckersForEndPath(NodeBuilderContext &BC,
                              ExplodedNodeSet &Dst,
+                             ExplodedNode *Pred,
                              ExprEngine &Eng);
 
   /// \brief Run checkers for branch condition.
@@ -313,9 +320,11 @@ public:
                                                SVal Cond, bool Assumption);
 
   /// \brief Run checkers for evaluating a call.
+  ///
+  /// Warning: Currently, the CallEvent MUST come from a CallExpr!
   void runCheckersForEvalCall(ExplodedNodeSet &Dst,
                               const ExplodedNodeSet &Src,
-                              const SimpleCall &CE, ExprEngine &Eng);
+                              const CallEvent &CE, ExprEngine &Eng);
   
   /// \brief Run checkers for the entire Translation Unit.
   void runCheckersOnEndOfTranslationUnit(const TranslationUnitDecl *TU,
@@ -399,11 +408,6 @@ public:
   typedef CheckerFn<bool (const CallExpr *, CheckerContext &)>
       EvalCallFunc;
 
-  typedef CheckerFn<bool (const CallExpr *, ExprEngine &Eng,
-                                            ExplodedNode *Pred,
-                                            ExplodedNodeSet &Dst)>
-      InlineCallFunc;
-
   typedef CheckerFn<void (const TranslationUnitDecl *,
                           AnalysisManager&, BugReporter &)>
       CheckEndOfTranslationUnit;
@@ -440,8 +444,6 @@ public:
   void _registerForEvalAssume(EvalAssumeFunc checkfn);
 
   void _registerForEvalCall(EvalCallFunc checkfn);
-
-  void _registerForInlineCall(InlineCallFunc checkfn);
 
   void _registerForEndOfTranslationUnit(CheckEndOfTranslationUnit checkfn);
 
@@ -567,8 +569,6 @@ private:
   std::vector<EvalAssumeFunc> EvalAssumeCheckers;
 
   std::vector<EvalCallFunc> EvalCallCheckers;
-
-  std::vector<InlineCallFunc> InlineCallCheckers;
 
   std::vector<CheckEndOfTranslationUnit> EndOfTranslationUnitCheckers;
 

@@ -11,15 +11,15 @@
 //
 //===----------------------------------------------------------------------===//
 #include "clang/Sema/CodeCompleteConsumer.h"
-#include "clang/Sema/Scope.h"
-#include "clang/Sema/Sema.h"
+#include "clang-c/Index.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/Lex/Preprocessor.h"
-#include "clang-c/Index.h"
-#include "llvm/ADT/SmallString.h"
+#include "clang/Sema/Scope.h"
+#include "clang/Sema/Sema.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
@@ -193,11 +193,10 @@ CodeCompletionString::CodeCompletionString(const Chunk *Chunks,
                                            CXAvailabilityKind Availability,
                                            const char **Annotations,
                                            unsigned NumAnnotations,
-                                           CXCursorKind ParentKind,
                                            StringRef ParentName,
                                            const char *BriefComment)
   : NumChunks(NumChunks), NumAnnotations(NumAnnotations),
-    Priority(Priority), Availability(Availability), ParentKind(ParentKind),
+    Priority(Priority), Availability(Availability),
     ParentName(ParentName), BriefComment(BriefComment)
 { 
   assert(NumChunks <= 0xffff);
@@ -339,7 +338,7 @@ CodeCompletionString *CodeCompletionBuilder::TakeString() {
     = new (Mem) CodeCompletionString(Chunks.data(), Chunks.size(),
                                      Priority, Availability,
                                      Annotations.data(), Annotations.size(),
-                                     ParentKind, ParentName, BriefComment);
+                                     ParentName, BriefComment);
   Chunks.clear();
   return Result;
 }
@@ -380,7 +379,6 @@ void CodeCompletionBuilder::AddChunk(CodeCompletionString::ChunkKind CK,
 
 void CodeCompletionBuilder::addParentContext(DeclContext *DC) {
   if (DC->isTranslationUnit()) {
-    ParentKind = CXCursor_TranslationUnit;
     return;
   }
   
@@ -391,7 +389,6 @@ void CodeCompletionBuilder::addParentContext(DeclContext *DC) {
   if (!ND)
     return;
   
-  ParentKind = getCursorKindForDecl(ND);
   ParentName = getCodeCompletionTUInfo().getParentName(DC);
 }
 

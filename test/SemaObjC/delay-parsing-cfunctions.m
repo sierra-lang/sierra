@@ -1,5 +1,5 @@
 // RUN: %clang_cc1  -fsyntax-only -Werror -verify -Wno-objc-root-class %s
-// RUN: %clang_cc1 -x objective-c++ -fsyntax-only -Werror -verify -Wno-objc-root-class %s
+// expected-no-diagnostics
 // rdar://10387088
 
 @interface MyClass
@@ -20,6 +20,14 @@ int bar(MyClass * myObject) {
 int gorfbar(MyClass * myObject) {
     [myObject privateMethod]; 
     [myObject privateMethod1]; 
+    return getMe + bar(myObject);
+}
+
+int KR(myObject)
+MyClass * myObject;
+{
+    [myObject privateMethod];
+    [myObject privateMethod1];
     return getMe + bar(myObject);
 }
 

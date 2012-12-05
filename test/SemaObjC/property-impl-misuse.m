@@ -12,7 +12,7 @@
 @dynamic X; // expected-note {{previous declaration is here}}
 @dynamic X; // expected-error {{property 'X' is already implemented}}
 @synthesize Y; // expected-note {{previous use is here}}
-@synthesize Z=Y; // expected-error {{synthesized properties 'Z' and 'Y' both claim ivar 'Y'}}
+@synthesize Z=Y; // expected-error {{synthesized properties 'Z' and 'Y' both claim instance variable 'Y'}}
 @end
 
 // rdar://8703553
@@ -30,8 +30,8 @@
 @synthesize gradientStyle = _gradientStyle;
 - (void)setGradientStyle:(id)value { }
 
-+ (void)_componentCellWithRepresentedObject {
-    self.gradientStyle; // expected-error {{property 'gradientStyle' not found on object of type 'Class'}}
++ (id)_componentCellWithRepresentedObject {
+    return self.gradientStyle;
 }
 @end
 

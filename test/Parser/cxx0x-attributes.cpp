@@ -44,10 +44,15 @@ int & [[]] ref_attr = after_attr;
 int && [[]] rref_attr = 0;
 int array_attr [1] [[]];
 alignas(8) int aligned_attr;
-[[test::valid(for 42 [very] **** '+' symbols went on a trip and had a "good"_time; the end.)]]
-  int garbage_attr;
-[[,,,static, class, namespace,, inline, constexpr, mutable,, bi\
-tand, bitor::compl(!.*_ Cx.!U^*R),,,]] int more_garbage_attr;
+[[test::valid(for 42 [very] **** '+' symbols went on a trip and had a "good"_time; the end.)]] int garbage_attr; // expected-warning {{unknown attribute 'valid' ignored}}
+[[,,,static, class, namespace,, inline, constexpr, mutable,, bitand, bitor::compl(!.*_ Cx.!U^*R),,,]] int more_garbage_attr; // expected-warning {{unknown attribute 'static' ignored}} \
+	// expected-warning {{unknown attribute 'class' ignored}} \
+	// expected-warning {{unknown attribute 'namespace' ignored}} \
+	// expected-warning {{unknown attribute 'inline' ignored}} \
+	// expected-warning {{unknown attribute 'constexpr' ignored}} \
+	// expected-warning {{unknown attribute 'mutable' ignored}} \
+	// expected-warning {{unknown attribute 'bitand' ignored}} \
+        // expected-warning {{unknown attribute 'compl' ignored}}
 [[u8"invalid!"]] int invalid_string_attr; // expected-error {{expected ']'}}
 void fn_attr () [[]];
 void noexcept_fn_attr () noexcept [[]];
@@ -57,6 +62,29 @@ struct MemberFnOrder {
 struct [[]] struct_attr;
 class [[]] class_attr {};
 union [[]] union_attr;
+
+// Checks attributes placed at wrong syntactic locations of class specifiers.
+// FIXME: provide fix-it hint.
+class [[]] [[]]
+  attr_after_class_name_decl [[]] [[]]; // expected-error {{an attribute list cannot appear here}}
+
+class [[]] [[]]
+ attr_after_class_name_definition [[]] [[]] [[]]{}; // expected-error {{an attribute list cannot appear here}}
+
+class [[]] c {};
+class c [[]] [[]] x;
+class c [[]] [[]] y [[]] [[]];
+class c final [(int){0}];
+
+class base {};
+class [[]] [[]] final_class 
+  alignas(float) [[]] final // expected-error {{an attribute list cannot appear here}}
+  alignas(float) [[]] [[]] alignas(float): base{}; // expected-error {{an attribute list cannot appear here}}
+
+class [[]] [[]] final_class_another 
+  [[]] [[]] alignas(16) final // expected-error {{an attribute list cannot appear here}}
+  [[]] [[]] alignas(16) [[]]{}; // expected-error {{an attribute list cannot appear here}}
+
 [[]] struct with_init_declarators {} init_declarator;
 [[]] struct no_init_declarators; // expected-error {{an attribute list cannot appear here}}
 [[]];
@@ -123,10 +151,16 @@ enum struct [[]] E5;
 
 struct S {
   friend int f [[]] (); // expected-FIXME{{an attribute list cannot appear here}}
-  [[]] friend int g(); // expected-FIXME{{an attribute list cannot appear here}}
+  friend int f1 [[noreturn]] (); //expected-error{{an attribute list cannot appear here}}
+  friend int f2 [[]] [[noreturn]] () {}
+  [[]] friend int g(); // expected-error{{an attribute list cannot appear here}}
   [[]] friend int h() {
   }
+  [[]] friend int f3(), f4(), f5(); // expected-error{{an attribute list cannot appear here}}
+  friend int f6 [[noreturn]] (), f7 [[noreturn]] (), f8 [[noreturn]] (); // expected-error3 {{an attribute list cannot appear here}}
   friend class [[]] C; // expected-error{{an attribute list cannot appear here}}
+  [[]] friend class D; // expected-error{{an attribute list cannot appear here}}
+  [[]] friend int; // expected-error{{an attribute list cannot appear here}}
 };
 template<typename T> void tmpl(T) {}
 template void tmpl [[]] (int); // expected-FIXME {{an attribute list cannot appear here}}
@@ -212,3 +246,16 @@ enum class __attribute__((visibility("hidden"))) SecretKeepers {
   one, /* rest are deprecated */ two, three
 };
 enum class [[]] EvenMoreSecrets {};
+
+namespace arguments {
+  // FIXME: remove the sema warnings after migrating existing gnu attributes to c++11 syntax.
+  void f(const char*, ...) [[gnu::format(printf, 1, 2)]]; // expected-warning {{unknown attribute 'format' ignored}}
+  void g() [[unknown::foo(currently arguments of attributes from unknown namespace other than 'gnu' namespace are ignored... blah...)]]; // expected-warning {{unknown attribute 'foo' ignored}}
+}
+
+// forbid attributes on decl specifiers
+unsigned [[gnu::used]] static int [[gnu::unused]] v1; // expected-warning {{attribute 'unused' ignored, because it is not attached to a declaration}} \
+           expected-error {{an attribute list cannot appear here}}
+typedef [[gnu::used]] unsigned long [[gnu::unused]] v2; // expected-warning {{attribute 'unused' ignored, because it is not attached to a declaration}} \
+          expected-error {{an attribute list cannot appear here}}
+int [[carries_dependency]] foo(int [[carries_dependency]] x); // expected-warning 2{{attribute 'carries_dependency' ignored, because it is not attached to a declaration}}

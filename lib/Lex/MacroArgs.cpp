@@ -12,9 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "MacroArgs.h"
+#include "clang/Lex/LexDiagnostic.h"
 #include "clang/Lex/MacroInfo.h"
 #include "clang/Lex/Preprocessor.h"
-#include "clang/Lex/LexDiagnostic.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/SaveAndRestore.h"
 #include <algorithm>
@@ -291,7 +291,7 @@ Token MacroArgs::StringifyArgument(const Token *ArgToks,
     }
   }
 
-  PP.CreateString(&Result[0], Result.size(), Tok,
+  PP.CreateString(Result, Tok,
                   ExpansionLocStart, ExpansionLocEnd);
   return Tok;
 }

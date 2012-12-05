@@ -13,15 +13,15 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Lex/Preprocessor.h"
-#include "clang/Lex/HeaderSearch.h"
-#include "clang/Lex/MacroInfo.h"
-#include "clang/Lex/LexDiagnostic.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/LexDiagnostic.h"
+#include "clang/Lex/MacroInfo.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/PathV2.h"
-#include "llvm/ADT/StringSwitch.h"
 using namespace clang;
 
 PPCallbacks::~PPCallbacks() {}
@@ -157,15 +157,15 @@ void Preprocessor::EnterSourceFileWithPTH(PTHLexer *PL,
 /// EnterMacro - Add a Macro to the top of the include stack and start lexing
 /// tokens from it instead of the current buffer.
 void Preprocessor::EnterMacro(Token &Tok, SourceLocation ILEnd,
-                              MacroArgs *Args) {
+                              MacroInfo *Macro, MacroArgs *Args) {
   PushIncludeMacroStack();
   CurDirLookup = 0;
 
   if (NumCachedTokenLexers == 0) {
-    CurTokenLexer.reset(new TokenLexer(Tok, ILEnd, Args, *this));
+    CurTokenLexer.reset(new TokenLexer(Tok, ILEnd, Macro, Args, *this));
   } else {
     CurTokenLexer.reset(TokenLexerCache[--NumCachedTokenLexers]);
-    CurTokenLexer->Init(Tok, ILEnd, Args);
+    CurTokenLexer->Init(Tok, ILEnd, Macro, Args);
   }
   if (CurLexerKind != CLK_LexAfterModuleImport)
     CurLexerKind = CLK_TokenLexer;

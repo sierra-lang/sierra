@@ -17,6 +17,7 @@
 #include "clang/AST/RecordLayout.h"
 #include "clang/Basic/TargetInfo.h"
 #include "llvm/Support/Format.h"
+#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <cstdio>
 
@@ -1890,6 +1891,9 @@ void VTableBuilder::dumpLayout(raw_ostream& Out) {
       Out << Str;
       if (MD->isPure())
         Out << " [pure]";
+
+      if (MD->isDeleted())
+        Out << " [deleted]";
 
       ThunkInfo Thunk = VTableThunks.lookup(I);
       if (!Thunk.isEmpty()) {

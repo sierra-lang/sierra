@@ -245,7 +245,7 @@ static void ParseTypes(Record *r, std::string &s,
       case 'f':
         break;
       default:
-        throw TGError(r->getLoc(),
+        PrintFatalError(r->getLoc(),
                       "Unexpected letter: " + std::string(data + len, 1));
     }
     TV.push_back(StringRef(data, len + 1));
@@ -266,7 +266,8 @@ static char Widen(const char t) {
       return 'l';
     case 'h':
       return 'f';
-    default: throw "unhandled type in widen!";
+    default:
+      PrintFatalError("unhandled type in widen!");
   }
 }
 
@@ -282,7 +283,8 @@ static char Narrow(const char t) {
       return 'i';
     case 'f':
       return 'h';
-    default: throw "unhandled type in narrow!";
+    default:
+      PrintFatalError("unhandled type in narrow!");
   }
 }
 
@@ -453,7 +455,7 @@ static std::string TypeString(const char mod, StringRef typestr) {
       s += quad ? "x4" : "x2";
       break;
     default:
-      throw "unhandled type!";
+      PrintFatalError("unhandled type!");
   }
 
   if (mod == '2')
@@ -635,7 +637,7 @@ static std::string MangleName(const std::string &name, StringRef typestr,
     }
     break;
   default:
-    throw "unhandled type!";
+    PrintFatalError("unhandled type!");
   }
   if (ck == ClassB)
     s += "_v";
@@ -773,7 +775,7 @@ static unsigned GetNumElements(StringRef typestr, bool &quad) {
   case 'h': nElts = 4; break;
   case 'f': nElts = 2; break;
   default:
-    throw "unhandled type!";
+    PrintFatalError("unhandled type!");
   }
   if (quad) nElts <<= 1;
   return nElts;
@@ -1004,7 +1006,7 @@ static std::string GenOpString(OpKind op, const std::string &proto,
     break;
   }
   default:
-    throw "unknown OpKind!";
+    PrintFatalError("unknown OpKind!");
   }
   return s;
 }
@@ -1049,7 +1051,7 @@ static unsigned GetNeonEnum(const std::string &proto, StringRef typestr) {
       ET = NeonTypeFlags::Float32;
       break;
     default:
-      throw "unhandled type!";
+      PrintFatalError("unhandled type!");
   }
   NeonTypeFlags Flags(ET, usgn, quad && proto[1] != 'g');
   return Flags.getFlags();
@@ -1234,7 +1236,7 @@ static std::string GenIntrinsic(const std::string &name,
     s += " __attribute__((unavailable));\n";
     return s;
   } else
-    s += " { \\\n  ";
+    s += " {\n  ";
 
   if (kind != OpNone)
     s += GenOpString(kind, proto, outTypeStr);
@@ -1381,7 +1383,7 @@ void NeonEmitter::emitIntrinsic(raw_ostream &OS, Record *R) {
   if (R->getSuperClasses().size() >= 2)
     classKind = ClassMap[R->getSuperClasses()[1]];
   if (classKind == ClassNone && kind == OpNone)
-    throw TGError(R->getLoc(), "Builtin has no class kind");
+    PrintFatalError(R->getLoc(), "Builtin has no class kind");
 
   for (unsigned ti = 0, te = TypeVec.size(); ti != te; ++ti) {
     if (kind == OpReinterpret) {
@@ -1423,7 +1425,7 @@ static unsigned RangeFromType(const char mod, StringRef typestr) {
     case 'l':
       return (1 << (int)quad) - 1;
     default:
-      throw "unhandled type!";
+      PrintFatalError("unhandled type!");
   }
 }
 
@@ -1456,7 +1458,7 @@ void NeonEmitter::runHeader(raw_ostream &OS) {
     ParseTypes(R, Types, TypeVec);
 
     if (R->getSuperClasses().size() < 2)
-      throw TGError(R->getLoc(), "Builtin has no class kind");
+      PrintFatalError(R->getLoc(), "Builtin has no class kind");
 
     std::string name = R->getValueAsString("Name");
     ClassKind ck = ClassMap[R->getSuperClasses()[1]];
@@ -1501,10 +1503,10 @@ void NeonEmitter::runHeader(raw_ostream &OS) {
     ParseTypes(R, Types, TypeVec);
 
     if (R->getSuperClasses().size() < 2)
-      throw TGError(R->getLoc(), "Builtin has no class kind");
+      PrintFatalError(R->getLoc(), "Builtin has no class kind");
 
     int si = -1, qi = -1;
-    unsigned mask = 0, qmask = 0;
+    uint64_t mask = 0, qmask = 0;
     for (unsigned ti = 0, te = TypeVec.size(); ti != te; ++ti) {
       // Generate the switch case(s) for this builtin for the type validation.
       bool quad = false, poly = false, usgn = false;
@@ -1512,10 +1514,10 @@ void NeonEmitter::runHeader(raw_ostream &OS) {
 
       if (quad) {
         qi = ti;
-        qmask |= 1 << GetNeonEnum(Proto, TypeVec[ti]);
+        qmask |= 1ULL << GetNeonEnum(Proto, TypeVec[ti]);
       } else {
         si = ti;
-        mask |= 1 << GetNeonEnum(Proto, TypeVec[ti]);
+        mask |= 1ULL << GetNeonEnum(Proto, TypeVec[ti]);
       }
     }
 
@@ -1552,7 +1554,7 @@ void NeonEmitter::runHeader(raw_ostream &OS) {
     if (mask) {
       OS << "case ARM::BI__builtin_neon_"
          << MangleName(name, TypeVec[si], ClassB)
-         << ": mask = " << "0x" << utohexstr(mask);
+         << ": mask = " << "0x" << utohexstr(mask) << "ULL";
       if (PtrArgNum >= 0)
         OS << "; PtrArgNum = " << PtrArgNum;
       if (HasConstPtr)
@@ -1562,7 +1564,7 @@ void NeonEmitter::runHeader(raw_ostream &OS) {
     if (qmask) {
       OS << "case ARM::BI__builtin_neon_"
          << MangleName(name, TypeVec[qi], ClassB)
-         << ": mask = " << "0x" << utohexstr(qmask);
+         << ": mask = " << "0x" << utohexstr(qmask) << "ULL";
       if (PtrArgNum >= 0)
         OS << "; PtrArgNum = " << PtrArgNum;
       if (HasConstPtr)
@@ -1600,7 +1602,7 @@ void NeonEmitter::runHeader(raw_ostream &OS) {
     ParseTypes(R, Types, TypeVec);
 
     if (R->getSuperClasses().size() < 2)
-      throw TGError(R->getLoc(), "Builtin has no class kind");
+      PrintFatalError(R->getLoc(), "Builtin has no class kind");
 
     ClassKind ck = ClassMap[R->getSuperClasses()[1]];
 

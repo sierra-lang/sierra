@@ -15,8 +15,8 @@
 #ifndef LLVM_CLANG_SERIALIZATION_MODULE_MANAGER_H
 #define LLVM_CLANG_SERIALIZATION_MODULE_MANAGER_H
 
-#include "clang/Serialization/Module.h"
 #include "clang/Basic/FileManager.h"
+#include "clang/Serialization/Module.h"
 #include "llvm/ADT/DenseMap.h"
 
 namespace clang { 
@@ -34,7 +34,7 @@ class ModuleManager {
   
   /// \brief FileManager that handles translating between filenames and
   /// FileEntry *.
-  FileManager FileMgr;
+  FileManager &FileMgr;
   
   /// \brief A lookup of in-memory (virtual file) buffers
   llvm::DenseMap<const FileEntry *, llvm::MemoryBuffer *> InMemoryBuffers;
@@ -45,7 +45,7 @@ public:
   typedef SmallVector<ModuleFile*, 2>::reverse_iterator ModuleReverseIterator;
   typedef std::pair<uint32_t, StringRef> ModuleOffset;
   
-  ModuleManager(const FileSystemOptions &FSO);
+  explicit ModuleManager(FileManager &FileMgr);
   ~ModuleManager();
   
   /// \brief Forward iterator to traverse all loaded modules.  This is reverse
@@ -92,6 +92,8 @@ public:
   ///
   /// \param Type The kind of module being loaded.
   ///
+  /// \param ImportLoc The location at which the module is imported.
+  ///
   /// \param ImportedBy The module that is importing this module, or NULL if
   /// this module is imported directly by the user.
   ///
@@ -103,9 +105,13 @@ public:
   /// \return A pointer to the module that corresponds to this file name,
   /// and a boolean indicating whether the module was newly added.
   std::pair<ModuleFile *, bool> 
-  addModule(StringRef FileName, ModuleKind Type, ModuleFile *ImportedBy,
-            unsigned Generation, std::string &ErrorStr);
-  
+  addModule(StringRef FileName, ModuleKind Type, SourceLocation ImportLoc,
+            ModuleFile *ImportedBy, unsigned Generation,
+            std::string &ErrorStr);
+
+  /// \brief Remove the given set of modules.
+  void removeModules(ModuleIterator first, ModuleIterator last);
+
   /// \brief Add an in-memory buffer the list of known buffers
   void addInMemoryBuffer(StringRef FileName, llvm::MemoryBuffer *Buffer);
   

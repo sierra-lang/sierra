@@ -9,16 +9,16 @@
 
 #include "clang/Frontend/FrontendActions.h"
 #include "clang/AST/ASTConsumer.h"
-#include "clang/Lex/HeaderSearch.h"
-#include "clang/Lex/Pragma.h"
-#include "clang/Lex/Preprocessor.h"
-#include "clang/Parse/Parser.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Frontend/ASTConsumers.h"
 #include "clang/Frontend/ASTUnit.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/Utils.h"
+#include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/Pragma.h"
+#include "clang/Lex/Preprocessor.h"
+#include "clang/Parse/Parser.h"
 #include "clang/Serialization/ASTWriter.h"
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/Support/FileSystem.h"
@@ -54,6 +54,11 @@ ASTConsumer *ASTPrintAction::CreateASTConsumer(CompilerInstance &CI,
 ASTConsumer *ASTDumpAction::CreateASTConsumer(CompilerInstance &CI,
                                               StringRef InFile) {
   return CreateASTDumper(CI.getFrontendOpts().ASTDumpFilter);
+}
+
+ASTConsumer *ASTDeclListAction::CreateASTConsumer(CompilerInstance &CI,
+                                                  StringRef InFile) {
+  return CreateASTDeclNodeLister();
 }
 
 ASTConsumer *ASTDumpXMLAction::CreateASTConsumer(CompilerInstance &CI,
@@ -126,8 +131,31 @@ ASTConsumer *GenerateModuleAction::CreateASTConsumer(CompilerInstance &CI,
                           Sysroot, OS);
 }
 
+static SmallVectorImpl<char> &
+operator+=(SmallVectorImpl<char> &Includes, StringRef RHS) {
+  Includes.append(RHS.begin(), RHS.end());
+  return Includes;
+}
+
+static void addHeaderInclude(StringRef HeaderName,
+                             SmallVectorImpl<char> &Includes,
+                             const LangOptions &LangOpts) {
+  if (LangOpts.ObjC1)
+    Includes += "#import \"";
+  else
+    Includes += "#include \"";
+  Includes += HeaderName;
+  Includes += "\"\n";
+}
+
+static void addHeaderInclude(const FileEntry *Header,
+                             SmallVectorImpl<char> &Includes,
+                             const LangOptions &LangOpts) {
+  addHeaderInclude(Header->getName(), Includes, LangOpts);
+}
+
 /// \brief Collect the set of header includes needed to construct the given 
-/// module.
+/// module and update the TopHeaders file set of the module.
 ///
 /// \param Module The module we're collecting includes from.
 ///
@@ -137,30 +165,23 @@ static void collectModuleHeaderIncludes(const LangOptions &LangOpts,
                                         FileManager &FileMgr,
                                         ModuleMap &ModMap,
                                         clang::Module *Module,
-                                        SmallString<256> &Includes) {
+                                        SmallVectorImpl<char> &Includes) {
   // Don't collect any headers for unavailable modules.
   if (!Module->isAvailable())
     return;
 
   // Add includes for each of these headers.
   for (unsigned I = 0, N = Module->Headers.size(); I != N; ++I) {
-    if (LangOpts.ObjC1)
-      Includes += "#import \"";
-    else
-      Includes += "#include \"";
-    Includes += Module->Headers[I]->getName();
-    Includes += "\"\n";
+    const FileEntry *Header = Module->Headers[I];
+    Module->TopHeaders.insert(Header);
+    addHeaderInclude(Header, Includes, LangOpts);
   }
 
   if (const FileEntry *UmbrellaHeader = Module->getUmbrellaHeader()) {
+    Module->TopHeaders.insert(UmbrellaHeader);
     if (Module->Parent) {
       // Include the umbrella header for submodules.
-      if (LangOpts.ObjC1)
-        Includes += "#import \"";
-      else
-        Includes += "#include \"";
-      Includes += UmbrellaHeader->getName();
-      Includes += "\"\n";
+      addHeaderInclude(UmbrellaHeader, Includes, LangOpts);
     }
   } else if (const DirectoryEntry *UmbrellaDir = Module->getUmbrellaDir()) {
     // Add all of the headers we find in this subdirectory.
@@ -179,17 +200,14 @@ static void collectModuleHeaderIncludes(const LangOptions &LangOpts,
       
       // If this header is marked 'unavailable' in this module, don't include 
       // it.
-      if (const FileEntry *Header = FileMgr.getFile(Dir->path()))
+      if (const FileEntry *Header = FileMgr.getFile(Dir->path())) {
         if (ModMap.isHeaderInUnavailableModule(Header))
           continue;
+        Module->TopHeaders.insert(Header);
+      }
       
       // Include this header umbrella header for submodules.
-      if (LangOpts.ObjC1)
-        Includes += "#import \"";
-      else
-        Includes += "#include \"";
-      Includes += Dir->path();
-      Includes += "\"\n";
+      addHeaderInclude(Dir->path(), Includes, LangOpts);
     }
   }
   
@@ -245,77 +263,21 @@ bool GenerateModuleAction::BeginSourceFileAction(CompilerInstance &CI,
     return false;
   }
 
-  // Do we have an umbrella header for this module?
-  const FileEntry *UmbrellaHeader = Module->getUmbrellaHeader();
-  
+  FileManager &FileMgr = CI.getFileManager();
+
   // Collect the set of #includes we need to build the module.
   SmallString<256> HeaderContents;
-  collectModuleHeaderIncludes(CI.getLangOpts(), CI.getFileManager(),
+  if (const FileEntry *UmbrellaHeader = Module->getUmbrellaHeader())
+    addHeaderInclude(UmbrellaHeader, HeaderContents, CI.getLangOpts());
+  collectModuleHeaderIncludes(CI.getLangOpts(), FileMgr,
     CI.getPreprocessor().getHeaderSearchInfo().getModuleMap(),
     Module, HeaderContents);
-  if (UmbrellaHeader && HeaderContents.empty()) {
-    // Simple case: we have an umbrella header and there are no additional
-    // includes, we can just parse the umbrella header directly.
-    setCurrentInput(FrontendInputFile(UmbrellaHeader->getName(),
-                                      getCurrentFileKind(),
-                                      Module->IsSystem));
-    return true;
-  }
-  
-  FileManager &FileMgr = CI.getFileManager();
-  SmallString<128> HeaderName;
-  time_t ModTime;
-  if (UmbrellaHeader) {
-    // Read in the umbrella header.
-    // FIXME: Go through the source manager; the umbrella header may have
-    // been overridden.
-    std::string ErrorStr;
-    llvm::MemoryBuffer *UmbrellaContents
-      = FileMgr.getBufferForFile(UmbrellaHeader, &ErrorStr);
-    if (!UmbrellaContents) {
-      CI.getDiagnostics().Report(diag::err_missing_umbrella_header)
-        << UmbrellaHeader->getName() << ErrorStr;
-      return false;
-    }
-    
-    // Combine the contents of the umbrella header with the automatically-
-    // generated includes.
-    SmallString<256> OldContents = HeaderContents;
-    HeaderContents = UmbrellaContents->getBuffer();
-    HeaderContents += "\n\n";
-    HeaderContents += "/* Module includes */\n";
-    HeaderContents += OldContents;
 
-    // Pretend that we're parsing the umbrella header.
-    HeaderName = UmbrellaHeader->getName();
-    ModTime = UmbrellaHeader->getModificationTime();
-    
-    delete UmbrellaContents;
-  } else {
-    // Pick an innocuous-sounding name for the umbrella header.
-    HeaderName = Module->Name + ".h";
-    if (FileMgr.getFile(HeaderName, /*OpenFile=*/false, 
-                        /*CacheFailure=*/false)) {
-      // Try again!
-      HeaderName = Module->Name + "-module.h";      
-      if (FileMgr.getFile(HeaderName, /*OpenFile=*/false, 
-                          /*CacheFailure=*/false)) {
-        // Pick something ridiculous and go with it.
-        HeaderName = Module->Name + "-module.hmod";
-      }
-    }
-    ModTime = time(0);
-  }
-  
-  // Remap the contents of the header name we're using to our synthesized
-  // buffer.
-  const FileEntry *HeaderFile = FileMgr.getVirtualFile(HeaderName, 
-                                                       HeaderContents.size(), 
-                                                       ModTime);
-  llvm::MemoryBuffer *HeaderContentsBuf
-    = llvm::MemoryBuffer::getMemBufferCopy(HeaderContents);
-  CI.getSourceManager().overrideFileContents(HeaderFile, HeaderContentsBuf);  
-  setCurrentInput(FrontendInputFile(HeaderName, getCurrentFileKind(),
+  llvm::MemoryBuffer *InputBuffer =
+      llvm::MemoryBuffer::getMemBufferCopy(HeaderContents,
+                                           Module::getModuleInputBufferName());
+  // Ownership of InputBuffer will be transfered to the SourceManager.
+  setCurrentInput(FrontendInputFile(InputBuffer, getCurrentFileKind(),
                                     Module->IsSystem));
   return true;
 }

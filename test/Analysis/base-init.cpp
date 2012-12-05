@@ -1,5 +1,4 @@
-// RUN: %clang_cc1 -analyze -analyzer-checker=core,debug.ExprInspection -analyzer-store region -analyzer-ipa=inlining -cfg-add-initializers -verify %s
-// XFAIL: *
+// RUN: %clang_cc1 -analyze -analyzer-checker=core,debug.ExprInspection -analyzer-ipa=inlining -analyzer-config c++-inlining=constructors -verify %s
 
 void clang_analyzer_eval(bool);
 

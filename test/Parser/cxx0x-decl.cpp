@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify -fsyntax-only -std=c++11 -pedantic %s
+// RUN: %clang_cc1 -verify -fsyntax-only -std=c++11 -pedantic-errors %s
 
 // Make sure we know these are legitimate commas and not typos for ';'.
 namespace Commas {
@@ -23,8 +23,19 @@ class ExtraSemiAfterMemFn {
   void f() = delete // expected-error {{expected ';' after delete}}
   void g() = delete; // ok
   void h() = delete;; // ok
-  void i() = delete;;; // expected-warning {{extra ';' after member function definition}}
+  void i() = delete;;; // expected-error {{extra ';' after member function definition}}
 };
 
-int *const const p = 0; // ok
-const const int *q = 0; // expected-warning {{duplicate 'const' declaration specifier}}
+int *const const p = 0; // expected-error {{duplicate 'const' declaration specifier}}
+const const int *q = 0; // expected-error {{duplicate 'const' declaration specifier}}
+
+struct MultiCV {
+  void f() const const; // expected-error {{duplicate 'const' declaration specifier}}
+};
+
+static_assert(something, ""); // expected-error {{undeclared identifier}}
+
+// PR9903
+struct SS {
+  typedef void d() = default; // expected-error {{function definition declared 'typedef'}} expected-error {{only special member functions may be defaulted}}
+};

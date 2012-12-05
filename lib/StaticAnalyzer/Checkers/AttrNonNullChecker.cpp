@@ -13,11 +13,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "ClangSACheckers.h"
+#include "clang/AST/Attr.h"
+#include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
-#include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 
 using namespace clang;
 using namespace ento;
@@ -105,10 +106,9 @@ void AttrNonNullChecker::checkPreCall(const CallEvent &Call,
         // Highlight the range of the argument that was null.
         R->addRange(Call.getArgSourceRange(idx));
         if (const Expr *ArgE = Call.getArgExpr(idx))
-          R->addVisitor(bugreporter::getTrackNullOrUndefValueVisitor(errorNode,
-                                                                     ArgE, R));
+          bugreporter::trackNullOrUndefValue(errorNode, ArgE, *R);
         // Emit the bug report.
-        C.EmitReport(R);
+        C.emitReport(R);
       }
 
       // Always return.  Either we cached out or we just emitted an error.

@@ -12,12 +12,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Edit/Rewriters.h"
+#include "clang/AST/ASTContext.h"
+#include "clang/AST/ExprCXX.h"
+#include "clang/AST/ExprObjC.h"
+#include "clang/AST/NSAPI.h"
 #include "clang/Edit/Commit.h"
 #include "clang/Lex/Lexer.h"
-#include "clang/AST/ASTContext.h"
-#include "clang/AST/ExprObjC.h"
-#include "clang/AST/ExprCXX.h"
-#include "clang/AST/NSAPI.h"
 
 using namespace clang;
 using namespace edit;
@@ -920,6 +920,7 @@ static bool rewriteToNumericBoxedExpression(const ObjCMessageExpr *Msg,
     case CK_ARCExtendBlockObject:
     case CK_NonAtomicToAtomic:
     case CK_CopyAndAutoreleaseBlockObject:
+    case CK_BuiltinFnToFnPtr:
       return false;
     }
   }

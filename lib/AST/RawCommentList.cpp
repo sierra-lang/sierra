@@ -9,8 +9,12 @@
 
 #include "clang/AST/RawCommentList.h"
 #include "clang/AST/ASTContext.h"
-#include "clang/AST/CommentLexer.h"
+#include "clang/AST/Comment.h"
 #include "clang/AST/CommentBriefParser.h"
+#include "clang/AST/CommentCommandTraits.h"
+#include "clang/AST/CommentLexer.h"
+#include "clang/AST/CommentParser.h"
+#include "clang/AST/CommentSema.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace clang;
@@ -134,9 +138,15 @@ const char *RawComment::extractBriefText(const ASTContext &Context) const {
   // Make sure that RawText is valid.
   getRawText(Context.getSourceManager());
 
-  comments::Lexer L(Range.getBegin(), comments::CommentOptions(),
+  // Since we will be copying the resulting text, all allocations made during
+  // parsing are garbage after resulting string is formed.  Thus we can use
+  // a separate allocator for all temporary stuff.
+  llvm::BumpPtrAllocator Allocator;
+
+  comments::Lexer L(Allocator, Context.getCommentCommandTraits(),
+                    Range.getBegin(),
                     RawText.begin(), RawText.end());
-  comments::BriefParser P(L);
+  comments::BriefParser P(L, Context.getCommentCommandTraits());
 
   const std::string Result = P.Parse();
   const unsigned BriefTextLength = Result.size();
@@ -148,31 +158,48 @@ const char *RawComment::extractBriefText(const ASTContext &Context) const {
   return BriefTextPtr;
 }
 
+comments::FullComment *RawComment::parse(const ASTContext &Context,
+                                         const Preprocessor *PP,
+                                         const Decl *D) const {
+  // Make sure that RawText is valid.
+  getRawText(Context.getSourceManager());
+
+  comments::Lexer L(Context.getAllocator(), Context.getCommentCommandTraits(),
+                    getSourceRange().getBegin(),
+                    RawText.begin(), RawText.end());
+  comments::Sema S(Context.getAllocator(), Context.getSourceManager(),
+                   Context.getDiagnostics(),
+                   Context.getCommentCommandTraits(),
+                   PP);
+  S.setDecl(D);
+  comments::Parser P(L, S, Context.getAllocator(), Context.getSourceManager(),
+                     Context.getDiagnostics(),
+                     Context.getCommentCommandTraits());
+
+  return P.parseFullComment();
+}
+
 namespace {
 bool containsOnlyWhitespace(StringRef Str) {
   return Str.find_first_not_of(" \t\f\v\r\n") == StringRef::npos;
 }
 
-bool onlyWhitespaceBetweenComments(SourceManager &SM,
-                                   const RawComment &C1, const RawComment &C2) {
-  std::pair<FileID, unsigned> C1EndLocInfo = SM.getDecomposedLoc(
-                                                C1.getSourceRange().getEnd());
-  std::pair<FileID, unsigned> C2BeginLocInfo = SM.getDecomposedLoc(
-                                              C2.getSourceRange().getBegin());
+bool onlyWhitespaceBetween(SourceManager &SM,
+                           SourceLocation Loc1, SourceLocation Loc2) {
+  std::pair<FileID, unsigned> Loc1Info = SM.getDecomposedLoc(Loc1);
+  std::pair<FileID, unsigned> Loc2Info = SM.getDecomposedLoc(Loc2);
 
-  // Question does not make sense if comments are located in different files.
-  if (C1EndLocInfo.first != C2BeginLocInfo.first)
+  // Question does not make sense if locations are in different files.
+  if (Loc1Info.first != Loc2Info.first)
     return false;
 
   bool Invalid = false;
-  const char *Buffer = SM.getBufferData(C1EndLocInfo.first, &Invalid).data();
+  const char *Buffer = SM.getBufferData(Loc1Info.first, &Invalid).data();
   if (Invalid)
     return false;
 
-  StringRef TextBetweenComments(Buffer + C1EndLocInfo.second,
-                                C2BeginLocInfo.second - C1EndLocInfo.second);
-
-  return containsOnlyWhitespace(TextBetweenComments);
+  StringRef Text(Buffer + Loc1Info.second, Loc2Info.second - Loc1Info.second);
+  return containsOnlyWhitespace(Text);
 }
 } // unnamed namespace
 
@@ -192,11 +219,13 @@ void RawCommentList::addComment(const RawComment &RC,
   }
 
   if (OnlyWhitespaceSeen) {
-    if (!onlyWhitespaceBetweenComments(SourceMgr, LastComment, RC))
+    if (!onlyWhitespaceBetween(SourceMgr,
+                               PrevCommentEndLoc,
+                               RC.getSourceRange().getBegin()))
       OnlyWhitespaceSeen = false;
   }
 
-  LastComment = RC;
+  PrevCommentEndLoc = RC.getSourceRange().getEnd();
 
   // Ordinary comments are not interesting for us.
   if (RC.isOrdinary())
@@ -215,15 +244,20 @@ void RawCommentList::addComment(const RawComment &RC,
 
   // Merge comments only if there is only whitespace between them.
   // Can't merge trailing and non-trailing comments.
-  // Merge trailing comments if they are on same or consecutive lines.
+  // Merge comments if they are on same or consecutive lines.
+  bool Merged = false;
   if (OnlyWhitespaceSeen &&
-      (C1.isTrailingComment() == C2.isTrailingComment()) &&
-      (!C1.isTrailingComment() ||
-       C1.getEndLine(SourceMgr) + 1 >= C2.getBeginLine(SourceMgr))) {
-    SourceRange MergedRange(C1.getSourceRange().getBegin(),
-                            C2.getSourceRange().getEnd());
-    *Comments.back() = RawComment(SourceMgr, MergedRange, true);
-  } else
+      (C1.isTrailingComment() == C2.isTrailingComment())) {
+    unsigned C1EndLine = C1.getEndLine(SourceMgr);
+    unsigned C2BeginLine = C2.getBeginLine(SourceMgr);
+    if (C1EndLine + 1 == C2BeginLine || C1EndLine == C2BeginLine) {
+      SourceRange MergedRange(C1.getSourceRange().getBegin(),
+                              C2.getSourceRange().getEnd());
+      *Comments.back() = RawComment(SourceMgr, MergedRange, true);
+      Merged = true;
+    }
+  }
+  if (!Merged)
     Comments.push_back(new (Allocator) RawComment(RC));
 
   OnlyWhitespaceSeen = true;

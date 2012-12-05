@@ -12,15 +12,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Tooling/ArgumentsAdjusters.h"
 #include "clang/Tooling/Tooling.h"
-#include "clang/Tooling/CompilationDatabase.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/Tool.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
+#include "clang/Tooling/ArgumentsAdjusters.h"
+#include "clang/Tooling/CompilationDatabase.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Host.h"
@@ -48,7 +48,7 @@ static clang::driver::Driver *newDriver(clang::DiagnosticsEngine *Diagnostics,
   const std::string DefaultOutputName = "a.out";
   clang::driver::Driver *CompilerDriver = new clang::driver::Driver(
     BinaryName, llvm::sys::getDefaultTargetTriple(),
-    DefaultOutputName, false, *Diagnostics);
+    DefaultOutputName, *Diagnostics);
   CompilerDriver->setTitle("clang_based_tool");
   return CompilerDriver;
 }
@@ -97,17 +97,22 @@ static clang::CompilerInvocation *newInvocation(
 
 bool runToolOnCode(clang::FrontendAction *ToolAction, const Twine &Code,
                    const Twine &FileName) {
+  return runToolOnCodeWithArgs(
+      ToolAction, Code, std::vector<std::string>(), FileName);
+}
+
+bool runToolOnCodeWithArgs(clang::FrontendAction *ToolAction, const Twine &Code,
+                           const std::vector<std::string> &Args,
+                           const Twine &FileName) {
   SmallString<16> FileNameStorage;
   StringRef FileNameRef = FileName.toNullTerminatedStringRef(FileNameStorage);
-  const char *const CommandLine[] = {
-      "clang-tool", "-fsyntax-only", FileNameRef.data()
-  };
+  std::vector<std::string> Commands;
+  Commands.push_back("clang-tool");
+  Commands.push_back("-fsyntax-only");
+  Commands.insert(Commands.end(), Args.begin(), Args.end());
+  Commands.push_back(FileNameRef.data());
   FileManager Files((FileSystemOptions()));
-  ToolInvocation Invocation(
-      std::vector<std::string>(
-          CommandLine,
-          CommandLine + llvm::array_lengthof(CommandLine)),
-      ToolAction, &Files);
+  ToolInvocation Invocation(Commands, ToolAction, &Files);
 
   SmallString<1024> CodeStorage;
   Invocation.mapVirtualFile(FileNameRef,
@@ -154,11 +159,12 @@ bool ToolInvocation::run() {
   for (int I = 0, E = CommandLine.size(); I != E; ++I)
     Argv.push_back(CommandLine[I].c_str());
   const char *const BinaryName = Argv[0];
-  DiagnosticOptions DefaultDiagnosticOptions;
+  IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts = new DiagnosticOptions();
   TextDiagnosticPrinter DiagnosticPrinter(
-      llvm::errs(), DefaultDiagnosticOptions);
-  DiagnosticsEngine Diagnostics(llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs>(
-      new DiagnosticIDs()), &DiagnosticPrinter, false);
+      llvm::errs(), &*DiagOpts);
+  DiagnosticsEngine Diagnostics(
+    llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs>(new DiagnosticIDs()),
+    &*DiagOpts, &DiagnosticPrinter, false);
 
   const llvm::OwningPtr<clang::driver::Driver> Driver(
       newDriver(&Diagnostics, BinaryName));
@@ -212,6 +218,7 @@ bool ToolInvocation::runInvocation(
   const bool Success = Compiler.ExecuteAction(*ScopedToolAction);
 
   Compiler.resetAndLeakFileManager();
+  Files->clearStatCaches();
   return Success;
 }
 

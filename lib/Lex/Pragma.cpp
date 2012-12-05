@@ -13,13 +13,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Lex/Pragma.h"
-#include "clang/Lex/HeaderSearch.h"
-#include "clang/Lex/LiteralSupport.h"
-#include "clang/Lex/Preprocessor.h"
-#include "clang/Lex/MacroInfo.h"
-#include "clang/Lex/LexDiagnostic.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/LexDiagnostic.h"
+#include "clang/Lex/LiteralSupport.h"
+#include "clang/Lex/MacroInfo.h"
+#include "clang/Lex/Preprocessor.h"
 #include "llvm/Support/CrashRecoveryContext.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <algorithm>
@@ -42,7 +42,6 @@ void EmptyPragmaHandler::HandlePragma(Preprocessor &PP,
 //===----------------------------------------------------------------------===//
 // PragmaNamespace Implementation.
 //===----------------------------------------------------------------------===//
-
 
 PragmaNamespace::~PragmaNamespace() {
   for (llvm::StringMap<PragmaHandler*>::iterator
@@ -251,7 +250,7 @@ void Preprocessor::Handle_Pragma(Token &Tok) {
   // where we can lex it.
   Token TmpTok;
   TmpTok.startToken();
-  CreateString(&StrVal[0], StrVal.size(), TmpTok);
+  CreateString(StrVal, TmpTok);
   SourceLocation TokLoc = TmpTok.getLocation();
 
   // Make and enter a lexer object so that we lex and expand the tokens just
@@ -471,7 +470,7 @@ void Preprocessor::HandlePragmaDependency(Token &DependencyTok) {
 ///
 /// The syntax is:
 /// \code
-///   \#pragma comment(linker, "foo")
+///   #pragma comment(linker, "foo")
 /// \endcode
 /// 'linker' is one of five identifiers: compiler, exestr, lib, linker, user.
 /// "foo" is a string, which is fully macro expanded, and permits string
@@ -503,38 +502,10 @@ void Preprocessor::HandlePragmaComment(Token &Tok) {
   // Read the optional string if present.
   Lex(Tok);
   std::string ArgumentString;
-  if (Tok.is(tok::comma)) {
-    Lex(Tok); // eat the comma.
-
-    // We need at least one string.
-    if (Tok.isNot(tok::string_literal)) {
-      Diag(Tok.getLocation(), diag::err_pragma_comment_malformed);
-      return;
-    }
-
-    // String concatenation allows multiple strings, which can even come from
-    // macro expansion.
-    // "foo " "bar" "Baz"
-    SmallVector<Token, 4> StrToks;
-    while (Tok.is(tok::string_literal)) {
-      if (Tok.hasUDSuffix())
-        Diag(Tok, diag::err_invalid_string_udl);
-      StrToks.push_back(Tok);
-      Lex(Tok);
-    }
-
-    // Concatenate and parse the strings.
-    StringLiteralParser Literal(&StrToks[0], StrToks.size(), *this);
-    assert(Literal.isAscii() && "Didn't allow wide strings in");
-    if (Literal.hadError)
-      return;
-    if (Literal.Pascal) {
-      Diag(StrToks[0].getLocation(), diag::err_pragma_comment_malformed);
-      return;
-    }
-
-    ArgumentString = Literal.GetString();
-  }
+  if (Tok.is(tok::comma) && !LexStringLiteral(Tok, ArgumentString,
+                                              "pragma comment",
+                                              /*MacroExpansion=*/true))
+    return;
 
   // FIXME: If the kind is "compiler" warn if the string is present (it is
   // ignored).
@@ -561,11 +532,11 @@ void Preprocessor::HandlePragmaComment(Token &Tok) {
 /// HandlePragmaMessage - Handle the microsoft and gcc \#pragma message
 /// extension.  The syntax is:
 /// \code
-///   \#pragma message(string)
+///   #pragma message(string)
 /// \endcode
 /// OR, in GCC mode:
 /// \code
-///   \#pragma message string
+///   #pragma message string
 /// \endcode
 /// string is a string, which is fully macro expanded, and permits string
 /// concatenation, embedded escape characters, etc... See MSDN for more details.
@@ -588,34 +559,10 @@ void Preprocessor::HandlePragmaMessage(Token &Tok) {
     return;
   }
 
-  // We need at least one string.
-  if (Tok.isNot(tok::string_literal)) {
-    Diag(Tok.getLocation(), diag::err_pragma_message_malformed);
+  std::string MessageString;
+  if (!FinishLexStringLiteral(Tok, MessageString, "pragma message",
+                              /*MacroExpansion=*/true))
     return;
-  }
-
-  // String concatenation allows multiple strings, which can even come from
-  // macro expansion.
-  // "foo " "bar" "Baz"
-  SmallVector<Token, 4> StrToks;
-  while (Tok.is(tok::string_literal)) {
-    if (Tok.hasUDSuffix())
-      Diag(Tok, diag::err_invalid_string_udl);
-    StrToks.push_back(Tok);
-    Lex(Tok);
-  }
-
-  // Concatenate and parse the strings.
-  StringLiteralParser Literal(&StrToks[0], StrToks.size(), *this);
-  assert(Literal.isAscii() && "Didn't allow wide strings in");
-  if (Literal.hadError)
-    return;
-  if (Literal.Pascal) {
-    Diag(StrToks[0].getLocation(), diag::err_pragma_message_malformed);
-    return;
-  }
-
-  StringRef MessageString(Literal.GetString());
 
   if (ExpectClosingParen) {
     if (Tok.isNot(tok::r_paren)) {
@@ -683,7 +630,7 @@ IdentifierInfo *Preprocessor::ParsePragmaPushOrPopMacro(Token &Tok) {
   Token MacroTok;
   MacroTok.startToken();
   MacroTok.setKind(tok::raw_identifier);
-  CreateString(&StrVal[1], StrVal.size() - 2, MacroTok);
+  CreateString(StringRef(&StrVal[1], StrVal.size() - 2), MacroTok);
 
   // Get the IdentifierInfo of MacroToPushTok.
   return LookUpIdentifierInfo(MacroTok);
@@ -693,7 +640,7 @@ IdentifierInfo *Preprocessor::ParsePragmaPushOrPopMacro(Token &Tok) {
 ///
 /// The syntax is:
 /// \code
-///   \#pragma push_macro("macro")
+///   #pragma push_macro("macro")
 /// \endcode
 void Preprocessor::HandlePragmaPushMacro(Token &PushMacroTok) {
   // Parse the pragma directive and get the macro IdentifierInfo*.
@@ -733,19 +680,22 @@ void Preprocessor::HandlePragmaPopMacro(Token &PopMacroTok) {
   llvm::DenseMap<IdentifierInfo*, std::vector<MacroInfo*> >::iterator iter =
     PragmaPushMacroInfo.find(IdentInfo);
   if (iter != PragmaPushMacroInfo.end()) {
-    // Release the MacroInfo currently associated with IdentInfo.
-    MacroInfo *CurrentMI = getMacroInfo(IdentInfo);
-    if (CurrentMI) {
+    // Forget the MacroInfo currently associated with IdentInfo.
+    if (MacroInfo *CurrentMI = getMacroInfo(IdentInfo)) {
       if (CurrentMI->isWarnIfUnused())
         WarnUnusedMacroLocs.erase(CurrentMI->getDefinitionLoc());
-      ReleaseMacroInfo(CurrentMI);
+      UndefineMacro(IdentInfo, CurrentMI, MessageLoc);
     }
 
     // Get the MacroInfo we want to reinstall.
     MacroInfo *MacroToReInstall = iter->second.back();
 
-    // Reinstall the previously pushed macro.
-    setMacroInfo(IdentInfo, MacroToReInstall);
+    if (MacroToReInstall) {
+      // Reinstall the previously pushed macro.
+      setMacroInfo(IdentInfo, MacroToReInstall);
+    } else if (IdentInfo->hasMacroDefinition()) {
+      clearMacroInfo(IdentInfo);
+    }
 
     // Pop PragmaPushMacroInfo stack.
     iter->second.pop_back();
@@ -1009,7 +959,7 @@ struct PragmaDebugHandler : public PragmaHandler {
     if (II->isStr("assert")) {
       llvm_unreachable("This is an assertion!");
     } else if (II->isStr("crash")) {
-      *(volatile int*) 0x11 = 0;
+      LLVM_BUILTIN_TRAP;
     } else if (II->isStr("parser_crash")) {
       Token Crasher;
       Crasher.setKind(tok::annot_pragma_parser_crash);
@@ -1088,50 +1038,28 @@ public:
     }
 
     PP.LexUnexpandedToken(Tok);
+    SourceLocation StringLoc = Tok.getLocation();
 
-    // We need at least one string.
-    if (Tok.isNot(tok::string_literal)) {
-      PP.Diag(Tok.getLocation(), diag::warn_pragma_diagnostic_invalid_token);
+    std::string WarningName;
+    if (!PP.FinishLexStringLiteral(Tok, WarningName, "pragma diagnostic",
+                                   /*MacroExpansion=*/false))
       return;
-    }
-
-    // String concatenation allows multiple strings, which can even come from
-    // macro expansion.
-    // "foo " "bar" "Baz"
-    SmallVector<Token, 4> StrToks;
-    while (Tok.is(tok::string_literal)) {
-      StrToks.push_back(Tok);
-      PP.LexUnexpandedToken(Tok);
-    }
 
     if (Tok.isNot(tok::eod)) {
       PP.Diag(Tok.getLocation(), diag::warn_pragma_diagnostic_invalid_token);
       return;
     }
 
-    // Concatenate and parse the strings.
-    StringLiteralParser Literal(&StrToks[0], StrToks.size(), PP);
-    assert(Literal.isAscii() && "Didn't allow wide strings in");
-    if (Literal.hadError)
-      return;
-    if (Literal.Pascal) {
-      PP.Diag(Tok, diag::warn_pragma_diagnostic_invalid);
-      return;
-    }
-
-    StringRef WarningName(Literal.GetString());
-
     if (WarningName.size() < 3 || WarningName[0] != '-' ||
         WarningName[1] != 'W') {
-      PP.Diag(StrToks[0].getLocation(),
-              diag::warn_pragma_diagnostic_invalid_option);
+      PP.Diag(StringLoc, diag::warn_pragma_diagnostic_invalid_option);
       return;
     }
 
     if (PP.getDiagnostics().setDiagnosticGroupMapping(WarningName.substr(2),
                                                       Map, DiagLoc))
-      PP.Diag(StrToks[0].getLocation(),
-              diag::warn_pragma_diagnostic_unknown_warning) << WarningName;
+      PP.Diag(StringLoc, diag::warn_pragma_diagnostic_unknown_warning)
+        << WarningName;
     else if (Callbacks)
       Callbacks->PragmaDiagnostic(DiagLoc, Namespace, Map, WarningName);
   }
@@ -1275,6 +1203,29 @@ struct PragmaARCCFCodeAuditedHandler : public PragmaHandler {
   }
 };
 
+  /// \brief Handle "\#pragma region [...]"
+  ///
+  /// The syntax is
+  /// \code
+  ///   #pragma region [optional name]
+  ///   #pragma endregion [optional comment]
+  /// \endcode
+  /// 
+  /// \note This is 
+  /// <a href="http://msdn.microsoft.com/en-us/library/b6xkz944(v=vs.80).aspx">editor-only</a>
+  /// pragma, just skipped by compiler.
+  struct PragmaRegionHandler : public PragmaHandler {
+    PragmaRegionHandler(const char *pragma) : PragmaHandler(pragma) { }
+
+    virtual void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer,
+                              Token &NameTok) {
+      // #pragma region: endregion matches can be verified
+      // __pragma(region): no sense, but ignored by msvc
+      // _Pragma is not valid for MSVC, but there isn't any point
+      // to handle a _Pragma differently.
+    }
+  };
+
 }  // end anonymous namespace
 
 
@@ -1308,5 +1259,7 @@ void Preprocessor::RegisterBuiltinPragmas() {
   if (LangOpts.MicrosoftExt) {
     AddPragmaHandler(new PragmaCommentHandler());
     AddPragmaHandler(new PragmaIncludeAliasHandler());
+    AddPragmaHandler(new PragmaRegionHandler("region"));
+    AddPragmaHandler(new PragmaRegionHandler("endregion"));
   }
 }

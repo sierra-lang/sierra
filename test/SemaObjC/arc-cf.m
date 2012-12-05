@@ -10,10 +10,12 @@ id CFBridgingRelease(CFTypeRef);
 typedef const struct __CFString *CFStringRef;
 
 extern CFStringRef CFMakeString0(void);
+#pragma clang arc_cf_code_audited begin
 extern CFStringRef CFCreateString0(void);
+#pragma clang arc_cf_code_audited end
 void test0() {
   id x;
-  x = (id) CFMakeString0(); // expected-error {{requires a bridged cast}} expected-note {{CFBridgingRelease call to transfer}}
+  x = (id) CFMakeString0(); // expected-error {{requires a bridged cast}} expected-note {{__bridge to convert directly}} expected-note {{CFBridgingRelease call to transfer}}
   x = (id) CFCreateString0(); // expected-error {{requires a bridged cast}} expected-note {{CFBridgingRelease call to transfer}}
 }
 

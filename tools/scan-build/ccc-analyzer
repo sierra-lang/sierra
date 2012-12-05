@@ -31,11 +31,11 @@ my $DefaultCCompiler;
 my $DefaultCXXCompiler;
 
 if (`uname -a` =~ m/Darwin/) { 
-	$DefaultCCompiler = 'clang';
-	$DefaultCXXCompiler = 'clang++'; 
+  $DefaultCCompiler = 'clang';
+  $DefaultCXXCompiler = 'clang++';
 } else {
-    $DefaultCCompiler = 'gcc';
-    $DefaultCXXCompiler = 'g++'; 	
+  $DefaultCCompiler = 'gcc';
+  $DefaultCXXCompiler = 'g++';
 }
 
 if ($FindBin::Script =~ /c\+\+-analyzer/) {
@@ -252,6 +252,7 @@ sub Analyze {
     print $ofh $_;
     print STDERR $_;
   }
+  close $ofh;
 
   waitpid($pid,0);
   close(FROM_CHILD);
@@ -269,7 +270,7 @@ sub Analyze {
                             $HtmlDir, $ParserRejects, $ofile);
       } else {
         ProcessClangFailure($Clang, $Lang, $file, \@CmdArgsSansAnalyses,
-                            $HtmlDir, $OtherError, $ofile);      	
+                            $HtmlDir, $OtherError, $ofile);
       }
     }
     else {
@@ -346,11 +347,15 @@ my %LinkerOptionMap = (
 
 my %CompilerLinkerOptionMap = (
   '-fobjc-arc' => 0,
+  '-fno-objc-arc' => 0,
   '-fobjc-abi-version' => 0, # This is really a 1 argument, but always has '='
+  '-fobjc-legacy-dispatch' => 0,
+  '-mios-simulator-version-min' => 0, # This really has 1 argument, but always has '='
   '-isysroot' => 1,
   '-arch' => 1,
   '-m32' => 0,
   '-m64' => 0,
+  '-stdlib' => 0, # This is really a 1 argument, but always has '='
   '-v' => 0,
   '-fpascal-strings' => 0,
   '-mmacosx-version-min' => 0, # This is really a 1 argument, but always has '='
@@ -385,6 +390,7 @@ my %LangMap = (
   'cxx' => 'c++',
   'txx' => 'c++',
   'cc'  => 'c++',
+  'C'   => 'c++',
   'ii'  => 'c++',
   'i'   => 'c-cpp-output',
   'm'   => 'objective-c',
@@ -613,7 +619,7 @@ if ($Action eq 'compile' or $Action eq 'link') {
   my @Archs = keys %ArchsSeen;
   # Skip the file if we don't support the architectures specified.
   exit 0 if ($HadArch && scalar(@Archs) == 0);
-  
+
   foreach my $file (@Files) {
     # Determine the language for the file.
     my $FileLang = $Lang;
@@ -667,7 +673,7 @@ if ($Action eq 'compile' or $Action eq 'link') {
         $ResultFile = $f;
         # If the HtmlDir is not set, we sould clean up the plist files.
         if (!defined $HtmlDir || -z $HtmlDir) {
-        	$CleanupFile = $f; 
+          $CleanupFile = $f;
         }
       }
     }

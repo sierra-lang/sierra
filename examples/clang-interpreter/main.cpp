@@ -8,25 +8,24 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/CodeGen/CodeGenAction.h"
+#include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/Tool.h"
-#include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/CompilerInstance.h"
-#include "clang/Frontend/DiagnosticOptions.h"
+#include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
-
-#include "llvm/Module.h"
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallString.h"
-#include "llvm/ExecutionEngine/JIT.h"
 #include "llvm/ExecutionEngine/ExecutionEngine.h"
-#include "llvm/Support/ManagedStatic.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/ExecutionEngine/JIT.h"
+#include "llvm/Module.h"
 #include "llvm/Support/Host.h"
+#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/raw_ostream.h"
 using namespace clang;
 using namespace clang::driver;
 
@@ -69,13 +68,14 @@ static int Execute(llvm::Module *Mod, char * const *envp) {
 int main(int argc, const char **argv, char * const *envp) {
   void *MainAddr = (void*) (intptr_t) GetExecutablePath;
   llvm::sys::Path Path = GetExecutablePath(argv[0]);
+  IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts = new DiagnosticOptions();
   TextDiagnosticPrinter *DiagClient =
-    new TextDiagnosticPrinter(llvm::errs(), DiagnosticOptions());
+    new TextDiagnosticPrinter(llvm::errs(), &*DiagOpts);
 
   IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
-  DiagnosticsEngine Diags(DiagID, DiagClient);
+  DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagClient);
   Driver TheDriver(Path.str(), llvm::sys::getDefaultTargetTriple(),
-                   "a.out", /*IsProduction=*/false, Diags);
+                   "a.out", Diags);
   TheDriver.setTitle("clang interpreter");
 
   // FIXME: This is a hack to try to force the driver to do something we can

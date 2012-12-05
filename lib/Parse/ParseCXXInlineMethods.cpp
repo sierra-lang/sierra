@@ -11,12 +11,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Parse/ParseDiagnostic.h"
 #include "clang/Parse/Parser.h"
+#include "RAIIObjectsForParser.h"
+#include "clang/AST/DeclTemplate.h"
+#include "clang/Parse/ParseDiagnostic.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Scope.h"
-#include "clang/AST/DeclTemplate.h"
-#include "RAIIObjectsForParser.h"
 using namespace clang;
 
 /// ParseCXXInlineMethodDef - We parsed and verified that the specified
@@ -34,7 +34,7 @@ Decl *Parser::ParseCXXInlineMethodDef(AccessSpecifier AS,
           Tok.is(tok::equal)) &&
          "Current token not a '{', ':', '=', or 'try'!");
 
-  MultiTemplateParamsArg TemplateParams(Actions,
+  MultiTemplateParamsArg TemplateParams(
           TemplateInfo.TemplateParams ? TemplateInfo.TemplateParams->data() : 0,
           TemplateInfo.TemplateParams ? TemplateInfo.TemplateParams->size() : 0);
 
@@ -42,10 +42,10 @@ Decl *Parser::ParseCXXInlineMethodDef(AccessSpecifier AS,
   D.setFunctionDefinitionKind(DefinitionKind);
   if (D.getDeclSpec().isFriendSpecified())
     FnD = Actions.ActOnFriendFunctionDecl(getCurScope(), D,
-                                          move(TemplateParams));
+                                          TemplateParams);
   else {
     FnD = Actions.ActOnCXXMemberDeclarator(getCurScope(), AS, D,
-                                           move(TemplateParams), 0, 
+                                           TemplateParams, 0,
                                            VS, ICIS_NoInit);
     if (FnD) {
       Actions.ProcessDeclAttributeList(getCurScope(), FnD, AccessAttrs,

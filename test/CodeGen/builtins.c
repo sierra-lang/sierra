@@ -113,6 +113,7 @@ int main() {
 
   // Whatever
 
+  P(bswap16, (N));
   P(bswap32, (N));
   P(bswap64, (N));
   // FIXME
@@ -202,4 +203,10 @@ void test_builtin_longjmp(void **buffer) {
   // CHECK-NEXT: call void @llvm.eh.sjlj.longjmp(i8* [[BITCAST]])
   __builtin_longjmp(buffer, 1);
   // CHECK-NEXT: unreachable
+}
+
+// CHECK: define i64 @test_builtin_readcyclecounter
+long long test_builtin_readcyclecounter() {
+  // CHECK: call i64 @llvm.readcyclecounter()
+  return __builtin_readcyclecounter();
 }

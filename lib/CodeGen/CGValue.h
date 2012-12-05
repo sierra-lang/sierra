@@ -18,6 +18,7 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/Type.h"
+#include "llvm/Metadata.h"
 
 namespace llvm {
   class Constant;
@@ -128,7 +129,7 @@ class LValue {
 
   // The alignment to use when accessing this lvalue.  (For vector elements,
   // this is the alignment of the whole vector.)
-  unsigned short Alignment;
+  int64_t Alignment;
 
   // objective-c's ivar
   bool Ivar:1;

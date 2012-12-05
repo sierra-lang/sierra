@@ -15,15 +15,15 @@
 #ifndef LLVM_CLANG_CFG_H
 #define LLVM_CLANG_CFG_H
 
-#include "llvm/ADT/PointerIntPair.h"
-#include "llvm/ADT/GraphTraits.h"
-#include "llvm/Support/Allocator.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/ADT/OwningPtr.h"
-#include "llvm/ADT/DenseMap.h"
 #include "clang/AST/Stmt.h"
 #include "clang/Analysis/Support/BumpVector.h"
 #include "clang/Basic/SourceLocation.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/GraphTraits.h"
+#include "llvm/ADT/OwningPtr.h"
+#include "llvm/ADT/PointerIntPair.h"
+#include "llvm/Support/Allocator.h"
+#include "llvm/Support/Casting.h"
 #include <bitset>
 #include <cassert>
 #include <iterator>
@@ -83,13 +83,13 @@ public:
 
   operator bool() const { return isValid(); }
 
-  template<class ElemTy> const ElemTy *getAs() const {
-    if (llvm::isa<ElemTy>(this))
-      return static_cast<const ElemTy*>(this);
-    return 0;
+  template<class ElemTy> const ElemTy *getAs() const LLVM_LVALUE_FUNCTION {
+    return dyn_cast<ElemTy>(this);
   }
 
-  static bool classof(const CFGElement *E) { return true; }
+#if LLVM_HAS_RVALUE_REFERENCE_THIS
+  template<class ElemTy> void getAs() && LLVM_DELETED_FUNCTION;
+#endif
 };
 
 class CFGStmt : public CFGElement {
@@ -568,6 +568,7 @@ public:
     bool AddEHEdges;
     bool AddInitializers;
     bool AddImplicitDtors;
+    bool AddTemporaryDtors;
 
     bool alwaysAdd(const Stmt *stmt) const {
       return alwaysAddMask[stmt->getStmtClass()];
@@ -587,7 +588,8 @@ public:
     : forcedBlkExprs(0), PruneTriviallyFalseEdges(true)
       ,AddEHEdges(false)
       ,AddInitializers(false)
-      ,AddImplicitDtors(false) {}
+      ,AddImplicitDtors(false)
+      ,AddTemporaryDtors(false) {}
   };
 
   /// \brief Provides a custom implementation of the iterator class to have the

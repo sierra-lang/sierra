@@ -6,6 +6,12 @@
 // RUN:   -ffreestanding \
 // RUN:   -emit-llvm -w -o - %s | FileCheck %s
 
+// RUN: %clang_cc1 -triple armv7-unknown-nacl-gnueabi \
+// RUN:  -target-cpu cortex-a8 \
+// RUN:  -mfloat-abi hard \
+// RUN:  -ffreestanding \
+// RUN:  -emit-llvm -w -o - %s | FileCheck %s
+
 #include <arm_neon.h>
 
 struct homogeneous_struct {
@@ -88,3 +94,7 @@ extern void neon_callee(struct neon_struct);
 void test_neon(struct neon_struct arg) {
   neon_callee(arg);
 }
+
+// CHECK: define arm_aapcs_vfpcc void @f33(%struct.s33* byval %s)
+struct s33 { char buf[32*32]; };
+void f33(struct s33 s) { }

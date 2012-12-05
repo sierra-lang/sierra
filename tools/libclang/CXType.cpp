@@ -12,15 +12,15 @@
 //===--------------------------------------------------------------------===//
 
 #include "CIndexer.h"
-#include "CXTranslationUnit.h"
 #include "CXCursor.h"
 #include "CXString.h"
+#include "CXTranslationUnit.h"
 #include "CXType.h"
-#include "clang/AST/Expr.h"
-#include "clang/AST/Type.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
+#include "clang/AST/Expr.h"
+#include "clang/AST/Type.h"
 #include "clang/Frontend/ASTUnit.h"
 
 using namespace clang;
@@ -265,6 +265,21 @@ unsigned long long clang_getEnumConstantDeclUnsignedValue(CXCursor C) {
   return ULLONG_MAX;
 }
 
+int clang_getFieldDeclBitWidth(CXCursor C) {
+  using namespace cxcursor;
+
+  if (clang_isDeclaration(C.kind)) {
+    Decl *D = getCursorDecl(C);
+
+    if (FieldDecl *FD = dyn_cast_or_null<FieldDecl>(D)) {
+      if (FD->isBitField())
+        return FD->getBitWidthValue(getCursorContext(C));
+    }
+  }
+
+  return -1;
+}
+
 CXType clang_getCanonicalType(CXType CT) {
   if (CT.kind == CXType_Invalid)
     return CT;
@@ -464,6 +479,7 @@ CXCallingConv clang_getFunctionTypeCallingConv(CXType X) {
       TCALLINGCONV(X86Pascal);
       TCALLINGCONV(AAPCS);
       TCALLINGCONV(AAPCS_VFP);
+      TCALLINGCONV(PnaclCall);
     }
 #undef TCALLINGCONV
   }
@@ -615,7 +631,7 @@ long long clang_getArraySize(CXType CT) {
 }
 
 CXString clang_getDeclObjCTypeEncoding(CXCursor C) {
-  if ((C.kind < CXCursor_FirstDecl) || (C.kind > CXCursor_LastDecl))
+  if (!clang_isDeclaration(C.kind))
     return cxstring::createCXString("");
 
   Decl *D = static_cast<Decl*>(C.data[0]);

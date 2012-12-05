@@ -12,19 +12,19 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Frontend/ASTConsumers.h"
-#include "clang/Basic/FileManager.h"
-#include "clang/Basic/Diagnostic.h"
-#include "clang/Basic/SourceManager.h"
 #include "clang/AST/AST.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/PrettyPrinter.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/Basic/Diagnostic.h"
+#include "clang/Basic/FileManager.h"
+#include "clang/Basic/SourceManager.h"
 #include "llvm/Module.h"
 #include "llvm/Support/Path.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Timer.h"
+#include "llvm/Support/raw_ostream.h"
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
@@ -58,14 +58,18 @@ namespace {
     bool shouldWalkTypesOfTypeLocs() const { return false; }
 
     bool TraverseDecl(Decl *D) {
-      if (filterMatches(D)) {
-        Out.changeColor(llvm::raw_ostream::BLUE) <<
-            (Dump ? "Dumping " : "Printing ") << getName(D) << ":\n";
-        Out.resetColor();
+      if (D != NULL && filterMatches(D)) {
+        bool ShowColors = Out.has_colors();
+        if (ShowColors)
+          Out.changeColor(llvm::raw_ostream::BLUE);
+        Out << (Dump ? "Dumping " : "Printing ") << getName(D) << ":\n";
+        if (ShowColors)
+          Out.resetColor();
         if (Dump)
           D->dump(Out);
         else
           D->print(Out, /*Indentation=*/0, /*PrintInstantiation=*/true);
+        Out << "\n";
         // Don't traverse child nodes to avoid output duplication.
         return true;
       }
@@ -86,6 +90,27 @@ namespace {
     bool Dump;
     std::string FilterString;
   };
+
+  class ASTDeclNodeLister : public ASTConsumer,
+                     public RecursiveASTVisitor<ASTDeclNodeLister> {
+  public:
+    ASTDeclNodeLister(raw_ostream *Out = NULL)
+        : Out(Out ? *Out : llvm::outs()) {}
+
+    virtual void HandleTranslationUnit(ASTContext &Context) {
+      TraverseDecl(Context.getTranslationUnitDecl());
+    }
+
+    bool shouldWalkTypesOfTypeLocs() const { return false; }
+
+    virtual bool VisitNamedDecl(NamedDecl *D) {
+      Out << D->getQualifiedNameAsString() << "\n";
+      return true;
+    }
+
+  private:
+    raw_ostream &Out;
+  };
 } // end anonymous namespace
 
 ASTConsumer *clang::CreateASTPrinter(raw_ostream *Out,
@@ -95,6 +120,10 @@ ASTConsumer *clang::CreateASTPrinter(raw_ostream *Out,
 
 ASTConsumer *clang::CreateASTDumper(StringRef FilterString) {
   return new ASTPrinter(0, /*Dump=*/ true, FilterString);
+}
+
+ASTConsumer *clang::CreateASTDeclNodeLister() {
+  return new ASTDeclNodeLister(0);
 }
 
 //===----------------------------------------------------------------------===//

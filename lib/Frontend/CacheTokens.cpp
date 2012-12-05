@@ -25,8 +25,8 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/raw_ostream.h"
 
 // FIXME: put this somewhere else?
 #ifndef S_ISDIR
@@ -447,7 +447,7 @@ Offset PTHWriter::EmitCachedSpellings() {
 
 void PTHWriter::GeneratePTH(const std::string &MainFile) {
   // Generate the prologue.
-  Out << "cfe-pth";
+  Out << "cfe-pth" << '\0';
   Emit32(PTHManager::Version);
 
   // Leave 4 words for the prologue.

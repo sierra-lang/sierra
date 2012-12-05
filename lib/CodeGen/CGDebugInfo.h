@@ -14,16 +14,15 @@
 #ifndef CLANG_CODEGEN_CGDEBUGINFO_H
 #define CLANG_CODEGEN_CGDEBUGINFO_H
 
-#include "clang/AST/Type.h"
-#include "clang/AST/Expr.h"
-#include "clang/Basic/SourceLocation.h"
-#include "llvm/DebugInfo.h"
-#include "llvm/DIBuilder.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/Support/ValueHandle.h"
-#include "llvm/Support/Allocator.h"
-
 #include "CGBuilder.h"
+#include "clang/AST/Expr.h"
+#include "clang/AST/Type.h"
+#include "clang/Basic/SourceLocation.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/DIBuilder.h"
+#include "llvm/DebugInfo.h"
+#include "llvm/Support/Allocator.h"
+#include "llvm/Support/ValueHandle.h"
 
 namespace llvm {
   class MDNode;
@@ -50,6 +49,9 @@ class CGDebugInfo {
   llvm::DICompileUnit TheCU;
   SourceLocation CurLoc, PrevLoc;
   llvm::DIType VTablePtrType;
+  llvm::DIType ClassTy;
+  llvm::DIType ObjTy;
+  llvm::DIType SelTy;
   
   /// TypeCache - Cache of previously constructed Types.
   llvm::DenseMap<void *, llvm::WeakVH> TypeCache;
@@ -166,7 +168,7 @@ public:
   CGDebugInfo(CodeGenModule &CGM);
   ~CGDebugInfo();
 
-  void finalize(void);
+  void finalize();
 
   /// setLocation - Update the current source location. If \arg loc is
   /// invalid it is ignored.
@@ -240,7 +242,7 @@ private:
 
   // EmitTypeForVarWithBlocksAttr - Build up structure info for the byref.  
   // See BuildByRefType.
-  llvm::DIType EmitTypeForVarWithBlocksAttr(const ValueDecl *VD, 
+  llvm::DIType EmitTypeForVarWithBlocksAttr(const VarDecl *VD,
                                             uint64_t *OffSet);
 
   /// getContextDescriptor - Get context info for the decl.

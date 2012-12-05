@@ -18,10 +18,13 @@ def w_asm_qualifier_ignored : Warning<"ignored %0 qualifier on asm">,
 def warn_file_asm_volatile : Warning<
   "meaningless 'volatile' on asm outside function">, CatInlineAsm;
 
+def warn_unsupported_msasm : Warning<
+  "MS-style inline assembly is not supported">, InGroup<Microsoft>;
+
 let CategoryName = "Parse Issue" in {
 
 def ext_empty_translation_unit : Extension<
-  "ISO C requires a translation unit to contain at least one declaration.">,
+  "ISO C requires a translation unit to contain at least one declaration">,
   InGroup<DiagGroup<"empty-translation-unit">>;
 def warn_cxx98_compat_top_level_semi : Warning<
   "extra ';' outside of a function is incompatible with C++98">,
@@ -40,11 +43,14 @@ def warn_extra_semi_after_mem_fn_def : Warning<
   "extra ';' after member function definition">,
   InGroup<ExtraSemi>, DefaultIgnore;
 
-def ext_duplicate_declspec : Extension<"duplicate '%0' declaration specifier">;
+def ext_duplicate_declspec : ExtWarn<"duplicate '%0' declaration specifier">,
+  InGroup<DuplicateDeclSpecifier>;
+def warn_duplicate_declspec : Warning<"duplicate '%0' declaration specifier">,
+  InGroup<DuplicateDeclSpecifier>;
 def ext_plain_complex : ExtWarn<
   "plain '_Complex' requires a type specifier; assuming '_Complex double'">;
 def ext_integer_complex : Extension<
-  "complex integer types are an extension">;
+  "complex integer types are a GNU extension">, InGroup<GNU>;
 def ext_thread_before : Extension<"'__thread' before '%0'">;
 
 def ext_empty_struct_union : Extension<
@@ -80,8 +86,11 @@ def err_enumerator_list_missing_comma : Error<
   "missing ',' between enumerators">;
 def err_enumerator_unnamed_no_def : Error<
   "unnamed enumeration must be a definition">;
-def ext_ms_enum_fixed_underlying_type : Extension<
-  "enumeration types with a fixed underlying type are a Microsoft extension">, 
+def ext_cxx11_enum_fixed_underlying_type : Extension<
+  "enumeration types with a fixed underlying type are a C++11 extension">, 
+  InGroup<CXX11>;
+def ext_c_enum_fixed_underlying_type : Extension<
+  "enumeration types with a fixed underlying type are a Microsoft extension">,
   InGroup<Microsoft>;
 def warn_cxx98_compat_enum_fixed_underlying_type : Warning<
   "enumeration types with a fixed underlying type are incompatible with C++98">,
@@ -207,11 +216,19 @@ def err_expected_semi_after_static_assert : Error<
   "expected ';' after static_assert">;
 def err_expected_semi_for : Error<"expected ';' in 'for' statement specifier">;
 def err_expected_colon_after : Error<"expected ':' after %0">;
+def warn_missing_selector_name : Warning<
+  "%0 used as the name of the previous parameter rather than as part "
+  "of the selector">,
+  InGroup<DiagGroup<"missing-selector-name">>;
+def note_missing_selector_name : Note<
+  "introduce a parameter name to make %0 part of the selector">;
+def note_force_empty_selector_name : Note<
+  "or insert whitespace before ':' to use %0 as parameter name "
+  "and have an empty entry in the selector">;
 def err_label_end_of_compound_statement : Error<
   "label at end of compound statement: expected statement">;
 def err_address_of_label_outside_fn : Error<
   "use of address-of-label extension outside of a function body">;
-def err_expected_string_literal : Error<"expected string literal">;
 def err_asm_operand_wide_string_literal : Error<
   "cannot use %select{unicode|wide}0 string literal in 'asm'">;
 def err_expected_selector_for_method : Error<
@@ -331,6 +348,8 @@ def ext_c11_static_assert : Extension<
 def warn_cxx98_compat_static_assert : Warning<
   "static_assert declarations are incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
+def err_paren_after_colon_colon : Error<
+  "unexpected parenthesis after '::'">;
 
 /// Objective-C parser diagnostics
 def err_expected_minus_or_plus : Error<
@@ -415,9 +434,6 @@ def err_expected_init_in_condition_lparen : Error<
   "variable declaration in condition cannot have a parenthesized initializer">;
 def err_extraneous_rparen_in_condition : Error<
   "extraneous ')' after condition, expected a statement">;
-def warn_parens_disambiguated_as_function_decl : Warning<
-  "parentheses were disambiguated as a function declarator">,
-  InGroup<VexingParse>;
 def warn_dangling_else : Warning<
   "add explicit braces to avoid dangling else">,
   InGroup<DanglingElse>;
@@ -426,7 +442,8 @@ def err_expected_member_or_base_name : Error<
 def err_expected_lbrace_after_base_specifiers : Error<
   "expected '{' after base class list">;
 def ext_ellipsis_exception_spec : Extension<
-  "exception specification of '...' is a Microsoft extension">;
+  "exception specification of '...' is a Microsoft extension">,
+  InGroup<Microsoft>;
 def err_dynamic_and_noexcept_specification : Error<
   "cannot have both throw() and noexcept() clause on the same function">;
 def warn_cxx98_compat_noexcept_decl : Warning<
@@ -458,9 +475,6 @@ def err_literal_operator_string_prefix : Error<
   "string literal after 'operator' cannot have an encoding prefix">;
 def err_literal_operator_string_not_empty : Error<
   "string literal after 'operator' must be '\"\"'">;
-def err_literal_operator_missing_space : Error<
-  "C++11 requires a space between the \"\" and the user-defined suffix in a "
-  "literal operator">;
 def warn_cxx98_compat_literal_operator : Warning<
   "literal operators are incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
@@ -573,7 +587,7 @@ def err_expected_type_name_after_typename : Error<
   "expected an identifier or template-id after '::'">;
 def err_explicit_spec_non_template : Error<
   "explicit %select{specialization|instantiation}0 of non-template "
-  "%select{class|struct|union}1 %2">;
+  "%select{class|struct|union|interface}1 %2">;
   
 def err_default_template_template_parameter_not_template : Error<
   "default template argument for a template template parameter must be a class "
@@ -630,6 +644,11 @@ def ext_override_control_keyword : ExtWarn<
 def warn_cxx98_compat_override_control_keyword : Warning<
   "'%0' keyword is incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
+def err_override_control_interface : Error<
+  "'%0' keyword not permitted with interface types">;
+
+def err_access_specifier_interface : Error<
+  "interface types cannot specify '%select{private|protected}0' access">;
 
 def err_duplicate_virt_specifier : Error<
   "class member already marked '%0'">;
@@ -680,6 +699,10 @@ def warn_availability_and_unavailable : Warning<
   "'unavailable' availability overrides all other availability information">,
   InGroup<Availability>;
 
+// Type safety attributes
+def err_type_safety_unknown_flag : Error<
+  "invalid comparison flag %0; use 'layout_compatible' or 'must_be_null'">;
+
 // Language specific pragmas
 // - Generic warnings
 def warn_pragma_expected_lparen : Warning<
@@ -709,6 +732,11 @@ def warn_pragma_unused_expected_var : Warning<
   "expected '#pragma unused' argument to be a variable name">;
 def warn_pragma_unused_expected_punc : Warning<
   "expected ')' or ',' in '#pragma unused'">;
+// - #pragma fp_contract
+def err_pragma_fp_contract_scope : Error<
+  "'#pragma fp_contract' should only appear at file scope or at the start of a "
+  "compound expression">; 
+
 
 // OpenCL Section 6.8.g
 def err_not_opencl_storage_class_specifier : Error<
@@ -740,7 +768,7 @@ let CategoryName = "Modules Issue" in {
 def err_module_expected_ident : Error<
   "expected a module name after module import">;
 def err_module_expected_semi : Error<
-  "expected a semicolon name after module name">;
+  "expected ';' after module name">;
 }
 
 } // end of Parser diagnostics

@@ -27,43 +27,49 @@
 
 #include "clang/Lex/Preprocessor.h"
 #include "MacroArgs.h"
+#include "clang/Basic/FileManager.h"
+#include "clang/Basic/SourceManager.h"
+#include "clang/Basic/TargetInfo.h"
+#include "clang/Lex/CodeCompletionHandler.h"
 #include "clang/Lex/ExternalPreprocessorSource.h"
 #include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/LexDiagnostic.h"
+#include "clang/Lex/LiteralSupport.h"
 #include "clang/Lex/MacroInfo.h"
+#include "clang/Lex/ModuleLoader.h"
 #include "clang/Lex/Pragma.h"
 #include "clang/Lex/PreprocessingRecord.h"
+#include "clang/Lex/PreprocessorOptions.h"
 #include "clang/Lex/ScratchBuffer.h"
-#include "clang/Lex/LexDiagnostic.h"
-#include "clang/Lex/CodeCompletionHandler.h"
-#include "clang/Lex/ModuleLoader.h"
-#include "clang/Basic/SourceManager.h"
-#include "clang/Basic/FileManager.h"
-#include "clang/Basic/TargetInfo.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/Support/Capacity.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Capacity.h"
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
 ExternalPreprocessorSource::~ExternalPreprocessorSource() { }
 
-Preprocessor::Preprocessor(DiagnosticsEngine &diags, LangOptions &opts,
+PPMutationListener::~PPMutationListener() { }
+
+Preprocessor::Preprocessor(llvm::IntrusiveRefCntPtr<PreprocessorOptions> PPOpts,
+                           DiagnosticsEngine &diags, LangOptions &opts,
                            const TargetInfo *target, SourceManager &SM,
                            HeaderSearch &Headers, ModuleLoader &TheModuleLoader,
                            IdentifierInfoLookup* IILookup,
                            bool OwnsHeaders,
                            bool DelayInitialization,
                            bool IncrProcessing)
-  : Diags(&diags), LangOpts(opts), Target(target),FileMgr(Headers.getFileMgr()),
+  : PPOpts(PPOpts), Diags(&diags), LangOpts(opts), Target(target),
+    FileMgr(Headers.getFileMgr()),
     SourceMgr(SM), HeaderInfo(Headers), TheModuleLoader(TheModuleLoader),
     ExternalSource(0), Identifiers(opts, IILookup), 
     IncrementalProcessing(IncrProcessing), CodeComplete(0), 
     CodeCompletionFile(0), CodeCompletionOffset(0), CodeCompletionReached(0),
     SkipMainFilePreamble(0, true), CurPPLexer(0), 
-    CurDirLookup(0), CurLexerKind(CLK_Lexer), Callbacks(0), MacroArgCache(0), 
-    Record(0), MIChainHead(0), MICache(0) 
+    CurDirLookup(0), CurLexerKind(CLK_Lexer), Callbacks(0), Listener(0),
+    MacroArgCache(0), Record(0), MIChainHead(0), MICache(0) 
 {
   OwnsHeaderSearch = OwnsHeaders;
   
@@ -237,6 +243,20 @@ void Preprocessor::PrintStats() {
   llvm::errs() << (NumFastTokenPaste+NumTokenPaste)
              << " token paste (##) operations performed, "
              << NumFastTokenPaste << " on the fast path.\n";
+
+  llvm::errs() << "\nPreprocessor Memory: " << getTotalMemory() << "B total";
+
+  llvm::errs() << "\n  BumpPtr: " << BP.getTotalMemory();
+  llvm::errs() << "\n  Macro Expanded Tokens: "
+               << llvm::capacity_in_bytes(MacroExpandedTokens);
+  llvm::errs() << "\n  Predefines Buffer: " << Predefines.capacity();
+  llvm::errs() << "\n  Macros: " << llvm::capacity_in_bytes(Macros);
+  llvm::errs() << "\n  #pragma push_macro Info: "
+               << llvm::capacity_in_bytes(PragmaPushMacroInfo);
+  llvm::errs() << "\n  Poison Reasons: "
+               << llvm::capacity_in_bytes(PoisonReasons);
+  llvm::errs() << "\n  Comment Handlers: "
+               << llvm::capacity_in_bytes(CommentHandlers) << "\n";
 }
 
 Preprocessor::macro_iterator
@@ -269,6 +289,39 @@ Preprocessor::macro_end(bool IncludeExternalMacros) const {
   }
 
   return Macros.end();
+}
+
+/// \brief Compares macro tokens with a specified token value sequence.
+static bool MacroDefinitionEquals(const MacroInfo *MI,
+                                  llvm::ArrayRef<TokenValue> Tokens) {
+  return Tokens.size() == MI->getNumTokens() &&
+      std::equal(Tokens.begin(), Tokens.end(), MI->tokens_begin());
+}
+
+StringRef Preprocessor::getLastMacroWithSpelling(
+                                    SourceLocation Loc,
+                                    ArrayRef<TokenValue> Tokens) const {
+  SourceLocation BestLocation;
+  StringRef BestSpelling;
+  for (Preprocessor::macro_iterator I = macro_begin(), E = macro_end();
+       I != E; ++I) {
+    if (!I->second->isObjectLike())
+      continue;
+    const MacroInfo *MI = I->second->findDefinitionAtLoc(Loc, SourceMgr);
+    if (!MI)
+      continue;
+    if (!MacroDefinitionEquals(MI, Tokens))
+      continue;
+    SourceLocation Location = I->second->getDefinitionLoc();
+    // Choose the macro defined latest.
+    if (BestLocation.isInvalid() ||
+        (Location.isValid() &&
+         SourceMgr.isBeforeInTranslationUnit(BestLocation, Location))) {
+      BestLocation = Location;
+      BestSpelling = I->first->getName();
+    }
+  }
+  return BestSpelling;
 }
 
 void Preprocessor::recomputeCurLexerKind() {
@@ -364,17 +417,17 @@ StringRef Preprocessor::getSpelling(const Token &Tok,
 /// CreateString - Plop the specified string into a scratch buffer and return a
 /// location for it.  If specified, the source location provides a source
 /// location for the token.
-void Preprocessor::CreateString(const char *Buf, unsigned Len, Token &Tok,
+void Preprocessor::CreateString(StringRef Str, Token &Tok,
                                 SourceLocation ExpansionLocStart,
                                 SourceLocation ExpansionLocEnd) {
-  Tok.setLength(Len);
+  Tok.setLength(Str.size());
 
   const char *DestPtr;
-  SourceLocation Loc = ScratchBuf->getToken(Buf, Len, DestPtr);
+  SourceLocation Loc = ScratchBuf->getToken(Str.data(), Str.size(), DestPtr);
 
   if (ExpansionLocStart.isValid())
     Loc = SourceMgr.createExpansionLoc(Loc, ExpansionLocStart,
-                                       ExpansionLocEnd, Len);
+                                       ExpansionLocEnd, Str.size());
   Tok.setLocation(Loc);
 
   // If this is a raw identifier or a literal token, set the pointer data.
@@ -627,10 +680,55 @@ void Preprocessor::LexAfterModuleImport(Token &Result) {
   }
 
   // If we have a non-empty module path, load the named module.
-  if (!ModuleImportPath.empty())
-    (void)TheModuleLoader.loadModule(ModuleImportLoc, ModuleImportPath,
-                                     Module::MacrosVisible,
-                                     /*IsIncludeDirective=*/false);
+  if (!ModuleImportPath.empty()) {
+    Module *Imported = TheModuleLoader.loadModule(ModuleImportLoc,
+                                                  ModuleImportPath,
+                                                  Module::MacrosVisible,
+                                                  /*IsIncludeDirective=*/false);
+    if (Callbacks)
+      Callbacks->moduleImport(ModuleImportLoc, ModuleImportPath, Imported);
+  }
+}
+
+bool Preprocessor::FinishLexStringLiteral(Token &Result, std::string &String,
+                                          const char *DiagnosticTag,
+                                          bool AllowMacroExpansion) {
+  // We need at least one string literal.
+  if (Result.isNot(tok::string_literal)) {
+    Diag(Result, diag::err_expected_string_literal)
+      << /*Source='in...'*/0 << DiagnosticTag;
+    return false;
+  }
+
+  // Lex string literal tokens, optionally with macro expansion.
+  SmallVector<Token, 4> StrToks;
+  do {
+    StrToks.push_back(Result);
+
+    if (Result.hasUDSuffix())
+      Diag(Result, diag::err_invalid_string_udl);
+
+    if (AllowMacroExpansion)
+      Lex(Result);
+    else
+      LexUnexpandedToken(Result);
+  } while (Result.is(tok::string_literal));
+
+  // Concatenate and parse the strings.
+  StringLiteralParser Literal(&StrToks[0], StrToks.size(), *this);
+  assert(Literal.isAscii() && "Didn't allow wide strings in");
+
+  if (Literal.hadError)
+    return false;
+
+  if (Literal.Pascal) {
+    Diag(StrToks[0].getLocation(), diag::err_expected_string_literal)
+      << /*Source='in...'*/0 << DiagnosticTag;
+    return false;
+  }
+
+  String = Literal.GetString();
+  return true;
 }
 
 void Preprocessor::addCommentHandler(CommentHandler *Handler) {
@@ -667,11 +765,10 @@ CommentHandler::~CommentHandler() { }
 
 CodeCompletionHandler::~CodeCompletionHandler() { }
 
-void Preprocessor::createPreprocessingRecord(bool RecordConditionalDirectives) {
+void Preprocessor::createPreprocessingRecord() {
   if (Record)
     return;
   
-  Record = new PreprocessingRecord(getSourceManager(),
-                                   RecordConditionalDirectives);
+  Record = new PreprocessingRecord(getSourceManager());
   addPPCallbacks(Record);
 }

@@ -190,7 +190,7 @@ def Availability : InheritableAttr {
 [{static llvm::StringRef getPrettyPlatformName(llvm::StringRef Platform) {
     return llvm::StringSwitch<llvm::StringRef>(Platform)
              .Case("ios", "iOS")
-             .Case("macosx", "Mac OS X")
+             .Case("macosx", "OS X")
              .Default(llvm::StringRef());
 } }];
 }
@@ -350,6 +350,11 @@ def FastCall : InheritableAttr {
 def Final : InheritableAttr {
   let Spellings = [];
   let SemaHandler = 0;
+}
+
+def MinSize : InheritableAttr {
+  let Spellings = [GNU<"minsize">];
+  let Subjects = [Function];
 }
 
 def Format : InheritableAttr {
@@ -539,6 +544,11 @@ def ObjCReturnsInnerPointer : Attr {
   let Subjects = [ObjCMethod];
 }
 
+def ObjCRequiresSuper : InheritableAttr {
+  let Spellings = [GNU<"objc_requires_super">];
+  let Subjects = [ObjCMethod];
+}
+
 def ObjCRootClass : Attr {
   let Spellings = [GNU<"objc_root_class">];
   let Subjects = [ObjCInterface];
@@ -565,6 +575,10 @@ def Ownership : InheritableAttr {
 
 def Packed : InheritableAttr {
   let Spellings = [GNU<"packed">];
+}
+
+def PnaclCall : InheritableAttr {
+  let Spellings = [GNU<"pnaclcall">];
 }
 
 def Pcs : InheritableAttr {
@@ -696,7 +710,7 @@ def VecReturn : InheritableAttr {
 }
 
 def WarnUnusedResult : InheritableAttr {
-  let Spellings = [GNU<"warn_unused_result">];
+  let Spellings = [GNU<"warn_unused_result">, CXX11<"clang","warn_unused_result">];
 }
 
 def Weak : InheritableAttr {
@@ -835,6 +849,27 @@ def SharedLocksRequired : InheritableAttr {
   let Args = [VariadicExprArgument<"Args">];
   let LateParsed = 1;
   let TemplateDependent = 1;
+}
+
+// Type safety attributes for `void *' pointers and type tags.
+
+def ArgumentWithTypeTag : InheritableAttr {
+  let Spellings = [GNU<"argument_with_type_tag">,
+                   GNU<"pointer_with_type_tag">];
+  let Args = [IdentifierArgument<"ArgumentKind">,
+              UnsignedArgument<"ArgumentIdx">,
+              UnsignedArgument<"TypeTagIdx">,
+              BoolArgument<"IsPointer">];
+  let Subjects = [Function];
+}
+
+def TypeTagForDatatype : InheritableAttr {
+  let Spellings = [GNU<"type_tag_for_datatype">];
+  let Args = [IdentifierArgument<"ArgumentKind">,
+              TypeArgument<"MatchingCType">,
+              BoolArgument<"LayoutCompatible">,
+              BoolArgument<"MustBeNull">];
+  let Subjects = [Var];
 }
 
 // Microsoft-related attributes

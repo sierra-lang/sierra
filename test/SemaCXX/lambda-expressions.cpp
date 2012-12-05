@@ -77,18 +77,21 @@ namespace ImplicitCapture {
     struct G { G(); G(G&); int a; }; // expected-note 6 {{not viable}}
     G g;
     [=]() { const G* gg = &g; return gg->a; };
-    [=]() { return [=]{ const G* gg = &g; return gg->a; }(); }; // expected-error {{no matching constructor for initialization of 'ImplicitCapture::G'}}
-    (void)^{ return [=]{ const G* gg = &g; return gg->a; }(); }; // expected-error 2 {{no matching constructor for initialization of 'const ImplicitCapture::G'}}
+    [=]() { return [=]{ const G* gg = &g; return gg->a; }(); }; // expected-error {{no matching constructor for initialization of 'G'}}
+    (void)^{ return [=]{ const G* gg = &g; return gg->a; }(); }; // expected-error 2 {{no matching constructor for initialization of 'const G'}}
 
     const int h = a; // expected-note {{declared}}
     []() { return h; }; // expected-error {{variable 'h' cannot be implicitly captured in a lambda with no capture-default specified}} expected-note {{lambda expression begins here}}
 
-    // The exemption for variables which can appear in constant expressions
-    // applies only to objects (and not to references).
-    // FIXME: This might be a bug in the standard.
-    static int i;
-    constexpr int &ref_i = i; // expected-note {{declared}}
+    // References can appear in constant expressions if they are initialized by
+    // reference constant expressions.
+    int i;
+    int &ref_i = i; // expected-note {{declared}}
     [] { return ref_i; }; // expected-error {{variable 'ref_i' cannot be implicitly captured in a lambda with no capture-default specified}} expected-note {{lambda expression begins here}}
+
+    static int j;
+    int &ref_j = j;
+    [] { return ref_j; }; // ok
   }
 }
 
@@ -117,16 +120,16 @@ namespace NullPtr {
 
     const int m = 0;
     [=] {
-      int &k = f(m); // a null pointer constant
+      int &k = f(m); // expected-warning{{expression which evaluates to zero treated as a null pointer constant of type 'int *'}}
     } ();
 
     [=] () -> bool {
-      int &k = f(m); // a null pointer constant
+      int &k = f(m); // expected-warning{{expression which evaluates to zero treated as a null pointer constant of type 'int *'}}
       return &m == 0;
     } ();
 
     [m] {
-      int &k = f(m); // a null pointer constant
+      int &k = f(m); // expected-warning{{expression which evaluates to zero treated as a null pointer constant of type 'int *'}}
     } ();
   }
 }
@@ -220,4 +223,16 @@ namespace VariadicPackExpansion {
   }
   template void nested2(int); // ok
   template void nested2(int, int); // expected-note {{in instantiation of}}
+}
+
+namespace PR13860 {
+  void foo() {
+    auto x = PR13860UndeclaredIdentifier(); // expected-error {{use of undeclared identifier 'PR13860UndeclaredIdentifier'}}
+    auto y = [x]() { };
+    static_assert(sizeof(y), "");
+  }
+}
+
+namespace PR13854 {
+  auto l = [](void){};
 }

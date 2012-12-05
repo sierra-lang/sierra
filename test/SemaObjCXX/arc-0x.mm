@@ -11,6 +11,9 @@ void move_it(__strong id &&from) {
 - init;
 @end
 
+// <rdar://problem/12031870>: don't warn about this
+extern "C" A* MakeA();
+
 // Ensure that deduction works with lifetime qualifiers.
 void deduction(id obj) {
   auto a = [[A alloc] init];
@@ -77,4 +80,16 @@ void testAutoIdTemplate(id obj) {
   autoTemplateFunction<id, 2>(obj, obj, [Array new]); // no-warning
 }
 
+// rdar://12229679
+@interface NSObject @end
+typedef __builtin_va_list va_list;
+@interface MyClass : NSObject
+@end
 
+@implementation MyClass
++ (void)fooMethod:(id)firstArg, ... {
+    va_list args;
+
+    __builtin_va_arg(args, id);
+}
+@end

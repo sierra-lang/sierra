@@ -1,4 +1,5 @@
-// RUN: %clang_cc1 -fsyntax-only -verify -Wunused -Wunused-member-function %s
+// RUN: %clang_cc1 -fsyntax-only -verify -Wunused -Wunused-member-function -std=c++98 %s
+// RUN: %clang_cc1 -fsyntax-only -verify -Wunused -Wunused-member-function -std=c++11 %s
 
 static void f1(); // expected-warning{{unused}}
 
@@ -86,4 +87,34 @@ namespace rdar8733476 {
   void bar() {
     foo();
   }
+}
+
+namespace test5 {
+  static int n = 0;
+  static int &r = n;
+  int f(int &);
+  int k = f(r);
+
+  // FIXME: We should produce warnings for both of these.
+  static const int m = n;
+  int x = sizeof(m);
+  static const double d = 0.0;
+  int y = sizeof(d);
+}
+
+namespace unused_nested {
+  class outer {
+    void func1();
+    struct {
+      void func2() {
+      }
+    } x;
+  };
+}
+
+namespace unused {
+  struct {
+    void func() { // expected-warning {{unused member function}}
+    }
+  } x; // expected-warning {{unused variable}}
 }

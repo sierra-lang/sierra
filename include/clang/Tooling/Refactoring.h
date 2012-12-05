@@ -19,9 +19,9 @@
 #ifndef LLVM_CLANG_TOOLING_REFACTORING_H
 #define LLVM_CLANG_TOOLING_REFACTORING_H
 
-#include "llvm/ADT/StringRef.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Tooling/Tooling.h"
+#include "llvm/ADT/StringRef.h"
 #include <set>
 #include <string>
 
@@ -74,6 +74,7 @@ public:
   StringRef getFilePath() const { return FilePath; }
   unsigned getOffset() const { return Offset; }
   unsigned getLength() const { return Length; }
+  StringRef getReplacementText() const { return ReplacementText; }
   /// @}
 
   /// \brief Applies the replacement on the Rewriter.

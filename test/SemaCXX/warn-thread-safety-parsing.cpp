@@ -1255,7 +1255,7 @@ public:
   void foo4(FooLate *f) EXCLUSIVE_LOCKS_REQUIRED(f->mu);
 
   static void foo5()    EXCLUSIVE_LOCKS_REQUIRED(mu); // \
-    // expected-error {{'this' cannot be implicitly used in a static member function declaration}}
+    // expected-error {{invalid use of member 'mu' in static member function}}
 
   template <class T>
   void foo6() EXCLUSIVE_LOCKS_REQUIRED(T::statmu) { }
@@ -1429,4 +1429,61 @@ class Foo {
 }
 
 
+namespace InvalidDeclTest {
+
+class Foo { };
+namespace {
+void Foo::bar(Mutex* mu) LOCKS_EXCLUDED(mu) { } // \
+   // expected-error   {{cannot define or redeclare 'bar' here because namespace '' does not enclose namespace 'Foo'}} \
+   // expected-warning {{attribute locks_excluded ignored, because it is not attached to a declaration}}
+}
+
+} // end namespace InvalidDeclTest
+
+
+namespace StaticScopeTest {
+
+class FooStream;
+
+class Foo {
+  mutable Mutex mu;
+  int a GUARDED_BY(mu);
+
+  static int si GUARDED_BY(mu); // \
+    // expected-error {{invalid use of non-static data member 'mu'}}
+
+  static void foo() EXCLUSIVE_LOCKS_REQUIRED(mu); // \
+    // expected-error {{invalid use of member 'mu' in static member function}}
+
+  friend FooStream& operator<<(FooStream& s, const Foo& f)
+    EXCLUSIVE_LOCKS_REQUIRED(mu); // \
+    // expected-error {{invalid use of non-static data member 'mu'}}
+};
+
+
+} // end namespace StaticScopeTest
+
+
+namespace FunctionAttributesInsideClass_ICE_Test {
+
+class Foo {
+public:
+  /*  Originally found when parsing foo() as an ordinary method after the
+   *  the following:
+
+  template <class T>
+  void syntaxErrorMethod(int i) {
+    if (i) {
+      foo(
+    }
+  }
+  */
+
+  void method() {
+    void foo() EXCLUSIVE_LOCKS_REQUIRED(mu); // \
+      // expected-error {{use of undeclared identifier 'mu'}}
+  }
+};
+
+}  // end namespace FunctionAttributesInsideClass_ICE_Test
 

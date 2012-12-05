@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -triple i386-apple-darwin9 -analyze -analyzer-checker=core,experimental.core -analyzer-store=region -verify -fblocks -analyzer-opt-analyze-nested-blocks %s -fexceptions -fcxx-exceptions
-// RUN: %clang_cc1 -triple x86_64-apple-darwin9 -analyze -analyzer-checker=core,experimental.core -analyzer-store=region -verify -fblocks   -analyzer-opt-analyze-nested-blocks %s -fexceptions -fcxx-exceptions
+// RUN: %clang_cc1 -triple i386-apple-darwin9 -analyze -analyzer-checker=core,alpha.core -analyzer-store=region -verify -fblocks -analyzer-ipa=inlining -analyzer-opt-analyze-nested-blocks %s -fexceptions -fcxx-exceptions
+// RUN: %clang_cc1 -triple x86_64-apple-darwin9 -analyze -analyzer-checker=core,alpha.core -analyzer-store=region -verify -fblocks -analyzer-ipa=inlining -analyzer-opt-analyze-nested-blocks %s -fexceptions -fcxx-exceptions
 
 // Test basic handling of references.
 char &test1_aux();
@@ -271,10 +271,24 @@ class Rdar9212495_A : public Rdar9212495_B {};
 const Rdar9212495_A& rdar9212495(const Rdar9212495_C* ptr) {
   const Rdar9212495_A& val = dynamic_cast<const Rdar9212495_A&>(*ptr);
   
+  // This is not valid C++; dynamic_cast with a reference type will throw an
+  // exception if the pointer does not match the expected type. However, our
+  // implementation of dynamic_cast will pass through a null pointer...or a
+  // "null reference"! So this branch is actually possible.
   if (&val == 0) {
-    val.bar(); // FIXME: This should eventually be a null dereference.
+    val.bar(); // expected-warning{{Called C++ object pointer is null}}
   }
   
+  return val;
+}
+
+const Rdar9212495_A* rdar9212495_ptr(const Rdar9212495_C* ptr) {
+  const Rdar9212495_A* val = dynamic_cast<const Rdar9212495_A*>(ptr);
+
+  if (val == 0) {
+    val->bar(); // expected-warning{{Called C++ object pointer is null}}
+  }
+
   return val;
 }
 
@@ -523,7 +537,8 @@ MyEnum rdar10892489_positive() {
     throw MyEnumValue;
   } catch (MyEnum e) {
     int *p = 0;
-    *p = 0xDEADBEEF; // expected-warning {{null}}
+    // FALSE NEGATIVE
+    *p = 0xDEADBEEF; // {{null}}
     return e;
   }
   return MyEnumValue;
@@ -548,7 +563,8 @@ void PR11545_positive() {
   catch (...)
   {
     int *p = 0;
-    *p = 0xDEADBEEF; // expected-warning {{null}}
+    // FALSE NEGATIVE
+    *p = 0xDEADBEEF; // {{null}}
   }
 }
 
@@ -612,3 +628,80 @@ void test_inline() {
   a.bar();
 }
 
+void test_alloca_in_a_recursive_function(int p1) {
+    __builtin_alloca (p1);
+    test_alloca_in_a_recursive_function(1);
+    test_alloca_in_a_recursive_function(2);
+}
+
+//===---------------------------------------------------------------------===//
+// Random tests.
+//===---------------------------------------------------------------------===//
+
+// Tests assigning using a C-style initializer to a struct
+// variable whose sub-field is also a struct.  This currently
+// results in a CXXTempObjectRegion being created, but not
+// properly handled.  For now, we just ignore that value
+// to avoid a crash (<rdar://problem/12753384>).
+struct RDar12753384_ClassA {
+  unsigned z;
+};
+struct  RDar12753384_ClassB {
+  unsigned x;
+  RDar12753384_ClassA y[ 8 ] ;
+};
+unsigned RDar12753384() {
+  RDar12753384_ClassB w = { 0x00 };
+  RDar12753384_ClassA y[8];
+  return w.x;
+}
+
+// This testcase tests whether we treat the anonymous union and union
+// the same way.  This previously resulted in a "return of stack address"
+// warning because the anonymous union resulting in a temporary object
+// getting put into the initializer.  We still aren't handling this correctly,
+// but now if a temporary object appears in an initializer we just ignore it.
+// Fixes <rdar://problem/12755044>.
+
+struct Rdar12755044_foo
+{
+    struct Rdar12755044_bar
+    {
+        union baz
+        {
+            int   i;
+        };
+    } aBar;
+};
+
+struct Rdar12755044_foo_anon
+{
+    struct Rdar12755044_bar
+    {
+        union
+        {
+            int   i;
+        };
+    } aBar;
+};
+
+const Rdar12755044_foo_anon *radar12755044_anon() {
+  static const Rdar12755044_foo_anon Rdar12755044_foo_list[] = { { { } } };
+  return Rdar12755044_foo_list; // no-warning
+}
+
+const Rdar12755044_foo *radar12755044() {
+  static const Rdar12755044_foo Rdar12755044_foo_list[] = { { { } } };
+  return Rdar12755044_foo_list; // no-warning
+}
+
+// Test the correct handling of integer to bool conversions.  Previously
+// this resulted in a false positive because integers were being truncated
+// and not tested for non-zero.
+void rdar12759044() {
+  int flag = 512;
+  if (!(flag & 512)) {
+   int *p = 0;
+   *p = 0xDEADBEEF; // no-warning
+  }
+}

@@ -13,10 +13,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "ClangSACheckers.h"
+#include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
-#include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 
 using namespace clang;
 using namespace ento;
@@ -99,11 +99,10 @@ void UndefBranchChecker::checkBranchCondition(const Stmt *Condition,
 
       // Emit the bug report.
       BugReport *R = new BugReport(*BT, BT->getDescription(), N);
-      R->addVisitor(bugreporter::getTrackNullOrUndefValueVisitor(N, Ex, R));
+      bugreporter::trackNullOrUndefValue(N, Ex, *R);
       R->addRange(Ex->getSourceRange());
-      R->disablePathPruning();
 
-      Ctx.EmitReport(R);
+      Ctx.emitReport(R);
     }
   }
 }

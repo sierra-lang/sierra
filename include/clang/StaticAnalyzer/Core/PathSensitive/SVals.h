@@ -16,8 +16,8 @@
 #define LLVM_CLANG_GR_RVALUE_H
 
 #include "clang/Basic/LLVM.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/SymbolManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState_Fwd.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/SymbolManager.h"
 #include "llvm/ADT/ImmutableList.h"
 
 //==------------------------------------------------------------------------==//
@@ -154,9 +154,6 @@ public:
   SymExpr::symbol_iterator symbol_end() const { 
     return SymExpr::symbol_end();
   }
-
-  // Implement isa<T> support.
-  static inline bool classof(const SVal*) { return true; }
 };
 
 
@@ -238,8 +235,6 @@ protected:
 public:
   void dumpToStream(raw_ostream &Out) const;
 
-  Loc(const Loc& X) : DefinedSVal(X.Data, true, X.getSubKind()) {}
-
   // Implement isa<T> support.
   static inline bool classof(const SVal* V) {
     return V->getBaseKind() == LocKind;
@@ -257,7 +252,7 @@ public:
 
 namespace nonloc {
 
-enum Kind { ConcreteIntKind, SymbolValKind, SymExprValKind,
+enum Kind { ConcreteIntKind, SymbolValKind,
             LocAsIntegerKind, CompoundValKind, LazyCompoundValKind };
 
 /// \brief Represents symbolic expression.
@@ -433,7 +428,7 @@ public:
   }
 
   /// \brief Get the underlining region and strip casts.
-  const MemRegion* stripCasts() const;
+  const MemRegion* stripCasts(bool StripBaseCasts = true) const;
 
   template <typename REGION>
   const REGION* getRegionAs() const {

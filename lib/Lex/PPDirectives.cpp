@@ -13,15 +13,15 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Lex/Preprocessor.h"
-#include "clang/Lex/LiteralSupport.h"
-#include "clang/Lex/HeaderSearch.h"
-#include "clang/Lex/MacroInfo.h"
-#include "clang/Lex/LexDiagnostic.h"
-#include "clang/Lex/CodeCompletionHandler.h"
-#include "clang/Lex/ModuleLoader.h"
-#include "clang/Lex/Pragma.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Lex/CodeCompletionHandler.h"
+#include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/LexDiagnostic.h"
+#include "clang/Lex/LiteralSupport.h"
+#include "clang/Lex/MacroInfo.h"
+#include "clang/Lex/ModuleLoader.h"
+#include "clang/Lex/Pragma.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/Support/ErrorHandling.h"
 using namespace clang;
@@ -1296,7 +1296,7 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
   case tok::string_literal:
     Filename = getSpelling(FilenameTok, FilenameBuffer);
     End = FilenameTok.getLocation();
-    CharEnd = End.getLocWithOffset(Filename.size());
+    CharEnd = End.getLocWithOffset(FilenameTok.getLength());
     break;
 
   case tok::less:
@@ -1306,7 +1306,7 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
     if (ConcatenateIncludeName(FilenameBuffer, End))
       return;   // Found <eod> but no ">"?  Diagnostic already emitted.
     Filename = FilenameBuffer.str();
-    CharEnd = getLocForEndOfToken(End);
+    CharEnd = End.getLocWithOffset(1);
     break;
   default:
     Diag(FilenameTok.getLocation(), diag::err_pp_expects_filename);
@@ -1314,6 +1314,8 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
     return;
   }
 
+  CharSourceRange FilenameRange
+    = CharSourceRange::getCharRange(FilenameTok.getLocation(), CharEnd);
   StringRef OriginalFilename = Filename;
   bool isAngled =
     GetIncludeFilenameSpelling(FilenameTok.getLocation(), Filename);
@@ -1384,9 +1386,13 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
       }
     }
     
-    // Notify the callback object that we've seen an inclusion directive.
-    Callbacks->InclusionDirective(HashLoc, IncludeTok, Filename, isAngled, File,
-                                  End, SearchPath, RelativePath);
+    if (!SuggestedModule) {
+      // Notify the callback object that we've seen an inclusion directive.
+      Callbacks->InclusionDirective(HashLoc, IncludeTok, Filename, isAngled,
+                                    FilenameRange, File,
+                                    SearchPath, RelativePath,
+                                    /*ImportedModule=*/0);
+    }
   }
   
   if (File == 0) {
@@ -1477,13 +1483,38 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
     // If this was an #__include_macros directive, only make macros visible.
     Module::NameVisibilityKind Visibility 
       = (IncludeKind == 3)? Module::MacrosVisible : Module::AllVisible;
-    Module *Imported
+    ModuleLoadResult Imported
       = TheModuleLoader.loadModule(IncludeTok.getLocation(), Path, Visibility,
                                    /*IsIncludeDirective=*/true);
+    assert((Imported == 0 || Imported == SuggestedModule) &&
+           "the imported module is different than the suggested one");
     
     // If this header isn't part of the module we're building, we're done.
-    if (!BuildingImportedModule && Imported)
+    if (!BuildingImportedModule && Imported) {
+      if (Callbacks) {
+        Callbacks->InclusionDirective(HashLoc, IncludeTok, Filename, isAngled,
+                                      FilenameRange, File,
+                                      SearchPath, RelativePath, Imported);
+      }
       return;
+    }
+
+    // If we failed to find a submodule that we expected to find, we can
+    // continue. Otherwise, there's an error in the included file, so we
+    // don't want to include it.
+    if (!BuildingImportedModule && !Imported.isMissingExpected()) {
+      return;
+    }
+  }
+
+  if (Callbacks && SuggestedModule) {
+    // We didn't notify the callback object that we've seen an inclusion
+    // directive before. Now that we are parsing the include normally and not
+    // turning it to a module import, notify the callback object.
+    Callbacks->InclusionDirective(HashLoc, IncludeTok, Filename, isAngled,
+                                  FilenameRange, File,
+                                  SearchPath, RelativePath,
+                                  /*ImportedModule=*/0);
   }
   
   // The #included file will be considered to be a system header if either it is
@@ -1785,8 +1816,37 @@ void Preprocessor::HandleDefineDirective(Token &DefineTok) {
     while (Tok.isNot(tok::eod)) {
       LastTok = Tok;
 
-      if (Tok.isNot(tok::hash)) {
+      if (Tok.isNot(tok::hash) && Tok.isNot(tok::hashhash)) {
         MI->AddTokenToBody(Tok);
+
+        // Get the next token of the macro.
+        LexUnexpandedToken(Tok);
+        continue;
+      }
+
+      if (Tok.is(tok::hashhash)) {
+        
+        // If we see token pasting, check if it looks like the gcc comma
+        // pasting extension.  We'll use this information to suppress
+        // diagnostics later on.
+        
+        // Get the next token of the macro.
+        LexUnexpandedToken(Tok);
+
+        if (Tok.is(tok::eod)) {
+          MI->AddTokenToBody(LastTok);
+          break;
+        }
+
+        unsigned NumTokens = MI->getNumTokens();
+        if (NumTokens && Tok.getIdentifierInfo() == Ident__VA_ARGS__ &&
+            MI->getReplacementToken(NumTokens-1).is(tok::comma))
+          MI->setHasCommaPasting();
+
+        // Things look ok, add the '##' and param name tokens to the macro.
+        MI->AddTokenToBody(LastTok);
+        MI->AddTokenToBody(Tok);
+        LastTok = Tok;
 
         // Get the next token of the macro.
         LexUnexpandedToken(Tok);
@@ -1849,7 +1909,7 @@ void Preprocessor::HandleDefineDirective(Token &DefineTok) {
   MI->setDefinitionEndLoc(LastTok.getLocation());
 
   // Finally, if this identifier already had a macro defined for it, verify that
-  // the macro bodies are identical and free the old definition.
+  // the macro bodies are identical, and issue diagnostics if they are not.
   if (MacroInfo *OtherMI = getMacroInfo(MacroNameTok.getIdentifierInfo())) {
     // It is very common for system headers to have tons of macro redefinitions
     // and for warnings to be disabled in system headers.  If this is the case,
@@ -1870,7 +1930,6 @@ void Preprocessor::HandleDefineDirective(Token &DefineTok) {
     }
     if (OtherMI->isWarnIfUnused())
       WarnUnusedMacroLocs.erase(OtherMI->getDefinitionLoc());
-    ReleaseMacroInfo(OtherMI);
   }
 
   setMacroInfo(MacroNameTok.getIdentifierInfo(), MI);
@@ -1921,9 +1980,20 @@ void Preprocessor::HandleUndefDirective(Token &UndefTok) {
   if (MI->isWarnIfUnused())
     WarnUnusedMacroLocs.erase(MI->getDefinitionLoc());
 
-  // Free macro definition.
-  ReleaseMacroInfo(MI);
-  setMacroInfo(MacroNameTok.getIdentifierInfo(), 0);
+  UndefineMacro(MacroNameTok.getIdentifierInfo(), MI,
+                MacroNameTok.getLocation());
+}
+
+void Preprocessor::UndefineMacro(IdentifierInfo *II, MacroInfo *MI,
+                                 SourceLocation UndefLoc) {
+  MI->setUndefLoc(UndefLoc);
+  if (MI->isFromAST()) {
+    MI->setChangedAfterLoad();
+    if (Listener)
+      Listener->UndefinedMacro(MI);
+  }
+
+  clearMacroInfo(II);
 }
 
 

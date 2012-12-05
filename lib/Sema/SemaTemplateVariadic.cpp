@@ -10,14 +10,14 @@
 //===----------------------------------------------------------------------===/
 
 #include "clang/Sema/Sema.h"
+#include "clang/AST/Expr.h"
+#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/TypeLoc.h"
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/ScopeInfo.h"
 #include "clang/Sema/SemaInternal.h"
 #include "clang/Sema/Template.h"
-#include "clang/AST/Expr.h"
-#include "clang/AST/RecursiveASTVisitor.h"
-#include "clang/AST/TypeLoc.h"
 
 using namespace clang;
 
@@ -727,6 +727,7 @@ bool Sema::containsUnexpandedParameterPacks(Declarator &D) {
   case TST_enum:
   case TST_union:
   case TST_struct:
+  case TST_interface:
   case TST_class:
   case TST_auto:
   case TST_unknown_anytype:

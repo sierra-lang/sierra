@@ -20,3 +20,21 @@ zend_module_entry openssl_module_entry = {
     sizeof(zend_module_entry)
 };
 
+// <rdar://problem/11067144>
+typedef int (FunctionType)(int *value);
+typedef struct {
+  UndefinedType undef; // expected-error {{unknown type name 'UndefinedType'}}
+  FunctionType fun; // expected-error {{field 'fun' declared as a function}}
+} StructType;
+void f(StructType *buf) {
+  buf->fun = 0;
+}
+
+// rdar://11743706
+static void bar(hid_t, char); // expected-error {{expected identifier}}
+
+static void bar(hid_t p, char); // expected-error {{unknown type name 'hid_t'}}
+
+void foo() {
+  (void)bar;
+}

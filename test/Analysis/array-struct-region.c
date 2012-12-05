@@ -1,5 +1,4 @@
-// RUN: %clang_cc1 -analyze -analyzer-checker=core,experimental.core,debug.ExprInspection -analyzer-store=region -analyzer-constraints=basic -analyzer-ipa=inlining -verify %s
-// RUN: %clang_cc1 -analyze -analyzer-checker=core,experimental.core,debug.ExprInspection -analyzer-store=region -analyzer-constraints=range -analyzer-ipa=inlining -verify %s
+// RUN: %clang_cc1 -analyze -analyzer-checker=core,alpha.core,debug.ExprInspection -analyzer-constraints=range -verify %s
 
 void clang_analyzer_eval(int);
 
@@ -90,5 +89,204 @@ float struct_in_struct_f() {
   c = get_circle_f();
 
   return c.r; // no-warning
+}
+
+
+int randomInt();
+
+int testSymbolicInvalidation(int index) {
+  int vals[10];
+
+  vals[0] = 42;
+  clang_analyzer_eval(vals[0] == 42); // expected-warning{{TRUE}}
+
+  vals[index] = randomInt();
+  clang_analyzer_eval(vals[0] == 42); // expected-warning{{UNKNOWN}}
+
+  return vals[index]; // no-warning
+}
+
+int testConcreteInvalidation(int index) {
+  int vals[10];
+
+  vals[index] = 42;
+  clang_analyzer_eval(vals[index] == 42); // expected-warning{{TRUE}}
+  vals[0] = randomInt();
+  clang_analyzer_eval(vals[index] == 42); // expected-warning{{UNKNOWN}}
+
+  return vals[0]; // no-warning
+}
+
+
+typedef struct {
+  int x, y, z;
+} S;
+
+S makeS();
+
+int testSymbolicInvalidationStruct(int index) {
+  S vals[10];
+
+  vals[0].x = 42;
+  clang_analyzer_eval(vals[0].x == 42); // expected-warning{{TRUE}}
+
+  vals[index] = makeS();
+  clang_analyzer_eval(vals[0].x == 42); // expected-warning{{UNKNOWN}}
+
+  return vals[index].x; // no-warning
+}
+
+int testConcreteInvalidationStruct(int index) {
+  S vals[10];
+
+  vals[index].x = 42;
+  clang_analyzer_eval(vals[index].x == 42); // expected-warning{{TRUE}}
+  vals[0] = makeS();
+  clang_analyzer_eval(vals[index].x == 42); // expected-warning{{UNKNOWN}}
+
+  return vals[0].x; // no-warning
+}
+
+typedef struct {
+  S a[5];
+  S b[5];
+} SS;
+
+int testSymbolicInvalidationDoubleStruct(int index) {
+  SS vals;
+
+  vals.a[0].x = 42;
+  vals.b[0].x = 42;
+  clang_analyzer_eval(vals.a[0].x == 42); // expected-warning{{TRUE}}
+  clang_analyzer_eval(vals.b[0].x == 42); // expected-warning{{TRUE}}
+
+  vals.a[index] = makeS();
+  clang_analyzer_eval(vals.a[0].x == 42); // expected-warning{{UNKNOWN}}
+  clang_analyzer_eval(vals.b[0].x == 42); // expected-warning{{TRUE}}
+
+  return vals.b[index].x; // no-warning
+}
+
+int testConcreteInvalidationDoubleStruct(int index) {
+  SS vals;
+
+  vals.a[index].x = 42;
+  vals.b[index].x = 42;
+  clang_analyzer_eval(vals.a[index].x == 42); // expected-warning{{TRUE}}
+  clang_analyzer_eval(vals.b[index].x == 42); // expected-warning{{TRUE}}
+
+  vals.a[0] = makeS();
+  clang_analyzer_eval(vals.a[index].x == 42); // expected-warning{{UNKNOWN}}
+  clang_analyzer_eval(vals.b[index].x == 42); // expected-warning{{TRUE}}
+
+  return vals.b[0].x; // no-warning
+}
+
+
+int testNonOverlappingStructFieldsSimple() {
+  S val;
+
+  val.x = 1;
+  val.y = 2;
+  clang_analyzer_eval(val.x == 1); // expected-warning{{TRUE}}
+  clang_analyzer_eval(val.y == 2); // expected-warning{{TRUE}}
+
+  return val.z; // expected-warning{{garbage}}
+}
+
+int testNonOverlappingStructFieldsSymbolicBase(int index, int anotherIndex) {
+  SS vals;
+
+  vals.a[index].x = 42;
+  vals.a[index].y = 42;
+  clang_analyzer_eval(vals.a[index].x == 42); // expected-warning{{TRUE}}
+  clang_analyzer_eval(vals.a[index].y == 42); // expected-warning{{TRUE}}
+
+  vals.a[anotherIndex].x = 42;
+  clang_analyzer_eval(vals.a[index].x == 42); // expected-warning{{UNKNOWN}}
+  clang_analyzer_eval(vals.a[index].y == 42); // expected-warning{{TRUE}}
+
+  // FIXME: False negative. No bind ever set a field 'z'.
+  return vals.a[index].z; // no-warning
+}
+
+int testStructFieldChains(int index, int anotherIndex) {
+  SS vals[4];
+
+  vals[index].a[0].x = 42;
+  vals[anotherIndex].a[1].y = 42;
+  clang_analyzer_eval(vals[index].a[0].x == 42); // expected-warning{{TRUE}}
+  clang_analyzer_eval(vals[anotherIndex].a[1].y == 42); // expected-warning{{TRUE}}
+
+  // This doesn't affect anything in the 'a' array field.
+  vals[anotherIndex].b[1].x = 42;
+  clang_analyzer_eval(vals[index].a[0].x == 42); // expected-warning{{TRUE}}
+  clang_analyzer_eval(vals[anotherIndex].a[1].y == 42); // expected-warning{{TRUE}}
+  clang_analyzer_eval(vals[anotherIndex].b[1].x == 42); // expected-warning{{TRUE}}
+
+  // This doesn't affect anything in the 'b' array field.
+  vals[index].a[anotherIndex].x = 42;
+  clang_analyzer_eval(vals[index].a[0].x == 42); // expected-warning{{UNKNOWN}}
+  clang_analyzer_eval(vals[anotherIndex].a[0].x == 42); // expected-warning{{UNKNOWN}}
+  clang_analyzer_eval(vals[anotherIndex].a[1].y == 42); // expected-warning{{TRUE}}
+  clang_analyzer_eval(vals[anotherIndex].b[1].x == 42); // expected-warning{{TRUE}}
+
+  // FIXME: False negative. No bind ever set a field 'z'.
+  return vals[index].a[0].z; // no-warning
+}
+
+int testStructFieldChainsNested(int index, int anotherIndex) {
+  SS vals[4];
+
+  vals[index].a[0].x = 42;
+  clang_analyzer_eval(vals[index].a[0].x == 42); // expected-warning{{TRUE}}
+
+  vals[index].b[0] = makeS();
+  clang_analyzer_eval(vals[index].a[0].x == 42); // expected-warning{{TRUE}}
+
+  vals[index].a[0] = makeS();
+  clang_analyzer_eval(vals[index].a[0].x == 42); // expected-warning{{UNKNOWN}}
+
+  vals[index].a[0].x = 42;
+  clang_analyzer_eval(vals[index].a[0].x == 42); // expected-warning{{TRUE}}
+
+  return 0;
+}
+
+
+// --------------------
+// False positives
+// --------------------
+
+int testMixSymbolicAndConcrete(int index, int anotherIndex) {
+  SS vals;
+
+  vals.a[index].x = 42;
+  vals.a[0].y = 42;
+
+  // FIXME: Should be TRUE.
+  clang_analyzer_eval(vals.a[index].x == 42); // expected-warning{{UNKNOWN}}
+  // Should be TRUE; we set this explicitly.
+  clang_analyzer_eval(vals.a[0].y == 42); // expected-warning{{TRUE}}
+
+  vals.a[anotherIndex].y = 42;
+
+  // Should be UNKNOWN; we set an 'x'.
+  clang_analyzer_eval(vals.a[index].x == 42); // expected-warning{{UNKNOWN}}
+  // FIXME: Should be TRUE.
+  clang_analyzer_eval(vals.a[0].y == 42); // expected-warning{{UNKNOWN}}
+
+  return vals.a[0].x; // no-warning
+}
+
+void testFieldChainIsNotEnough(int index) {
+  SS vals[4];
+
+  vals[index].a[0].x = 42;
+  clang_analyzer_eval(vals[index].a[0].x == 42); // expected-warning{{TRUE}}
+
+  vals[index].a[1] = makeS();
+  // FIXME: Should be TRUE.
+  clang_analyzer_eval(vals[index].a[0].x == 42); // expected-warning{{UNKNOWN}}
 }
 

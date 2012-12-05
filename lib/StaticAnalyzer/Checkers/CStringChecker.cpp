@@ -14,14 +14,15 @@
 
 #include "ClangSACheckers.h"
 #include "InterCheckerAPI.h"
+#include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
-#include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramStateTrait.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
 using namespace ento;
@@ -188,21 +189,9 @@ public:
                                             NonLoc right) const;
 };
 
-class CStringLength {
-public:
-  typedef llvm::ImmutableMap<const MemRegion *, SVal> EntryMap;
-};
 } //end anonymous namespace
 
-namespace clang {
-namespace ento {
-  template <>
-  struct ProgramStateTrait<CStringLength> 
-    : public ProgramStatePartialTrait<CStringLength::EntryMap> {
-    static void *GDMIndex() { return CStringChecker::getTag(); }
-  };
-}
-}
+REGISTER_MAP_WITH_PROGRAMSTATE(CStringLength, const MemRegion *, SVal)
 
 //===----------------------------------------------------------------------===//
 // Individual checks and utility methods.
@@ -252,9 +241,8 @@ ProgramStateRef CStringChecker::checkNonNull(CheckerContext &C,
     BugReport *report = new BugReport(*BT, os.str(), N);
 
     report->addRange(S->getSourceRange());
-    report->addVisitor(bugreporter::getTrackNullOrUndefValueVisitor(N, S,
-                                                                    report));
-    C.EmitReport(report);
+    bugreporter::trackNullOrUndefValue(N, S, *report);
+    C.emitReport(report);
     return NULL;
   }
 
@@ -328,7 +316,7 @@ ProgramStateRef CStringChecker::CheckLocation(CheckerContext &C,
     // reference is outside the range.
 
     report->addRange(S->getSourceRange());
-    C.EmitReport(report);
+    C.emitReport(report);
     return NULL;
   }
   
@@ -545,7 +533,7 @@ void CStringChecker::emitOverlapBug(CheckerContext &C, ProgramStateRef state,
   report->addRange(First->getSourceRange());
   report->addRange(Second->getSourceRange());
 
-  C.EmitReport(report);
+  C.emitReport(report);
 }
 
 ProgramStateRef CStringChecker::checkAdditionOverflow(CheckerContext &C,
@@ -608,7 +596,7 @@ ProgramStateRef CStringChecker::checkAdditionOverflow(CheckerContext &C,
 
       // Generate a report for this bug.
       BugReport *report = new BugReport(*BT_AdditionOverflow, warning, N);
-      C.EmitReport(report);        
+      C.emitReport(report);        
 
       return NULL;
     }
@@ -674,11 +662,11 @@ SVal CStringChecker::getCStringLengthForRegion(CheckerContext &C,
   }
   
   // Otherwise, get a new symbol and update the state.
-  unsigned Count = C.getCurrentBlockCount();
   SValBuilder &svalBuilder = C.getSValBuilder();
   QualType sizeTy = svalBuilder.getContext().getSizeType();
   SVal strLength = svalBuilder.getMetadataSymbolVal(CStringChecker::getTag(),
-                                                    MR, Ex, sizeTy, Count);
+                                                    MR, Ex, sizeTy,
+                                                    C.blockCount());
 
   if (!hypothetical)
     state = state->set<CStringLength>(MR, strLength);
@@ -715,7 +703,7 @@ SVal CStringChecker::getCStringLength(CheckerContext &C, ProgramStateRef &state,
                                                           os.str(), N);
 
         report->addRange(Ex->getSourceRange());
-        C.EmitReport(report);        
+        C.emitReport(report);        
       }
       return UndefinedVal();
 
@@ -779,7 +767,7 @@ SVal CStringChecker::getCStringLength(CheckerContext &C, ProgramStateRef &state,
                                                         os.str(), N);
 
       report->addRange(Ex->getSourceRange());
-      C.EmitReport(report);        
+      C.emitReport(report);        
     }
 
     return UndefinedVal();
@@ -827,15 +815,14 @@ ProgramStateRef CStringChecker::InvalidateBuffer(CheckerContext &C,
     }
 
     // Invalidate this region.
-    unsigned Count = C.getCurrentBlockCount();
     const LocationContext *LCtx = C.getPredecessor()->getLocationContext();
-    return state->invalidateRegions(R, E, Count, LCtx);
+    return state->invalidateRegions(R, E, C.blockCount(), LCtx);
   }
 
   // If we have a non-region value by chance, just remove the binding.
   // FIXME: is this necessary or correct? This handles the non-Region
   //  cases.  Is it ever valid to store to these?
-  return state->unbindLoc(*L);
+  return state->killBinding(*L);
 }
 
 bool CStringChecker::SummarizeRegion(raw_ostream &os, ASTContext &Ctx,
@@ -844,7 +831,7 @@ bool CStringChecker::SummarizeRegion(raw_ostream &os, ASTContext &Ctx,
 
   switch (MR->getKind()) {
   case MemRegion::FunctionTextRegionKind: {
-    const FunctionDecl *FD = cast<FunctionTextRegion>(MR)->getDecl();
+    const NamedDecl *FD = cast<FunctionTextRegion>(MR)->getDecl();
     if (FD)
       os << "the address of the function '" << *FD << '\'';
     else
@@ -958,9 +945,8 @@ void CStringChecker::evalCopyCommon(CheckerContext &C,
       } else {
         // If we don't know how much we copied, we can at least
         // conjure a return value for later.
-        unsigned Count = C.getCurrentBlockCount();
-        SVal result =
-          C.getSValBuilder().getConjuredSymbolVal(NULL, CE, LCtx, Count);
+        SVal result = C.getSValBuilder().conjureSymbolVal(0, CE, LCtx,
+                                                          C.blockCount());
         state = state->BindExpr(CE, LCtx, result);
       }
 
@@ -1094,8 +1080,7 @@ void CStringChecker::evalMemcmp(CheckerContext &C, const CallExpr *CE) const {
       state = CheckBufferAccess(C, state, Size, Left, Right);
       if (state) {
         // The return value is the comparison result, which we don't know.
-        unsigned Count = C.getCurrentBlockCount();
-        SVal CmpV = svalBuilder.getConjuredSymbolVal(NULL, CE, LCtx, Count);
+        SVal CmpV = svalBuilder.conjureSymbolVal(0, CE, LCtx, C.blockCount());
         state = state->BindExpr(CE, LCtx, CmpV);
         C.addTransition(state);
       }
@@ -1207,8 +1192,7 @@ void CStringChecker::evalstrLengthCommon(CheckerContext &C, const CallExpr *CE,
       // no guarantee the full string length will actually be returned.
       // All we know is the return value is the min of the string length
       // and the limit. This is better than nothing.
-      unsigned Count = C.getCurrentBlockCount();
-      result = C.getSValBuilder().getConjuredSymbolVal(NULL, CE, LCtx, Count);
+      result = C.getSValBuilder().conjureSymbolVal(0, CE, LCtx, C.blockCount());
       NonLoc *resultNL = cast<NonLoc>(&result);
 
       if (strLengthNL) {
@@ -1235,8 +1219,7 @@ void CStringChecker::evalstrLengthCommon(CheckerContext &C, const CallExpr *CE,
     // If we don't know the length of the string, conjure a return
     // value, so it can be used in constraints, at least.
     if (result.isUnknown()) {
-      unsigned Count = C.getCurrentBlockCount();
-      result = C.getSValBuilder().getConjuredSymbolVal(NULL, CE, LCtx, Count);
+      result = C.getSValBuilder().conjureSymbolVal(0, CE, LCtx, C.blockCount());
     }
   }
 
@@ -1613,8 +1596,7 @@ void CStringChecker::evalStrcpyCommon(CheckerContext &C, const CallExpr *CE,
   // If this is a stpcpy-style copy, but we were unable to check for a buffer
   // overflow, we still need a result. Conjure a return value.
   if (returnEnd && Result.isUnknown()) {
-    unsigned Count = C.getCurrentBlockCount();
-    Result = svalBuilder.getConjuredSymbolVal(NULL, CE, LCtx, Count);
+    Result = svalBuilder.conjureSymbolVal(0, CE, LCtx, C.blockCount());
   }
 
   // Set the return value.
@@ -1771,8 +1753,7 @@ void CStringChecker::evalStrcmpCommon(CheckerContext &C, const CallExpr *CE,
 
   if (!canComputeResult) {
     // Conjure a symbolic value. It's the best we can do.
-    unsigned Count = C.getCurrentBlockCount();
-    SVal resultVal = svalBuilder.getConjuredSymbolVal(NULL, CE, LCtx, Count);
+    SVal resultVal = svalBuilder.conjureSymbolVal(0, CE, LCtx, C.blockCount());
     state = state->BindExpr(CE, LCtx, resultVal);
   }
 
@@ -1886,7 +1867,7 @@ void CStringChecker::checkPreStmt(const DeclStmt *DS, CheckerContext &C) const {
 }
 
 bool CStringChecker::wantsRegionChangeUpdate(ProgramStateRef state) const {
-  CStringLength::EntryMap Entries = state->get<CStringLength>();
+  CStringLengthTy Entries = state->get<CStringLength>();
   return !Entries.isEmpty();
 }
 
@@ -1896,7 +1877,7 @@ CStringChecker::checkRegionChanges(ProgramStateRef state,
                                    ArrayRef<const MemRegion *> ExplicitRegions,
                                    ArrayRef<const MemRegion *> Regions,
                                    const CallEvent *Call) const {
-  CStringLength::EntryMap Entries = state->get<CStringLength>();
+  CStringLengthTy Entries = state->get<CStringLength>();
   if (Entries.isEmpty())
     return state;
 
@@ -1916,10 +1897,10 @@ CStringChecker::checkRegionChanges(ProgramStateRef state,
     }
   }
 
-  CStringLength::EntryMap::Factory &F = state->get_context<CStringLength>();
+  CStringLengthTy::Factory &F = state->get_context<CStringLength>();
 
   // Then loop over the entries in the current state.
-  for (CStringLength::EntryMap::iterator I = Entries.begin(),
+  for (CStringLengthTy::iterator I = Entries.begin(),
        E = Entries.end(); I != E; ++I) {
     const MemRegion *MR = I.getKey();
 
@@ -1946,9 +1927,9 @@ CStringChecker::checkRegionChanges(ProgramStateRef state,
 void CStringChecker::checkLiveSymbols(ProgramStateRef state,
                                       SymbolReaper &SR) const {
   // Mark all symbols in our string length map as valid.
-  CStringLength::EntryMap Entries = state->get<CStringLength>();
+  CStringLengthTy Entries = state->get<CStringLength>();
 
-  for (CStringLength::EntryMap::iterator I = Entries.begin(), E = Entries.end();
+  for (CStringLengthTy::iterator I = Entries.begin(), E = Entries.end();
        I != E; ++I) {
     SVal Len = I.getData();
 
@@ -1964,12 +1945,12 @@ void CStringChecker::checkDeadSymbols(SymbolReaper &SR,
     return;
 
   ProgramStateRef state = C.getState();
-  CStringLength::EntryMap Entries = state->get<CStringLength>();
+  CStringLengthTy Entries = state->get<CStringLength>();
   if (Entries.isEmpty())
     return;
 
-  CStringLength::EntryMap::Factory &F = state->get_context<CStringLength>();
-  for (CStringLength::EntryMap::iterator I = Entries.begin(), E = Entries.end();
+  CStringLengthTy::Factory &F = state->get_context<CStringLength>();
+  for (CStringLengthTy::iterator I = Entries.begin(), E = Entries.end();
        I != E; ++I) {
     SVal Len = I.getData();
     if (SymbolRef Sym = Len.getAsSymbol()) {

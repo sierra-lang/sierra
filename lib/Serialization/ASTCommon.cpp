@@ -12,8 +12,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "ASTCommon.h"
-#include "clang/Serialization/ASTDeserializationListener.h"
 #include "clang/Basic/IdentifierTable.h"
+#include "clang/Serialization/ASTDeserializationListener.h"
 #include "llvm/ADT/StringExtras.h"
 
 using namespace clang;
@@ -60,6 +60,9 @@ serialization::TypeIdxFromBuiltin(const BuiltinType *BT) {
   case BuiltinType::ObjCId:     ID = PREDEF_TYPE_OBJC_ID;       break;
   case BuiltinType::ObjCClass:  ID = PREDEF_TYPE_OBJC_CLASS;    break;
   case BuiltinType::ObjCSel:    ID = PREDEF_TYPE_OBJC_SEL;      break;
+  case BuiltinType::BuiltinFn:
+                                ID = PREDEF_TYPE_BUILTIN_FN; break;
+
   }
 
   return TypeIdx(ID);

@@ -14,15 +14,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "CGObjCRuntime.h"
-
-#include "CGRecordLayout.h"
-#include "CodeGenModule.h"
-#include "CodeGenFunction.h"
 #include "CGCleanup.h"
-
+#include "CGRecordLayout.h"
+#include "CodeGenFunction.h"
+#include "CodeGenModule.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/StmtObjC.h"
-
 #include "llvm/Support/CallSite.h"
 
 using namespace clang;
@@ -76,6 +73,13 @@ uint64_t CGObjCRuntime::ComputeIvarBaseOffset(CodeGen::CodeGenModule &CGM,
                                               const ObjCIvarDecl *Ivar) {
   return LookupFieldBitOffset(CGM, OID->getClassInterface(), OID, Ivar) / 
     CGM.getContext().getCharWidth();
+}
+
+unsigned CGObjCRuntime::ComputeBitfieldBitOffset(
+    CodeGen::CodeGenModule &CGM,
+    const ObjCInterfaceDecl *ID,
+    const ObjCIvarDecl *Ivar) {
+  return LookupFieldBitOffset(CGM, ID, ID->getImplementation(), Ivar);
 }
 
 LValue CGObjCRuntime::EmitValueForIvarAtOffset(CodeGen::CodeGenFunction &CGF,

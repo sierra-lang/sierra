@@ -12,13 +12,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/CharUnits.h"
-#include "clang/AST/Type.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/PrettyPrinter.h"
+#include "clang/AST/Type.h"
 #include "clang/AST/TypeVisitor.h"
 #include "clang/Basic/Specifiers.h"
 #include "llvm/ADT/APSInt.h"
@@ -312,18 +313,17 @@ QualType QualType::IgnoreParens(QualType T) {
   return T;
 }
 
-/// \brief This will check for a TypedefType by removing any existing sugar
-/// until it reaches a TypedefType or a non-sugared type.
-template <> const TypedefType *Type::getAs() const {
-  const Type *Cur = this;
-
+/// \brief This will check for a T (which should be a Type which can act as
+/// sugar, such as a TypedefType) by removing any existing sugar until it
+/// reaches a T or a non-sugared type.
+template<typename T> static const T *getAsSugar(const Type *Cur) {
   while (true) {
-    if (const TypedefType *TDT = dyn_cast<TypedefType>(Cur))
-      return TDT;
+    if (const T *Sugar = dyn_cast<T>(Cur))
+      return Sugar;
     switch (Cur->getTypeClass()) {
 #define ABSTRACT_TYPE(Class, Parent)
 #define TYPE(Class, Parent) \
-    case Class: { \
+    case Type::Class: { \
       const Class##Type *Ty = cast<Class##Type>(Cur); \
       if (!Ty->isSugared()) return 0; \
       Cur = Ty->desugar().getTypePtr(); \
@@ -332,6 +332,14 @@ template <> const TypedefType *Type::getAs() const {
 #include "clang/AST/TypeNodes.def"
     }
   }
+}
+
+template <> const TypedefType *Type::getAs() const {
+  return getAsSugar<TypedefType>(this);
+}
+
+template <> const TemplateSpecializationType *Type::getAs() const {
+  return getAsSugar<TemplateSpecializationType>(this);
 }
 
 /// getUnqualifiedDesugaredType - Pull any qualifiers and syntactic
@@ -381,9 +389,15 @@ bool Type::isStructureType() const {
     return RT->getDecl()->isStruct();
   return false;
 }
+bool Type::isInterfaceType() const {
+  if (const RecordType *RT = getAs<RecordType>())
+    return RT->getDecl()->isInterface();
+  return false;
+}
 bool Type::isStructureOrClassType() const {
   if (const RecordType *RT = getAs<RecordType>())
-    return RT->getDecl()->isStruct() || RT->getDecl()->isClass();
+    return RT->getDecl()->isStruct() || RT->getDecl()->isClass() ||
+      RT->getDecl()->isInterface();
   return false;
 }
 bool Type::isVoidPointerType() const {
@@ -523,10 +537,18 @@ const ObjCObjectPointerType *Type::getAsObjCInterfacePointerType() const {
   return 0;
 }
 
-const CXXRecordDecl *Type::getCXXRecordDeclForPointerType() const {
+const CXXRecordDecl *Type::getPointeeCXXRecordDecl() const {
+  QualType PointeeType;
   if (const PointerType *PT = getAs<PointerType>())
-    if (const RecordType *RT = PT->getPointeeType()->getAs<RecordType>())
-      return dyn_cast<CXXRecordDecl>(RT->getDecl());
+    PointeeType = PT->getPointeeType();
+  else if (const ReferenceType *RT = getAs<ReferenceType>())
+    PointeeType = RT->getPointeeType();
+  else
+    return 0;
+
+  if (const RecordType *RT = PointeeType->getAs<RecordType>())
+    return dyn_cast<CXXRecordDecl>(RT->getDecl());
+
   return 0;
 }
 
@@ -1062,11 +1084,13 @@ bool QualType::isTrivialType(ASTContext &Context) const {
   if (const RecordType *RT = CanonicalType->getAs<RecordType>()) {
     if (const CXXRecordDecl *ClassDecl =
         dyn_cast<CXXRecordDecl>(RT->getDecl())) {
-      // C++0x [class]p5:
-      //   A trivial class is a class that has a trivial default constructor
-      if (!ClassDecl->hasTrivialDefaultConstructor()) return false;
-      //   and is trivially copyable.
-      if (!ClassDecl->isTriviallyCopyable()) return false;
+      // C++11 [class]p6:
+      //   A trivial class is a class that has a default constructor,
+      //   has no non-trivial default constructors, and is trivially
+      //   copyable.
+      return ClassDecl->hasDefaultConstructor() &&
+             !ClassDecl->hasNonTrivialDefaultConstructor() &&
+             ClassDecl->isTriviallyCopyable();
     }
     
     return true;
@@ -1236,8 +1260,6 @@ bool QualType::isCXX11PODType(ASTContext &Context) const {
       return false;
 
     case Qualifiers::OCL_None:
-      if (ty->isObjCLifetimeType())
-        return false;
       break;
     }        
   }
@@ -1348,6 +1370,7 @@ TypeWithKeyword::getKeywordForTypeSpec(unsigned TypeSpec) {
   case TST_typename: return ETK_Typename;
   case TST_class: return ETK_Class;
   case TST_struct: return ETK_Struct;
+  case TST_interface: return ETK_Interface;
   case TST_union: return ETK_Union;
   case TST_enum: return ETK_Enum;
   }
@@ -1358,6 +1381,7 @@ TypeWithKeyword::getTagTypeKindForTypeSpec(unsigned TypeSpec) {
   switch(TypeSpec) {
   case TST_class: return TTK_Class;
   case TST_struct: return TTK_Struct;
+  case TST_interface: return TTK_Interface;
   case TST_union: return TTK_Union;
   case TST_enum: return TTK_Enum;
   }
@@ -1370,6 +1394,7 @@ TypeWithKeyword::getKeywordForTagTypeKind(TagTypeKind Kind) {
   switch (Kind) {
   case TTK_Class: return ETK_Class;
   case TTK_Struct: return ETK_Struct;
+  case TTK_Interface: return ETK_Interface;
   case TTK_Union: return ETK_Union;
   case TTK_Enum: return ETK_Enum;
   }
@@ -1381,6 +1406,7 @@ TypeWithKeyword::getTagTypeKindForKeyword(ElaboratedTypeKeyword Keyword) {
   switch (Keyword) {
   case ETK_Class: return TTK_Class;
   case ETK_Struct: return TTK_Struct;
+  case ETK_Interface: return TTK_Interface;
   case ETK_Union: return TTK_Union;
   case ETK_Enum: return TTK_Enum;
   case ETK_None: // Fall through.
@@ -1398,6 +1424,7 @@ TypeWithKeyword::KeywordIsTagTypeKind(ElaboratedTypeKeyword Keyword) {
     return false;
   case ETK_Class:
   case ETK_Struct:
+  case ETK_Interface:
   case ETK_Union:
   case ETK_Enum:
     return true;
@@ -1412,6 +1439,7 @@ TypeWithKeyword::getKeywordName(ElaboratedTypeKeyword Keyword) {
   case ETK_Typename: return "typename";
   case ETK_Class:  return "class";
   case ETK_Struct: return "struct";
+  case ETK_Interface: return "__interface";
   case ETK_Union:  return "union";
   case ETK_Enum:   return "enum";
   }
@@ -1511,6 +1539,7 @@ StringRef BuiltinType::getName(const PrintingPolicy &Policy) const {
   case Dependent:         return "<dependent type>";
   case UnknownAny:        return "<unknown type>";
   case ARCUnbridgedCast:  return "<ARC unbridged cast type>";
+  case BuiltinFn:         return "<builtin fn type>";
   case ObjCId:            return "id";
   case ObjCClass:         return "Class";
   case ObjCSel:           return "SEL";
@@ -1547,6 +1576,7 @@ StringRef FunctionType::getNameForCallConv(CallingConv CC) {
   case CC_X86Pascal: return "pascal";
   case CC_AAPCS: return "aapcs";
   case CC_AAPCS_VFP: return "aapcs-vfp";
+  case CC_PnaclCall: return "pnaclcall";
   }
 
   llvm_unreachable("Invalid calling convention.");
@@ -2301,26 +2331,4 @@ QualType::DestructionKind QualType::isDestructedTypeImpl(QualType type) {
     return DK_cxx_destructor;
 
   return DK_none;
-}
-
-bool QualType::hasTrivialAssignment(ASTContext &Context, bool Copying) const {
-  switch (getObjCLifetime()) {
-  case Qualifiers::OCL_None:
-    break;
-      
-  case Qualifiers::OCL_ExplicitNone:
-    return true;
-      
-  case Qualifiers::OCL_Autoreleasing:
-  case Qualifiers::OCL_Strong:
-  case Qualifiers::OCL_Weak:
-    return !Context.getLangOpts().ObjCAutoRefCount;
-  }
-  
-  if (const CXXRecordDecl *Record 
-            = getTypePtr()->getBaseElementTypeUnsafe()->getAsCXXRecordDecl())
-    return Copying ? Record->hasTrivialCopyAssignment() :
-                     Record->hasTrivialMoveAssignment();
-  
-  return true;
 }

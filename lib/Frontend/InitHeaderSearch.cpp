@@ -14,19 +14,18 @@
 #include "clang/Frontend/Utils.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/LangOptions.h"
-#include "clang/Frontend/HeaderSearchOptions.h"
+#include "clang/Config/config.h" // C_INCLUDE_DIRS
 #include "clang/Lex/HeaderSearch.h"
-#include "llvm/ADT/SmallString.h"
+#include "clang/Lex/HeaderSearchOptions.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/ADT/Twine.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Path.h"
-
-#include "clang/Config/config.h" // C_INCLUDE_DIRS
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
 using namespace clang::frontend;
@@ -217,6 +216,8 @@ void InitHeaderSearch::AddDefaultCIncludePaths(const llvm::Triple &triple,
     switch (os) {
     case llvm::Triple::FreeBSD:
     case llvm::Triple::NetBSD:
+    case llvm::Triple::OpenBSD:
+    case llvm::Triple::Bitrig:
       break;
     default:
       // FIXME: temporary hack: hard-coded paths.
@@ -318,7 +319,9 @@ void InitHeaderSearch::AddDefaultCIncludePaths(const llvm::Triple &triple,
       P.appendComponent("../../../include"); // <sysroot>/include
       AddPath(P.str(), System, true, false, false);
       AddPath("/mingw/include", System, true, false, false);
+#if defined(_WIN32)
       AddPath("c:/mingw/include", System, true, false, false); 
+#endif
     }
     break;
       
@@ -394,12 +397,14 @@ AddDefaultCPlusPlusIncludePaths(const llvm::Triple &triple, const HeaderSearchOp
     AddMinGW64CXXPaths(HSOpts.ResourceDir, "4.7.0");
     // mingw.org C++ include paths
     AddMinGWCPlusPlusIncludePaths("/mingw/lib/gcc", "mingw32", "4.5.2"); //MSYS
+#if defined(_WIN32)
     AddMinGWCPlusPlusIncludePaths("c:/MinGW/lib/gcc", "mingw32", "4.6.2");
     AddMinGWCPlusPlusIncludePaths("c:/MinGW/lib/gcc", "mingw32", "4.6.1");
     AddMinGWCPlusPlusIncludePaths("c:/MinGW/lib/gcc", "mingw32", "4.5.2");
     AddMinGWCPlusPlusIncludePaths("c:/MinGW/lib/gcc", "mingw32", "4.5.0");
     AddMinGWCPlusPlusIncludePaths("c:/MinGW/lib/gcc", "mingw32", "4.4.0");
     AddMinGWCPlusPlusIncludePaths("c:/MinGW/lib/gcc", "mingw32", "4.3.0");
+#endif
     break;
   case llvm::Triple::DragonFly:
     AddPath("/usr/include/c++/4.1", CXXSystem, true, false, false);

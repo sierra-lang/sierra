@@ -66,16 +66,16 @@ void isdoxy15(void);
 /// Doxygen comment.  IS_DOXYGEN_END
 void isdoxy16(void);
 
-/// isdoxy17 IS_DOXYGEN_START
-// Not a Doxygen comment, but still picked up.
-/// IS_DOXYGEN_END
+/// NOT_DOXYGEN
+// NOT_DOXYGEN
+/// isdoxy17 IS_DOXYGEN_START IS_DOXYGEN_END
 void isdoxy17(void);
 
 unsigned
 // NOT_DOXYGEN
-/// isdoxy18 IS_DOXYGEN_START
-// Not a Doxygen comment, but still picked up.
-/// IS_DOXYGEN_END
+/// NOT_DOXYGEN
+// NOT_DOXYGEN
+/// isdoxy18 IS_DOXYGEN_START IS_DOXYGEN_END
 // NOT_DOXYGEN
 int isdoxy18(void);
 
@@ -168,7 +168,7 @@ class test42 {
 ///\brief
 ///
 /// Some malformed command.
-/* \*/
+/** \*/
 /**
  * \brief Aaa aaaaaaa aaaa.
  * IS_DOXYGEN_END
@@ -221,116 +221,42 @@ void isdoxy49(void);
 /// \returns ddd IS_DOXYGEN_END
 void isdoxy50(int);
 
-/// Aaa.
-void comment_to_html_conversion_1();
+// One of the following lines has trailing whitespace.  It is intended, don't
+// fix it.
+/**
+ * Aaa. IS_DOXYGEN_START
+ * 
+ * Bbb. IS_DOXYGEN_END
+ */
+void isdoxy51(int);
 
-/// \brief Aaa.
-void comment_to_html_conversion_2();
+// One of the following lines has trailing whitespace.  It is intended, don't
+// fix it.
+/**
+ * Aaa. IS_DOXYGEN_START
+ * Bbb.
+ *  
+ * Ccc. IS_DOXYGEN_END
+ */
+void isdoxy52(int);
 
-/// \short Aaa.
-void comment_to_html_conversion_3();
-
-/// Aaa.
-///
-/// \brief Bbb.
-void comment_to_html_conversion_4();
-
-/// Aaa.
-///
-/// \brief Bbb.
-///
-/// Ccc.
-void comment_to_html_conversion_5();
-
-/// \brief Aaa.
-/// \brief Bbb.
-void comment_to_html_conversion_6();
-
-/// Aaa.
-///
-/// \return Bbb.
-void comment_to_html_conversion_7();
-
-/// Aaa.
-///
-/// \returns Bbb.
-void comment_to_html_conversion_8();
-
-/// Aaa.
-///
-/// \result Bbb.
-void comment_to_html_conversion_9();
-
-/// \returns Aaa.
-/// \returns Bbb.
-void comment_to_html_conversion_10();
-
-/// Aaa.
-///
-/// Bbb.
-///
-/// \returns Ccc.
-void comment_to_html_conversion_11();
-
-/// \param
-void comment_to_html_conversion_12(int x1);
-
-/// \param x1 Aaa.
-void comment_to_html_conversion_13(int x1);
-
-/// \param zzz Aaa.
-void comment_to_html_conversion_14(int x1);
-
-/// \param x2 Bbb.
-/// \param x1 Aaa.
-void comment_to_html_conversion_15(int x1, int x2);
-
-/// \param x2 Bbb.
-/// \param zzz Aaa.
-/// \param x1 Aaa.
-void comment_to_html_conversion_16(int x1, int x2);
-
-/// \brief Aaa.
-///
-/// Bbb.
-///
-/// \param x2 Ddd.
-/// \param x1 Ccc.
-/// \returns Eee.
-void comment_to_html_conversion_17(int x1, int x2);
-
-/// <br><a href="http://example.com/">Aaa</a>
-void comment_to_html_conversion_18();
-
-/// \verbatim
-/// <a href="http://example.com/">Aaa</a>
-/// <a href='http://example.com/'>Aaa</a>
-/// \endverbatim
-void comment_to_html_conversion_19();
-
-/// \b Aaa
-void comment_to_html_conversion_20();
-
-/// \c Aaa \p Bbb
-void comment_to_html_conversion_21();
-
-/// \a Aaa \e Bbb \em Ccc
-void comment_to_html_conversion_22();
-
-/// \\ \@ \& \$ \# \< \> \% \" \. \::
-void comment_to_html_conversion_23();
-
-/// &amp; &lt; &gt; &quot;
-void comment_to_html_conversion_24();
+/**
+ * \fn isdoxy53
+ *
+ * Aaa. IS_DOXYGEN_START IS_DOXYGEN_END
+ */
+void isdoxy53(int);
 
 #endif
 
 // RUN: rm -rf %t
 // RUN: mkdir %t
-// RUN: %clang_cc1 -x c++ -emit-pch -o %t/out.pch %s
-// RUN: %clang_cc1 -x c++ -include-pch %t/out.pch -fsyntax-only %s
 
-// RUN: c-index-test -test-load-source all %s > %t/out.c-index-direct
+// Check that we serialize comment source locations properly.
+// RUN: %clang_cc1 -x c++ -std=c++11 -emit-pch -o %t/out.pch %s
+// RUN: %clang_cc1 -x c++ -std=c++11 -include-pch %t/out.pch -fsyntax-only %s
+
+// RUN: c-index-test -test-load-source all -comments-xml-schema=%S/../../bindings/xml/comment-xml-schema.rng %s -std=c++11 > %t/out.c-index-direct
 // RUN: c-index-test -test-load-tu %t/out.pch all > %t/out.c-index-pch
 
 // RUN: FileCheck %s -check-prefix=WRONG < %t/out.c-index-direct
@@ -349,10 +275,18 @@ void comment_to_html_conversion_24();
 // Ensure we don't pick up extra comments.
 // WRONG-NOT: IS_DOXYGEN_START{{.*}}IS_DOXYGEN_START{{.*}}BriefComment=
 // WRONG-NOT: IS_DOXYGEN_END{{.*}}IS_DOXYGEN_END{{.*}}BriefComment=
+//
+// Ensure that XML is not invalid
+// WRONG-NOT: CommentXMLInvalid
 
 // RUN: FileCheck %s < %t/out.c-index-direct
 // RUN: FileCheck %s < %t/out.c-index-pch
 
+// These CHECK lines are not located near the code on purpose.  This test
+// checks that documentation comments are attached to declarations correctly.
+// Adding a non-documentation comment with CHECK line between every two
+// documentation comments will only test a single code path.
+//
 // CHECK: annotate-comments.cpp:16:6: FunctionDecl=isdoxy4:{{.*}} isdoxy4 IS_DOXYGEN_SINGLE
 // CHECK: annotate-comments.cpp:20:6: FunctionDecl=isdoxy5:{{.*}} isdoxy5 IS_DOXYGEN_SINGLE
 // CHECK: annotate-comments.cpp:25:6: FunctionDecl=isdoxy6:{{.*}} isdoxy6 IS_DOXYGEN_SINGLE
@@ -391,260 +325,6 @@ void comment_to_html_conversion_24();
 // CHECK: annotate-comments.cpp:214:6: FunctionDecl=isdoxy48:{{.*}} BriefComment=[IS_DOXYGEN_START Aaa bbb]
 // CHECK: annotate-comments.cpp:218:6: FunctionDecl=isdoxy49:{{.*}} BriefComment=[IS_DOXYGEN_START Aaa]
 // CHECK: annotate-comments.cpp:222:6: FunctionDecl=isdoxy50:{{.*}} BriefComment=[Returns ddd IS_DOXYGEN_END]
-
-// CHECK: annotate-comments.cpp:225:6: FunctionDecl=comment_to_html_conversion_1:{{.*}} FullCommentAsHTML=[<p class="para-brief"> Aaa.</p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ Aaa.])))]
-// CHECK: annotate-comments.cpp:228:6: FunctionDecl=comment_to_html_conversion_2:{{.*}} FullCommentAsHTML=[<p class="para-brief"> Aaa.</p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_BlockCommand CommandName=[brief]
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Aaa.]))))]
-// CHECK: annotate-comments.cpp:231:6: FunctionDecl=comment_to_html_conversion_3:{{.*}} FullCommentAsHTML=[<p class="para-brief"> Aaa.</p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_BlockCommand CommandName=[short]
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Aaa.]))))]
-// CHECK: annotate-comments.cpp:236:6: FunctionDecl=comment_to_html_conversion_4:{{.*}} FullCommentAsHTML=[<p class="para-brief"> Bbb.</p><p> Aaa.</p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ Aaa.]))
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_BlockCommand CommandName=[brief]
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Bbb.]))))]
-// CHECK: annotate-comments.cpp:243:6: FunctionDecl=comment_to_html_conversion_5:{{.*}} FullCommentAsHTML=[<p class="para-brief"> Bbb.</p><p> Aaa.</p><p> Ccc.</p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ Aaa.]))
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_BlockCommand CommandName=[brief]
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Bbb.])))
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ Ccc.])))]
-// CHECK: annotate-comments.cpp:247:6: FunctionDecl=comment_to_html_conversion_6:{{.*}} FullCommentAsHTML=[<p class="para-brief"> Aaa. </p><p class="para-brief"> Bbb.</p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_BlockCommand CommandName=[brief]
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Aaa.] HasTrailingNewline)
-// CHECK-NEXT:           (CXComment_Text Text=[ ] IsWhitespace)))
-// CHECK-NEXT:       (CXComment_BlockCommand CommandName=[brief]
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Bbb.]))))]
-// CHECK: annotate-comments.cpp:252:6: FunctionDecl=comment_to_html_conversion_7:{{.*}} FullCommentAsHTML=[<p class="para-brief"> Aaa.</p><p class="para-returns"><span class="word-returns">Returns</span>  Bbb.</p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ Aaa.]))
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_BlockCommand CommandName=[return]
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Bbb.]))))]
-// CHECK: annotate-comments.cpp:257:6: FunctionDecl=comment_to_html_conversion_8:{{.*}} FullCommentAsHTML=[<p class="para-brief"> Aaa.</p><p class="para-returns"><span class="word-returns">Returns</span>  Bbb.</p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ Aaa.]))
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_BlockCommand CommandName=[returns]
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Bbb.]))))]
-// CHECK: annotate-comments.cpp:262:6: FunctionDecl=comment_to_html_conversion_9:{{.*}} FullCommentAsHTML=[<p class="para-brief"> Aaa.</p><p class="para-returns"><span class="word-returns">Returns</span>  Bbb.</p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ Aaa.]))
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_BlockCommand CommandName=[result]
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Bbb.]))))]
-// CHECK: annotate-comments.cpp:266:6: FunctionDecl=comment_to_html_conversion_10:{{.*}} FullCommentAsHTML=[<p class="para-returns"><span class="word-returns">Returns</span>  Bbb.</p><p class="para-returns"><span class="word-returns">Returns</span>  Aaa. </p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_BlockCommand CommandName=[returns]
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Aaa.] HasTrailingNewline)
-// CHECK-NEXT:           (CXComment_Text Text=[ ] IsWhitespace)))
-// CHECK-NEXT:       (CXComment_BlockCommand CommandName=[returns]
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Bbb.]))))]
-// CHECK: annotate-comments.cpp:273:6: FunctionDecl=comment_to_html_conversion_11:{{.*}} FullCommentAsHTML=[<p class="para-brief"> Aaa.</p><p> Bbb.</p><p class="para-returns"><span class="word-returns">Returns</span>  Ccc.</p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ Aaa.]))
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ Bbb.]))
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_BlockCommand CommandName=[returns]
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Ccc.]))))]
-// CHECK: annotate-comments.cpp:276:6: FunctionDecl=comment_to_html_conversion_12:{{.*}} FullCommentAsHTML=[]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_ParamCommand in implicitly ParamName=[] ParamIndex=Invalid
-// CHECK-NEXT:         (CXComment_Paragraph IsWhitespace)))]
-// CHECK: annotate-comments.cpp:279:6: FunctionDecl=comment_to_html_conversion_13:{{.*}} FullCommentAsHTML=[<dl><dt class="param-name-index-0">x1</dt><dd class="param-descr-index-0"> Aaa.</dd></dl>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_ParamCommand in implicitly ParamName=[x1] ParamIndex=0
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Aaa.]))))]
-// CHECK: annotate-comments.cpp:282:6: FunctionDecl=comment_to_html_conversion_14:{{.*}} FullCommentAsHTML=[<dl><dt class="param-name-index-invalid">zzz</dt><dd class="param-descr-index-invalid"> Aaa.</dd></dl>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_ParamCommand in implicitly ParamName=[zzz] ParamIndex=Invalid
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Aaa.]))))]
-// CHECK: annotate-comments.cpp:286:6: FunctionDecl=comment_to_html_conversion_15:{{.*}} FullCommentAsHTML=[<dl><dt class="param-name-index-0">x1</dt><dd class="param-descr-index-0"> Aaa.</dd><dt class="param-name-index-1">x2</dt><dd class="param-descr-index-1"> Bbb. </dd></dl>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_ParamCommand in implicitly ParamName=[x2] ParamIndex=1
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Bbb.] HasTrailingNewline)
-// CHECK-NEXT:           (CXComment_Text Text=[ ] IsWhitespace)))
-// CHECK-NEXT:       (CXComment_ParamCommand in implicitly ParamName=[x1] ParamIndex=0
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Aaa.]))))]
-// CHECK: annotate-comments.cpp:291:6: FunctionDecl=comment_to_html_conversion_16:{{.*}} FullCommentAsHTML=[<dl><dt class="param-name-index-0">x1</dt><dd class="param-descr-index-0"> Aaa.</dd><dt class="param-name-index-1">x2</dt><dd class="param-descr-index-1"> Bbb. </dd><dt class="param-name-index-invalid">zzz</dt><dd class="param-descr-index-invalid"> Aaa. </dd></dl>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_ParamCommand in implicitly ParamName=[x2] ParamIndex=1
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Bbb.] HasTrailingNewline)
-// CHECK-NEXT:           (CXComment_Text Text=[ ] IsWhitespace)))
-// CHECK-NEXT:       (CXComment_ParamCommand in implicitly ParamName=[zzz] ParamIndex=Invalid
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Aaa.] HasTrailingNewline)
-// CHECK-NEXT:           (CXComment_Text Text=[ ] IsWhitespace)))
-// CHECK-NEXT:       (CXComment_ParamCommand in implicitly ParamName=[x1] ParamIndex=0
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Aaa.]))))]
-// CHECK: annotate-comments.cpp:300:6: FunctionDecl=comment_to_html_conversion_17:{{.*}} FullCommentAsHTML=[<p class="para-brief"> Aaa.</p><p> Bbb.</p><dl><dt class="param-name-index-0">x1</dt><dd class="param-descr-index-0"> Ccc. </dd><dt class="param-name-index-1">x2</dt><dd class="param-descr-index-1"> Ddd. </dd></dl><p class="para-returns"><span class="word-returns">Returns</span>  Eee.</p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_BlockCommand CommandName=[brief]
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Aaa.])))
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ Bbb.]))
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_ParamCommand in implicitly ParamName=[x2] ParamIndex=1
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Ddd.] HasTrailingNewline)
-// CHECK-NEXT:           (CXComment_Text Text=[ ] IsWhitespace)))
-// CHECK-NEXT:       (CXComment_ParamCommand in implicitly ParamName=[x1] ParamIndex=0
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Ccc.] HasTrailingNewline)
-// CHECK-NEXT:           (CXComment_Text Text=[ ] IsWhitespace)))
-// CHECK-NEXT:       (CXComment_BlockCommand CommandName=[returns]
-// CHECK-NEXT:         (CXComment_Paragraph
-// CHECK-NEXT:           (CXComment_Text Text=[ Eee.]))))]
-// CHECK: annotate-comments.cpp:303:6: FunctionDecl=comment_to_html_conversion_18:{{.*}} FullCommentAsHTML=[<p class="para-brief"> <br><a href="http://example.com/">Aaa</a></p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_HTMLStartTag Name=[br])
-// CHECK-NEXT:         (CXComment_HTMLStartTag Name=[a] Attrs: href=http://example.com/)
-// CHECK-NEXT:         (CXComment_Text Text=[Aaa])
-// CHECK-NEXT:         (CXComment_HTMLEndTag Name=[a])))]
-// CHECK: annotate-comments.cpp:309:6: FunctionDecl=comment_to_html_conversion_19:{{.*}} FullCommentAsHTML=[<pre> &lt;a href=&quot;http:&#47;&#47;example.com&#47;&quot;&gt;Aaa&lt;&#47;a&gt;\n &lt;a href=&#39;http:&#47;&#47;example.com&#47;&#39;&gt;Aaa&lt;&#47;a&gt;</pre>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph IsWhitespace
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace))
-// CHECK-NEXT:       (CXComment_VerbatimBlockCommand CommandName=[verbatim]
-// CHECK-NEXT:         (CXComment_VerbatimBlockLine Text=[ <a href="http://example.com/">Aaa</a>])
-// CHECK-NEXT:         (CXComment_VerbatimBlockLine Text=[ <a href='http://example.com/'>Aaa</a>])))]
-// CHECK: annotate-comments.cpp:312:6: FunctionDecl=comment_to_html_conversion_20:{{.*}} FullCommentAsHTML=[<p class="para-brief"> <b>Aaa</b></p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_InlineCommand CommandName=[b] RenderBold Arg[0]=Aaa)))]
-// CHECK: annotate-comments.cpp:315:6: FunctionDecl=comment_to_html_conversion_21:{{.*}} FullCommentAsHTML=[<p class="para-brief"> <tt>Aaa</tt> <tt>Bbb</tt></p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_InlineCommand CommandName=[c] RenderMonospaced Arg[0]=Aaa)
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_InlineCommand CommandName=[p] RenderMonospaced Arg[0]=Bbb)))]
-// CHECK: annotate-comments.cpp:318:6: FunctionDecl=comment_to_html_conversion_22:{{.*}} FullCommentAsHTML=[<p class="para-brief"> <em>Aaa</em> <em>Bbb</em> <em>Ccc</em></p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_InlineCommand CommandName=[a] RenderEmphasized Arg[0]=Aaa)
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_InlineCommand CommandName=[e] RenderEmphasized Arg[0]=Bbb)
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_InlineCommand CommandName=[em] RenderEmphasized Arg[0]=Ccc)))]
-// CHECK: annotate-comments.cpp:321:6: FunctionDecl=comment_to_html_conversion_23:{{.*}} FullCommentAsHTML=[<p class="para-brief"> \ @ &amp; $ # &lt; &gt; % &quot; . ::</p>]
-// CHECK-NEXT:  CommentAST=[
-// CHECK-NEXT:    (CXComment_FullComment
-// CHECK-NEXT:       (CXComment_Paragraph
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_Text Text=[\])
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_Text Text=[@])
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_Text Text=[&])
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_Text Text=[$])
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_Text Text=[#])
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_Text Text=[<])
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_Text Text=[>])
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_Text Text=[%])
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_Text Text=["])
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_Text Text=[.])
-// CHECK-NEXT:         (CXComment_Text Text=[ ] IsWhitespace)
-// CHECK-NEXT:         (CXComment_Text Text=[::])))]
-// CHECK: annotate-comments.cpp:324:6: FunctionDecl=comment_to_html_conversion_24:{{.*}} FullCommentAsHTML=[<p class="para-brief"> &amp;amp; &amp;lt; &amp;gt; &amp;quot;</p>]
-// CHECK:  CommentAST=[
-// CHECK:    (CXComment_FullComment
-// CHECK:       (CXComment_Paragraph
-// CHECK:         (CXComment_Text Text=[ &amp; &lt; &gt; &quot;])))]
+// CHECK: annotate-comments.cpp:231:6: FunctionDecl=isdoxy51:{{.*}} BriefComment=[Aaa. IS_DOXYGEN_START]
+// CHECK: annotate-comments.cpp:241:6: FunctionDecl=isdoxy52:{{.*}} BriefComment=[Aaa. IS_DOXYGEN_START Bbb.]
 

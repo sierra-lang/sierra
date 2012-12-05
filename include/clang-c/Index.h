@@ -23,6 +23,34 @@
 #include "clang-c/Platform.h"
 #include "clang-c/CXString.h"
 
+/**
+ * \brief The version constants for the libclang API.
+ * CINDEX_VERSION_MINOR should increase when there are API additions.
+ * CINDEX_VERSION_MAJOR is intended for "major" source/ABI breaking changes.
+ *
+ * The policy about the libclang API was always to keep it source and ABI
+ * compatible, thus CINDEX_VERSION_MAJOR is expected to remain stable.
+ */
+#define CINDEX_VERSION_MAJOR 0
+#define CINDEX_VERSION_MINOR 8
+
+#define CINDEX_VERSION_ENCODE(major, minor) ( \
+      ((major) * 10000)                       \
+    + ((minor) *     1))
+
+#define CINDEX_VERSION CINDEX_VERSION_ENCODE( \
+    CINDEX_VERSION_MAJOR,                     \
+    CINDEX_VERSION_MINOR )
+
+#define CINDEX_VERSION_STRINGIZE_(major, minor)   \
+    #major"."#minor
+#define CINDEX_VERSION_STRINGIZE(major, minor)    \
+    CINDEX_VERSION_STRINGIZE_(major, minor)
+
+#define CINDEX_VERSION_STRING CINDEX_VERSION_STRINGIZE( \
+    CINDEX_VERSION_MAJOR,                               \
+    CINDEX_VERSION_MINOR)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -383,7 +411,7 @@ CINDEX_LINKAGE unsigned clang_equalRanges(CXSourceRange range1,
                                           CXSourceRange range2);
 
 /**
- * \brief Returns non-zero if \arg range is null.
+ * \brief Returns non-zero if \p range is null.
  */
 CINDEX_LINKAGE int clang_Range_isNull(CXSourceRange range);
 
@@ -1035,13 +1063,15 @@ enum CXTranslationUnit_Flags {
    * code-completion operations.
    */
   CXTranslationUnit_CacheCompletionResults = 0x08,
+
   /**
-   * \brief DEPRECATED: Enable precompiled preambles in C++.
+   * \brief Used to indicate that the translation unit will be serialized with
+   * \c clang_saveTranslationUnit.
    *
-   * Note: this is a *temporary* option that is available only while
-   * we are testing C++ precompiled preamble support. It is deprecated.
+   * This option is typically used when parsing a header with the intent of
+   * producing a precompiled header.
    */
-  CXTranslationUnit_CXXPrecompiledPreamble = 0x10,
+  CXTranslationUnit_ForSerialization = 0x10,
 
   /**
    * \brief DEPRECATED: Enabled chained precompiled preambles in C++.
@@ -1904,9 +1934,10 @@ enum CXCursorKind {
    */
   CXCursor_ReturnStmt                    = 214,
 
-  /** \brief A GNU inline assembly statement extension.
+  /** \brief A GCC inline assembly statement extension.
    */
-  CXCursor_AsmStmt                       = 215,
+  CXCursor_GCCAsmStmt                    = 215,
+  CXCursor_AsmStmt                       = CXCursor_GCCAsmStmt,
 
   /** \brief Objective-C's overall \@try-\@catch-\@finally statement.
    */
@@ -2009,7 +2040,15 @@ enum CXCursorKind {
   CXCursor_MacroInstantiation            = CXCursor_MacroExpansion,
   CXCursor_InclusionDirective            = 503,
   CXCursor_FirstPreprocessing            = CXCursor_PreprocessingDirective,
-  CXCursor_LastPreprocessing             = CXCursor_InclusionDirective
+  CXCursor_LastPreprocessing             = CXCursor_InclusionDirective,
+
+  /* Extra Declarations */
+  /**
+   * \brief A module import declaration.
+   */
+  CXCursor_ModuleImportDecl              = 600,
+  CXCursor_FirstExtraDecl                = CXCursor_ModuleImportDecl,
+  CXCursor_LastExtraDecl                 = CXCursor_ModuleImportDecl
 };
 
 /**
@@ -2040,7 +2079,8 @@ typedef struct {
  * \brief A comment AST node.
  */
 typedef struct {
-  const void *Data;
+  const void *ASTNode;
+  CXTranslationUnit TranslationUnit;
 } CXComment;
 
 /**
@@ -2068,9 +2108,9 @@ CINDEX_LINKAGE CXCursor clang_getTranslationUnitCursor(CXTranslationUnit);
 CINDEX_LINKAGE unsigned clang_equalCursors(CXCursor, CXCursor);
 
 /**
- * \brief Returns non-zero if \arg cursor is null.
+ * \brief Returns non-zero if \p cursor is null.
  */
-CINDEX_LINKAGE int clang_Cursor_isNull(CXCursor);
+CINDEX_LINKAGE int clang_Cursor_isNull(CXCursor cursor);
 
 /**
  * \brief Compute a hash value for the given cursor.
@@ -2585,6 +2625,7 @@ enum CXCallingConv {
   CXCallingConv_X86Pascal = 5,
   CXCallingConv_AAPCS = 6,
   CXCallingConv_AAPCS_VFP = 7,
+  CXCallingConv_PnaclCall = 8,
 
   CXCallingConv_Invalid = 100,
   CXCallingConv_Unexposed = 200
@@ -2640,6 +2681,13 @@ CINDEX_LINKAGE long long clang_getEnumConstantDeclValue(CXCursor C);
  * must be verified before calling this function.
  */
 CINDEX_LINKAGE unsigned long long clang_getEnumConstantDeclUnsignedValue(CXCursor C);
+
+/**
+ * \brief Retrieve the bit width of a bit field declaration as an integer.
+ *
+ * If a cursor that is not a bit field declaration is passed in, -1 is returned.
+ */
+CINDEX_LINKAGE int clang_getFieldDeclBitWidth(CXCursor C);
 
 /**
  * \brief Retrieve the number of non-variadic arguments associated with a given
@@ -3164,6 +3212,12 @@ CINDEX_LINKAGE int clang_Cursor_getObjCSelectorIndex(CXCursor);
 CINDEX_LINKAGE int clang_Cursor_isDynamicCall(CXCursor C);
 
 /**
+ * \brief Given a cursor pointing to an ObjC message, returns the CXType of the
+ * receiver.
+ */
+CINDEX_LINKAGE CXType clang_Cursor_getReceiverType(CXCursor C);
+
+/**
  * \brief Given a cursor that represents a declaration, return the associated
  * comment's source range.  The range may include multiple consecutive comments
  * with whitespace in between.
@@ -3189,6 +3243,65 @@ CINDEX_LINKAGE CXString clang_Cursor_getBriefCommentText(CXCursor C);
  * \c CXComment_FullComment AST node.
  */
 CINDEX_LINKAGE CXComment clang_Cursor_getParsedComment(CXCursor C);
+
+/**
+ * @}
+ */
+
+/**
+ * \defgroup CINDEX_MODULE Module introspection
+ *
+ * The functions in this group provide access to information about modules.
+ *
+ * @{
+ */
+
+typedef void *CXModule;
+
+/**
+ * \brief Given a CXCursor_ModuleImportDecl cursor, return the associated module.
+ */
+CINDEX_LINKAGE CXModule clang_Cursor_getModule(CXCursor C);
+
+/**
+ * \param Module a module object.
+ *
+ * \returns the parent of a sub-module or NULL if the given module is top-level,
+ * e.g. for 'std.vector' it will return the 'std' module.
+ */
+CINDEX_LINKAGE CXModule clang_Module_getParent(CXModule Module);
+
+/**
+ * \param Module a module object.
+ *
+ * \returns the name of the module, e.g. for the 'std.vector' sub-module it
+ * will return "vector".
+ */
+CINDEX_LINKAGE CXString clang_Module_getName(CXModule Module);
+
+/**
+ * \param Module a module object.
+ *
+ * \returns the full name of the module, e.g. "std.vector".
+ */
+CINDEX_LINKAGE CXString clang_Module_getFullName(CXModule Module);
+
+/**
+ * \param Module a module object.
+ *
+ * \returns the number of top level headers associated with this module.
+ */
+CINDEX_LINKAGE unsigned clang_Module_getNumTopLevelHeaders(CXModule Module);
+
+/**
+ * \param Module a module object.
+ *
+ * \param Index top level header index (zero-based).
+ *
+ * \returns the specified top level header associated with the module.
+ */
+CINDEX_LINKAGE
+CXFile clang_Module_getTopLevelHeader(CXModule Module, unsigned Index);
 
 /**
  * @}
@@ -3272,9 +3385,17 @@ enum CXCommentKind {
    * \brief A \\param or \\arg command that describes the function parameter
    * (name, passing direction, description).
    *
-   * \brief For example: \\param [in] ParamName description.
+   * For example: \\param [in] ParamName description.
    */
   CXComment_ParamCommand = 7,
+
+  /**
+   * \brief A \\tparam command that describes a template parameter (name and
+   * description).
+   *
+   * For example: \\tparam T description.
+   */
+  CXComment_TParamCommand = 8,
 
   /**
    * \brief A verbatim block command (e. g., preformatted code).  Verbatim
@@ -3286,25 +3407,25 @@ enum CXCommentKind {
    * aaa
    * \\endverbatim
    */
-  CXComment_VerbatimBlockCommand = 8,
+  CXComment_VerbatimBlockCommand = 9,
 
   /**
    * \brief A line of text that is contained within a
    * CXComment_VerbatimBlockCommand node.
    */
-  CXComment_VerbatimBlockLine = 9,
+  CXComment_VerbatimBlockLine = 10,
 
   /**
    * \brief A verbatim line command.  Verbatim line has an opening command,
    * a single line of text (up to the newline after the opening command) and
    * has no closing command.
    */
-  CXComment_VerbatimLine = 10,
+  CXComment_VerbatimLine = 11,
 
   /**
    * \brief A full comment attached to a declaration, contains block content.
    */
-  CXComment_FullComment = 11
+  CXComment_FullComment = 12
 };
 
 /**
@@ -3371,7 +3492,7 @@ CINDEX_LINKAGE unsigned clang_Comment_getNumChildren(CXComment Comment);
 /**
  * \param Comment AST node of any kind.
  *
- * \param ArgIdx argument index (zero-based).
+ * \param ChildIdx child index (zero-based).
  *
  * \returns the specified child of the AST node.
  */
@@ -3564,6 +3685,63 @@ enum CXCommentParamPassDirection clang_ParamCommandComment_getDirection(
                                                             CXComment Comment);
 
 /**
+ * \param Comment a \c CXComment_TParamCommand AST node.
+ *
+ * \returns template parameter name.
+ */
+CINDEX_LINKAGE
+CXString clang_TParamCommandComment_getParamName(CXComment Comment);
+
+/**
+ * \param Comment a \c CXComment_TParamCommand AST node.
+ *
+ * \returns non-zero if the parameter that this AST node represents was found
+ * in the template parameter list and
+ * \c clang_TParamCommandComment_getDepth and
+ * \c clang_TParamCommandComment_getIndex functions will return a meaningful
+ * value.
+ */
+CINDEX_LINKAGE
+unsigned clang_TParamCommandComment_isParamPositionValid(CXComment Comment);
+
+/**
+ * \param Comment a \c CXComment_TParamCommand AST node.
+ *
+ * \returns zero-based nesting depth of this parameter in the template parameter list.
+ *
+ * For example,
+ * \verbatim
+ *     template<typename C, template<typename T> class TT>
+ *     void test(TT<int> aaa);
+ * \endverbatim
+ * for C and TT nesting depth is 0,
+ * for T nesting depth is 1.
+ */
+CINDEX_LINKAGE
+unsigned clang_TParamCommandComment_getDepth(CXComment Comment);
+
+/**
+ * \param Comment a \c CXComment_TParamCommand AST node.
+ *
+ * \returns zero-based parameter index in the template parameter list at a
+ * given nesting depth.
+ *
+ * For example,
+ * \verbatim
+ *     template<typename C, template<typename T> class TT>
+ *     void test(TT<int> aaa);
+ * \endverbatim
+ * for C and TT nesting depth is 0, so we can ask for index at depth 0:
+ * at depth 0 C's index is 0, TT's index is 1.
+ *
+ * For T nesting depth is 1, so we can ask for index at depth 0 and 1:
+ * at depth 0 T's index is 1 (same as TT's),
+ * at depth 1 T's index is 0.
+ */
+CINDEX_LINKAGE
+unsigned clang_TParamCommandComment_getIndex(CXComment Comment, unsigned Depth);
+
+/**
  * \param Comment a \c CXComment_VerbatimBlockLine AST node.
  *
  * \returns text contained in the AST node.
@@ -3606,11 +3784,32 @@ CINDEX_LINKAGE CXString clang_HTMLTagComment_getAsString(CXComment Comment);
  * \li "param-name-index-invalid" and "param-descr-index-invalid" are used if
  * parameter index is invalid.
  *
+ * Template parameter documentation is rendered as a \<dl\> list with
+ * parameters sorted in template parameter list order.  CSS classes used:
+ * \li "tparam-name-index-NUMBER" for parameter name (\<dt\>);
+ * \li "tparam-descr-index-NUMBER" for parameter description (\<dd\>);
+ * \li "tparam-name-index-other" and "tparam-descr-index-other" are used for
+ * names inside template template parameters;
+ * \li "tparam-name-index-invalid" and "tparam-descr-index-invalid" are used if
+ * parameter position is invalid.
+ *
  * \param Comment a \c CXComment_FullComment AST node.
  *
  * \returns string containing an HTML fragment.
  */
 CINDEX_LINKAGE CXString clang_FullComment_getAsHTML(CXComment Comment);
+
+/**
+ * \brief Convert a given full parsed comment to an XML document.
+ *
+ * A Relax NG schema for the XML can be found in comment-xml-schema.rng file
+ * inside clang source tree.
+ *
+ * \param Comment a \c CXComment_FullComment AST node.
+ *
+ * \returns string containing an XML document.
+ */
+CINDEX_LINKAGE CXString clang_FullComment_getAsXML(CXComment Comment);
 
 /**
  * @}
@@ -4234,8 +4433,7 @@ clang_getCompletionAnnotation(CXCompletionString completion_string,
  * \param completion_string The code completion string whose parent is
  * being queried.
  *
- * \param kind If non-NULL, will be set to the kind of the parent context,
- * or CXCursor_NotImplemented if there is no context.
+ * \param kind DEPRECATED: always set to CXCursor_NotImplemented if non-NULL.
  *
  * \returns The name of the completion parent, e.g., "NSObject" if
  * the completion string represents a method in the NSObject class.
@@ -4828,22 +5026,35 @@ typedef struct {
   CXFile file;
   int isImport;
   int isAngled;
+  /**
+   * \brief Non-zero if the directive was automatically turned into a module
+   * import.
+   */
+  int isModuleImport;
 } CXIdxIncludedFileInfo;
 
 /**
  * \brief Data for IndexerCallbacks#importedASTFile.
  */
 typedef struct {
+  /**
+   * \brief Top level AST file containing the imported PCH, module or submodule.
+   */
   CXFile file;
   /**
-   * \brief Location where the file is imported. It is useful mostly for
-   * modules.
+   * \brief The imported module or NULL if the AST file is a PCH.
+   */
+  CXModule module;
+  /**
+   * \brief Location where the file is imported. Applicable only for modules.
    */
   CXIdxLoc loc;
   /**
-   * \brief Non-zero if the AST file is a module otherwise it's a PCH.
+   * \brief Non-zero if an inclusion directive was automatically turned into
+   * a module import. Applicable only for modules.
    */
-  int isModule;
+  int isImplicit;
+
 } CXIdxImportedASTFileInfo;
 
 typedef enum {
@@ -4876,7 +5087,8 @@ typedef enum {
   CXIdxEntity_CXXConstructor        = 22,
   CXIdxEntity_CXXDestructor         = 23,
   CXIdxEntity_CXXConversionFunction = 24,
-  CXIdxEntity_CXXTypeAlias          = 25
+  CXIdxEntity_CXXTypeAlias          = 25,
+  CXIdxEntity_CXXInterface          = 26
 
 } CXIdxEntityKind;
 
@@ -5094,8 +5306,8 @@ typedef struct {
    * 
    * AST files will not get indexed (there will not be callbacks to index all
    * the entities in an AST file). The recommended action is that, if the AST
-   * file is not already indexed, to block further indexing and initiate a new
-   * indexing job specific to the AST file.
+   * file is not already indexed, to initiate a new indexing job specific to
+   * the AST file.
    */
   CXIdxClientASTFile (*importedASTFile)(CXClientData client_data,
                                         const CXIdxImportedASTFileInfo *);

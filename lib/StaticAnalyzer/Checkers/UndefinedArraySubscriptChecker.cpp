@@ -13,10 +13,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "ClangSACheckers.h"
+#include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
-#include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 
 using namespace clang;
 using namespace ento;
@@ -42,10 +42,8 @@ UndefinedArraySubscriptChecker::checkPreStmt(const ArraySubscriptExpr *A,
       // Generate a report for this bug.
       BugReport *R = new BugReport(*BT, BT->getName(), N);
       R->addRange(A->getIdx()->getSourceRange());
-      R->addVisitor(bugreporter::getTrackNullOrUndefValueVisitor(N,
-                                                                 A->getIdx(),
-                                                                 R));
-      C.EmitReport(R);
+      bugreporter::trackNullOrUndefValue(N, A->getIdx(), *R);
+      C.emitReport(R);
     }
   }
 }

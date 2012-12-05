@@ -17,7 +17,6 @@
 #include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/ErrorHandling.h"
-
 #include <map>
 using namespace clang;
 
@@ -628,9 +627,9 @@ bool DiagnosticIDs::ProcessDiag(DiagnosticsEngine &Diag) const {
   if (DiagLevel >= DiagnosticIDs::Error) {
     if (isUnrecoverable(DiagID))
       Diag.UnrecoverableErrorOccurred = true;
-    
+
+    Diag.ErrorOccurred = true;
     if (Diag.Client->IncludeInDiagnosticCounts()) {
-      Diag.ErrorOccurred = true;
       ++Diag.NumErrors;
     }
 
@@ -686,4 +685,3 @@ bool DiagnosticIDs::isARCDiagnostic(unsigned DiagID) {
   unsigned cat = getCategoryNumberForDiag(DiagID);
   return DiagnosticIDs::getCategoryNameFromID(cat).startswith("ARC ");
 }
-

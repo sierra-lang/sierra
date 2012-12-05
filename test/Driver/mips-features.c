@@ -37,3 +37,21 @@
 // RUN:     -mdspr2 -mno-dspr2 2>&1 \
 // RUN:   | FileCheck --check-prefix=CHECK-NOMDSPR2 %s
 // CHECK-NOMDSPR2: "-target-feature" "-dspr2"
+//
+// -mxgot
+// RUN: %clang -target mips-linux-gnu -### -c %s \
+// RUN:     -mno-xgot -mxgot 2>&1 \
+// RUN:   | FileCheck --check-prefix=CHECK-XGOT %s
+// CHECK-XGOT: "-mllvm" "-mxgot"
+//
+// -mno-xgot
+// RUN: %clang -target mips-linux-gnu -### -c %s \
+// RUN:     -mxgot -mno-xgot 2>&1 \
+// RUN:   | FileCheck --check-prefix=CHECK-NOXGOT %s
+// CHECK-NOXGOT-NOT: "-mllvm" "-mxgot"
+//
+// -G
+// RUN: %clang -target mips-linux-gnu -### -c %s \
+// RUN:     -G 16 2>&1 \
+// RUN:   | FileCheck --check-prefix=CHECK-MIPS-G %s
+// CHECK-MIPS-G: "-mllvm" "-mips-ssection-threshold=16"

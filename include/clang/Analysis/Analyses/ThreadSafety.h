@@ -68,6 +68,7 @@ enum LockErrorKind {
 class ThreadSafetyHandler {
 public:
   typedef llvm::StringRef Name;
+  ThreadSafetyHandler() : IssueBetaWarnings(false) { }
   virtual ~ThreadSafetyHandler();
 
   /// Warn about lock expressions which fail to resolve to lockable objects.
@@ -132,7 +133,8 @@ public:
   /// \param Loc -- The location of the protected operation.
   virtual void handleMutexNotHeld(const NamedDecl *D,
                                   ProtectedOperationKind POK, Name LockName,
-                                  LockKind LK, SourceLocation Loc) {}
+                                  LockKind LK, SourceLocation Loc,
+                                  Name *PossibleMatch=0) {}
 
   /// Warn when a function is called while an excluded mutex is locked. For
   /// example, the mutex may be locked inside the function.
@@ -142,6 +144,12 @@ public:
   /// \param Loc -- The location of the function call.
   virtual void handleFunExcludesLock(Name FunName, Name LockName,
                                      SourceLocation Loc) {}
+
+  bool issueBetaWarnings() { return IssueBetaWarnings; }
+  void setIssueBetaWarnings(bool b) { IssueBetaWarnings = b; }
+
+private:
+  bool IssueBetaWarnings;
 };
 
 /// \brief Check a function's CFG for thread-safety violations.

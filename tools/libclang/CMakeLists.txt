@@ -1,4 +1,6 @@
-set( LLVM_LINK_COMPONENTS
+set(LLVM_LINK_COMPONENTS
+  ${LLVM_TARGETS_TO_BUILD}
+  asmparser
   support
   mc
   )
@@ -41,7 +43,8 @@ set(SOURCES
 
 set(LIBRARIES
   clangARCMigrate
-  clangRewrite
+  clangRewriteCore
+  clangRewriteFrontend
   clangFrontend
   clangDriver
   clangSerialization

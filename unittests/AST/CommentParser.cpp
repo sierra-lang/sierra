@@ -7,18 +7,19 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Basic/SourceManager.h"
-#include "clang/Basic/FileManager.h"
-#include "clang/Basic/Diagnostic.h"
-#include "clang/AST/Comment.h"
-#include "clang/AST/CommentLexer.h"
 #include "clang/AST/CommentParser.h"
+#include "clang/AST/Comment.h"
+#include "clang/AST/CommentCommandTraits.h"
+#include "clang/AST/CommentLexer.h"
 #include "clang/AST/CommentSema.h"
+#include "clang/Basic/Diagnostic.h"
+#include "clang/Basic/DiagnosticOptions.h"
+#include "clang/Basic/FileManager.h"
+#include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Allocator.h"
-#include <vector>
-
 #include "gtest/gtest.h"
+#include <vector>
 
 using namespace llvm;
 using namespace clang;
@@ -35,8 +36,9 @@ protected:
   CommentParserTest()
     : FileMgr(FileMgrOpts),
       DiagID(new DiagnosticIDs()),
-      Diags(DiagID, new IgnoringDiagConsumer()),
-      SourceMgr(Diags, FileMgr) {
+      Diags(DiagID, new DiagnosticOptions, new IgnoringDiagConsumer()),
+      SourceMgr(Diags, FileMgr),
+      Traits(Allocator) {
   }
 
   FileSystemOptions FileMgrOpts;
@@ -45,6 +47,7 @@ protected:
   DiagnosticsEngine Diags;
   SourceManager SourceMgr;
   llvm::BumpPtrAllocator Allocator;
+  CommandTraits Traits;
 
   FullComment *parseString(const char *Source);
 };
@@ -54,16 +57,15 @@ FullComment *CommentParserTest::parseString(const char *Source) {
   FileID File = SourceMgr.createFileIDForMemBuffer(Buf);
   SourceLocation Begin = SourceMgr.getLocForStartOfFile(File);
 
-  comments::Lexer L(Begin, CommentOptions(),
-                    Source, Source + strlen(Source));
+  Lexer L(Allocator, Traits, Begin, Source, Source + strlen(Source));
 
-  comments::Sema S(Allocator, SourceMgr, Diags);
-  comments::Parser P(L, S, Allocator, SourceMgr, Diags);
-  comments::FullComment *FC = P.parseFullComment();
+  Sema S(Allocator, SourceMgr, Diags, Traits, /*PP=*/ NULL);
+  Parser P(L, S, Allocator, SourceMgr, Diags, Traits);
+  FullComment *FC = P.parseFullComment();
 
   if (DEBUG) {
     llvm::errs() << "=== Source:\n" << Source << "\n=== AST:\n";
-    FC->dump(SourceMgr);
+    FC->dump(llvm::errs(), &Traits, &SourceMgr);
   }
 
   Token Tok;
@@ -155,6 +157,7 @@ template <typename T>
 }
 
 ::testing::AssertionResult HasBlockCommandAt(const Comment *C,
+                                             const CommandTraits &Traits,
                                              size_t Idx,
                                              BlockCommandComment *&BCC,
                                              StringRef Name,
@@ -163,7 +166,7 @@ template <typename T>
   if (!AR)
     return AR;
 
-  StringRef ActualName = BCC->getCommandName();
+  StringRef ActualName = BCC->getCommandName(Traits);
   if (ActualName != Name)
     return ::testing::AssertionFailure()
         << "BlockCommandComment has name \"" << ActualName.str() << "\", "
@@ -176,6 +179,7 @@ template <typename T>
 
 ::testing::AssertionResult HasParamCommandAt(
                               const Comment *C,
+                              const CommandTraits &Traits,
                               size_t Idx,
                               ParamCommandComment *&PCC,
                               StringRef CommandName,
@@ -187,7 +191,7 @@ template <typename T>
   if (!AR)
     return AR;
 
-  StringRef ActualCommandName = PCC->getCommandName();
+  StringRef ActualCommandName = PCC->getCommandName(Traits);
   if (ActualCommandName != CommandName)
     return ::testing::AssertionFailure()
         << "ParamCommandComment has name \"" << ActualCommandName.str() << "\", "
@@ -205,11 +209,11 @@ template <typename T>
         << " direction, "
            "expected " << (IsDirectionExplicit ? "explicit" : "implicit");
 
-  if (!PCC->hasParamName())
+  if (!ParamName.empty() && !PCC->hasParamName())
     return ::testing::AssertionFailure()
         << "ParamCommandComment has no parameter name";
 
-  StringRef ActualParamName = PCC->getParamName();
+  StringRef ActualParamName = PCC->hasParamName() ? PCC->getParamNameAsWritten() : "";
   if (ActualParamName != ParamName)
     return ::testing::AssertionFailure()
         << "ParamCommandComment has parameter name \"" << ActualParamName.str()
@@ -221,7 +225,42 @@ template <typename T>
   return ::testing::AssertionSuccess();
 }
 
+::testing::AssertionResult HasTParamCommandAt(
+                              const Comment *C,
+                              const CommandTraits &Traits,
+                              size_t Idx,
+                              TParamCommandComment *&TPCC,
+                              StringRef CommandName,
+                              StringRef ParamName,
+                              ParagraphComment *&Paragraph) {
+  ::testing::AssertionResult AR = GetChildAt(C, Idx, TPCC);
+  if (!AR)
+    return AR;
+
+  StringRef ActualCommandName = TPCC->getCommandName(Traits);
+  if (ActualCommandName != CommandName)
+    return ::testing::AssertionFailure()
+        << "TParamCommandComment has name \"" << ActualCommandName.str() << "\", "
+           "expected \"" << CommandName.str() << "\"";
+
+  if (!ParamName.empty() && !TPCC->hasParamName())
+    return ::testing::AssertionFailure()
+        << "TParamCommandComment has no parameter name";
+
+  StringRef ActualParamName = TPCC->hasParamName() ? TPCC->getParamNameAsWritten() : "";
+  if (ActualParamName != ParamName)
+    return ::testing::AssertionFailure()
+        << "TParamCommandComment has parameter name \"" << ActualParamName.str()
+        << "\", "
+           "expected \"" << ParamName.str() << "\"";
+
+  Paragraph = TPCC->getParagraph();
+
+  return ::testing::AssertionSuccess();
+}
+
 ::testing::AssertionResult HasInlineCommandAt(const Comment *C,
+                                              const CommandTraits &Traits,
                                               size_t Idx,
                                               InlineCommandComment *&ICC,
                                               StringRef Name) {
@@ -229,7 +268,7 @@ template <typename T>
   if (!AR)
     return AR;
 
-  StringRef ActualName = ICC->getCommandName();
+  StringRef ActualName = ICC->getCommandName(Traits);
   if (ActualName != Name)
     return ::testing::AssertionFailure()
         << "InlineCommandComment has name \"" << ActualName.str() << "\", "
@@ -241,11 +280,12 @@ template <typename T>
 struct NoArgs {};
 
 ::testing::AssertionResult HasInlineCommandAt(const Comment *C,
+                                              const CommandTraits &Traits,
                                               size_t Idx,
                                               InlineCommandComment *&ICC,
                                               StringRef Name,
                                               NoArgs) {
-  ::testing::AssertionResult AR = HasInlineCommandAt(C, Idx, ICC, Name);
+  ::testing::AssertionResult AR = HasInlineCommandAt(C, Traits, Idx, ICC, Name);
   if (!AR)
     return AR;
 
@@ -258,11 +298,12 @@ struct NoArgs {};
 }
 
 ::testing::AssertionResult HasInlineCommandAt(const Comment *C,
+                                              const CommandTraits &Traits,
                                               size_t Idx,
                                               InlineCommandComment *&ICC,
                                               StringRef Name,
                                               StringRef Arg) {
-  ::testing::AssertionResult AR = HasInlineCommandAt(C, Idx, ICC, Name);
+  ::testing::AssertionResult AR = HasInlineCommandAt(C, Traits, Idx, ICC, Name);
   if (!AR)
     return AR;
 
@@ -417,6 +458,7 @@ struct NoAttrs {};
 }
 
 ::testing::AssertionResult HasVerbatimBlockAt(const Comment *C,
+                                              const CommandTraits &Traits,
                                               size_t Idx,
                                               VerbatimBlockComment *&VBC,
                                               StringRef Name,
@@ -425,7 +467,7 @@ struct NoAttrs {};
   if (!AR)
     return AR;
 
-  StringRef ActualName = VBC->getCommandName();
+  StringRef ActualName = VBC->getCommandName(Traits);
   if (ActualName != Name)
     return ::testing::AssertionFailure()
         << "VerbatimBlockComment has name \"" << ActualName.str() << "\", "
@@ -445,12 +487,13 @@ struct NoLines {};
 struct Lines {};
 
 ::testing::AssertionResult HasVerbatimBlockAt(const Comment *C,
+                                              const CommandTraits &Traits,
                                               size_t Idx,
                                               VerbatimBlockComment *&VBC,
                                               StringRef Name,
                                               StringRef CloseName,
                                               NoLines) {
-  ::testing::AssertionResult AR = HasVerbatimBlockAt(C, Idx, VBC, Name,
+  ::testing::AssertionResult AR = HasVerbatimBlockAt(C, Traits, Idx, VBC, Name,
                                                      CloseName);
   if (!AR)
     return AR;
@@ -464,13 +507,14 @@ struct Lines {};
 }
 
 ::testing::AssertionResult HasVerbatimBlockAt(const Comment *C,
+                                              const CommandTraits &Traits,
                                               size_t Idx,
                                               VerbatimBlockComment *&VBC,
                                               StringRef Name,
                                               StringRef CloseName,
                                               Lines,
                                               StringRef Line0) {
-  ::testing::AssertionResult AR = HasVerbatimBlockAt(C, Idx, VBC, Name,
+  ::testing::AssertionResult AR = HasVerbatimBlockAt(C, Traits, Idx, VBC, Name,
                                                      CloseName);
   if (!AR)
     return AR;
@@ -490,6 +534,7 @@ struct Lines {};
 }
 
 ::testing::AssertionResult HasVerbatimBlockAt(const Comment *C,
+                                              const CommandTraits &Traits,
                                               size_t Idx,
                                               VerbatimBlockComment *&VBC,
                                               StringRef Name,
@@ -497,7 +542,7 @@ struct Lines {};
                                               Lines,
                                               StringRef Line0,
                                               StringRef Line1) {
-  ::testing::AssertionResult AR = HasVerbatimBlockAt(C, Idx, VBC, Name,
+  ::testing::AssertionResult AR = HasVerbatimBlockAt(C, Traits, Idx, VBC, Name,
                                                      CloseName);
   if (!AR)
     return AR;
@@ -523,6 +568,7 @@ struct Lines {};
 }
 
 ::testing::AssertionResult HasVerbatimLineAt(const Comment *C,
+                                             const CommandTraits &Traits,
                                              size_t Idx,
                                              VerbatimLineComment *&VLC,
                                              StringRef Name,
@@ -531,7 +577,7 @@ struct Lines {};
   if (!AR)
     return AR;
 
-  StringRef ActualName = VLC->getCommandName();
+  StringRef ActualName = VLC->getCommandName(Traits);
   if (ActualName != Name)
     return ::testing::AssertionFailure()
         << "VerbatimLineComment has name \"" << ActualName.str() << "\", "
@@ -616,7 +662,7 @@ TEST_F(CommentParserTest, Paragraph2) {
   {
     BlockCommandComment *BCC;
     ParagraphComment *PC;
-    ASSERT_TRUE(HasBlockCommandAt(FC, 1, BCC, "brief", PC));
+    ASSERT_TRUE(HasBlockCommandAt(FC, Traits, 1, BCC, "brief", PC));
 
     ASSERT_TRUE(HasParagraphCommentAt(BCC, 0, " Aaa"));
   }
@@ -633,14 +679,14 @@ TEST_F(CommentParserTest, Paragraph3) {
   {
     BlockCommandComment *BCC;
     ParagraphComment *PC;
-    ASSERT_TRUE(HasBlockCommandAt(FC, 1, BCC, "brief", PC));
+    ASSERT_TRUE(HasBlockCommandAt(FC, Traits, 1, BCC, "brief", PC));
 
     ASSERT_TRUE(HasParagraphCommentAt(BCC, 0, " "));
   }
   {
     BlockCommandComment *BCC;
     ParagraphComment *PC;
-    ASSERT_TRUE(HasBlockCommandAt(FC, 2, BCC, "author", PC));
+    ASSERT_TRUE(HasBlockCommandAt(FC, Traits, 2, BCC, "author", PC));
 
     ASSERT_TRUE(GetChildAt(BCC, 0, PC));
       ASSERT_TRUE(HasChildCount(PC, 0));
@@ -660,7 +706,7 @@ TEST_F(CommentParserTest, Paragraph4) {
   {
     BlockCommandComment *BCC;
     ParagraphComment *PC;
-    ASSERT_TRUE(HasBlockCommandAt(FC, 1, BCC, "brief", PC));
+    ASSERT_TRUE(HasBlockCommandAt(FC, Traits, 1, BCC, "brief", PC));
 
     ASSERT_TRUE(GetChildAt(BCC, 0, PC));
       ASSERT_TRUE(HasChildCount(PC, 2));
@@ -670,13 +716,57 @@ TEST_F(CommentParserTest, Paragraph4) {
   {
     BlockCommandComment *BCC;
     ParagraphComment *PC;
-    ASSERT_TRUE(HasBlockCommandAt(FC, 2, BCC, "author", PC));
+    ASSERT_TRUE(HasBlockCommandAt(FC, Traits, 2, BCC, "author", PC));
 
     ASSERT_TRUE(HasParagraphCommentAt(BCC, 0, " Ccc"));
   }
 }
 
 TEST_F(CommentParserTest, ParamCommand1) {
+  const char *Source = "// \\param aaa";
+
+  FullComment *FC = parseString(Source);
+  ASSERT_TRUE(HasChildCount(FC, 2));
+
+  ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
+  {
+    ParamCommandComment *PCC;
+    ParagraphComment *PC;
+    ASSERT_TRUE(HasParamCommandAt(FC, Traits, 1, PCC, "param",
+                                  ParamCommandComment::In,
+                                  /* IsDirectionExplicit = */ false,
+                                  "aaa", PC));
+    ASSERT_TRUE(HasChildCount(PCC, 1));
+    ASSERT_TRUE(HasChildCount(PC, 0));
+  }
+}
+
+TEST_F(CommentParserTest, ParamCommand2) {
+  const char *Source = "// \\param\\brief";
+
+  FullComment *FC = parseString(Source);
+  ASSERT_TRUE(HasChildCount(FC, 3));
+
+  ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
+  {
+    ParamCommandComment *PCC;
+    ParagraphComment *PC;
+    ASSERT_TRUE(HasParamCommandAt(FC, Traits, 1, PCC, "param",
+                                  ParamCommandComment::In,
+                                  /* IsDirectionExplicit = */ false,
+                                  "", PC));
+    ASSERT_TRUE(HasChildCount(PCC, 1));
+    ASSERT_TRUE(HasChildCount(PC, 0));
+  }
+  {
+    BlockCommandComment *BCC;
+    ParagraphComment *PC;
+    ASSERT_TRUE(HasBlockCommandAt(FC, Traits, 2, BCC, "brief", PC));
+    ASSERT_TRUE(HasChildCount(PC, 0));
+  }
+}
+
+TEST_F(CommentParserTest, ParamCommand3) {
   const char *Sources[] = {
     "// \\param aaa Bbb\n",
     "// \\param\n"
@@ -695,7 +785,7 @@ TEST_F(CommentParserTest, ParamCommand1) {
     {
       ParamCommandComment *PCC;
       ParagraphComment *PC;
-      ASSERT_TRUE(HasParamCommandAt(FC, 1, PCC, "param",
+      ASSERT_TRUE(HasParamCommandAt(FC, Traits, 1, PCC, "param",
                                     ParamCommandComment::In,
                                     /* IsDirectionExplicit = */ false,
                                     "aaa", PC));
@@ -705,9 +795,10 @@ TEST_F(CommentParserTest, ParamCommand1) {
   }
 }
 
-TEST_F(CommentParserTest, ParamCommand2) {
+TEST_F(CommentParserTest, ParamCommand4) {
   const char *Sources[] = {
     "// \\param [in] aaa Bbb\n",
+    "// \\param[in] aaa Bbb\n",
     "// \\param\n"
     "//     [in] aaa Bbb\n",
     "// \\param [in]\n"
@@ -724,7 +815,7 @@ TEST_F(CommentParserTest, ParamCommand2) {
     {
       ParamCommandComment *PCC;
       ParagraphComment *PC;
-      ASSERT_TRUE(HasParamCommandAt(FC, 1, PCC, "param",
+      ASSERT_TRUE(HasParamCommandAt(FC, Traits, 1, PCC, "param",
                                     ParamCommandComment::In,
                                     /* IsDirectionExplicit = */ true,
                                     "aaa", PC));
@@ -734,9 +825,10 @@ TEST_F(CommentParserTest, ParamCommand2) {
   }
 }
 
-TEST_F(CommentParserTest, ParamCommand3) {
+TEST_F(CommentParserTest, ParamCommand5) {
   const char *Sources[] = {
     "// \\param [out] aaa Bbb\n",
+    "// \\param[out] aaa Bbb\n",
     "// \\param\n"
     "//     [out] aaa Bbb\n",
     "// \\param [out]\n"
@@ -753,7 +845,7 @@ TEST_F(CommentParserTest, ParamCommand3) {
     {
       ParamCommandComment *PCC;
       ParagraphComment *PC;
-      ASSERT_TRUE(HasParamCommandAt(FC, 1, PCC, "param",
+      ASSERT_TRUE(HasParamCommandAt(FC, Traits, 1, PCC, "param",
                                     ParamCommandComment::Out,
                                     /* IsDirectionExplicit = */ true,
                                     "aaa", PC));
@@ -763,9 +855,10 @@ TEST_F(CommentParserTest, ParamCommand3) {
   }
 }
 
-TEST_F(CommentParserTest, ParamCommand4) {
+TEST_F(CommentParserTest, ParamCommand6) {
   const char *Sources[] = {
     "// \\param [in,out] aaa Bbb\n",
+    "// \\param[in,out] aaa Bbb\n",
     "// \\param [in, out] aaa Bbb\n",
     "// \\param [in,\n"
     "//     out] aaa Bbb\n",
@@ -783,7 +876,7 @@ TEST_F(CommentParserTest, ParamCommand4) {
     {
       ParamCommandComment *PCC;
       ParagraphComment *PC;
-      ASSERT_TRUE(HasParamCommandAt(FC, 1, PCC, "param",
+      ASSERT_TRUE(HasParamCommandAt(FC, Traits, 1, PCC, "param",
                                     ParamCommandComment::InOut,
                                     /* IsDirectionExplicit = */ true,
                                     "aaa", PC));
@@ -793,7 +886,7 @@ TEST_F(CommentParserTest, ParamCommand4) {
   }
 }
 
-TEST_F(CommentParserTest, ParamCommand5) {
+TEST_F(CommentParserTest, ParamCommand7) {
   const char *Source =
     "// \\param aaa \\% Bbb \\$ ccc\n";
 
@@ -804,7 +897,7 @@ TEST_F(CommentParserTest, ParamCommand5) {
   {
     ParamCommandComment *PCC;
     ParagraphComment *PC;
-    ASSERT_TRUE(HasParamCommandAt(FC, 1, PCC, "param",
+    ASSERT_TRUE(HasParamCommandAt(FC, Traits, 1, PCC, "param",
                                   ParamCommandComment::In,
                                   /* IsDirectionExplicit = */ false,
                                   "aaa", PC));
@@ -819,6 +912,56 @@ TEST_F(CommentParserTest, ParamCommand5) {
   }
 }
 
+TEST_F(CommentParserTest, TParamCommand1) {
+  const char *Sources[] = {
+    "// \\tparam aaa Bbb\n",
+    "// \\tparam\n"
+    "//     aaa Bbb\n",
+    "// \\tparam \n"
+    "//     aaa Bbb\n",
+    "// \\tparam aaa\n"
+    "// Bbb\n"
+  };
+
+  for (size_t i = 0, e = array_lengthof(Sources); i != e; i++) {
+    FullComment *FC = parseString(Sources[i]);
+    ASSERT_TRUE(HasChildCount(FC, 2));
+
+    ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
+    {
+      TParamCommandComment *TPCC;
+      ParagraphComment *PC;
+      ASSERT_TRUE(HasTParamCommandAt(FC, Traits, 1, TPCC, "tparam",
+                                     "aaa", PC));
+      ASSERT_TRUE(HasChildCount(TPCC, 1));
+      ASSERT_TRUE(HasParagraphCommentAt(TPCC, 0, " Bbb"));
+    }
+  }
+}
+
+TEST_F(CommentParserTest, TParamCommand2) {
+  const char *Source = "// \\tparam\\brief";
+
+  FullComment *FC = parseString(Source);
+  ASSERT_TRUE(HasChildCount(FC, 3));
+
+  ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
+  {
+    TParamCommandComment *TPCC;
+    ParagraphComment *PC;
+    ASSERT_TRUE(HasTParamCommandAt(FC, Traits, 1, TPCC, "tparam", "", PC));
+    ASSERT_TRUE(HasChildCount(TPCC, 1));
+    ASSERT_TRUE(HasChildCount(PC, 0));
+  }
+  {
+    BlockCommandComment *BCC;
+    ParagraphComment *PC;
+    ASSERT_TRUE(HasBlockCommandAt(FC, Traits, 2, BCC, "brief", PC));
+    ASSERT_TRUE(HasChildCount(PC, 0));
+  }
+}
+
+
 TEST_F(CommentParserTest, InlineCommand1) {
   const char *Source = "// \\c";
 
@@ -832,7 +975,7 @@ TEST_F(CommentParserTest, InlineCommand1) {
 
     ASSERT_TRUE(HasChildCount(PC, 2));
       ASSERT_TRUE(HasTextAt(PC, 0, " "));
-      ASSERT_TRUE(HasInlineCommandAt(PC, 1, ICC, "c", NoArgs()));
+      ASSERT_TRUE(HasInlineCommandAt(PC, Traits, 1, ICC, "c", NoArgs()));
   }
 }
 
@@ -849,7 +992,7 @@ TEST_F(CommentParserTest, InlineCommand2) {
 
     ASSERT_TRUE(HasChildCount(PC, 3));
       ASSERT_TRUE(HasTextAt(PC, 0, " "));
-      ASSERT_TRUE(HasInlineCommandAt(PC, 1, ICC, "c", NoArgs()));
+      ASSERT_TRUE(HasInlineCommandAt(PC, Traits, 1, ICC, "c", NoArgs()));
       ASSERT_TRUE(HasTextAt(PC, 2, " "));
   }
 }
@@ -867,7 +1010,7 @@ TEST_F(CommentParserTest, InlineCommand3) {
 
     ASSERT_TRUE(HasChildCount(PC, 2));
       ASSERT_TRUE(HasTextAt(PC, 0, " "));
-      ASSERT_TRUE(HasInlineCommandAt(PC, 1, ICC, "c", "aaa"));
+      ASSERT_TRUE(HasInlineCommandAt(PC, Traits, 1, ICC, "c", "aaa"));
   }
 }
 
@@ -884,7 +1027,7 @@ TEST_F(CommentParserTest, InlineCommand4) {
 
     ASSERT_TRUE(HasChildCount(PC, 3));
       ASSERT_TRUE(HasTextAt(PC, 0, " "));
-      ASSERT_TRUE(HasInlineCommandAt(PC, 1, ICC, "c", "aaa"));
+      ASSERT_TRUE(HasInlineCommandAt(PC, Traits, 1, ICC, "c", "aaa"));
       ASSERT_TRUE(HasTextAt(PC, 2, " bbb"));
   }
 }
@@ -902,7 +1045,7 @@ TEST_F(CommentParserTest, InlineCommand5) {
 
     ASSERT_TRUE(HasChildCount(PC, 3));
       ASSERT_TRUE(HasTextAt(PC, 0, " "));
-      ASSERT_TRUE(HasInlineCommandAt(PC, 1, ICC, "unknown", NoArgs()));
+      ASSERT_TRUE(HasInlineCommandAt(PC, Traits, 1, ICC, "unknown", NoArgs()));
       ASSERT_TRUE(HasTextAt(PC, 2, " aaa"));
   }
 }
@@ -1056,7 +1199,8 @@ TEST_F(CommentParserTest, VerbatimBlock1) {
   ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
   {
     VerbatimBlockComment *VCC;
-    ASSERT_TRUE(HasVerbatimBlockAt(FC, 1, VCC, "verbatim", "endverbatim",
+    ASSERT_TRUE(HasVerbatimBlockAt(FC, Traits, 1, VCC,
+                                   "verbatim", "endverbatim",
                                    NoLines()));
   }
 }
@@ -1070,7 +1214,8 @@ TEST_F(CommentParserTest, VerbatimBlock2) {
   ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
   {
     VerbatimBlockComment *VBC;
-    ASSERT_TRUE(HasVerbatimBlockAt(FC, 1, VBC, "verbatim", "endverbatim",
+    ASSERT_TRUE(HasVerbatimBlockAt(FC, Traits, 1, VBC,
+                                   "verbatim", "endverbatim",
                                    Lines(), " Aaa "));
   }
 }
@@ -1084,7 +1229,7 @@ TEST_F(CommentParserTest, VerbatimBlock3) {
   ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
   {
     VerbatimBlockComment *VBC;
-    ASSERT_TRUE(HasVerbatimBlockAt(FC, 1, VBC, "verbatim", "",
+    ASSERT_TRUE(HasVerbatimBlockAt(FC, Traits, 1, VBC, "verbatim", "",
                                    Lines(), " Aaa"));
   }
 }
@@ -1099,7 +1244,8 @@ TEST_F(CommentParserTest, VerbatimBlock4) {
 
   {
     VerbatimBlockComment *VBC;
-    ASSERT_TRUE(HasVerbatimBlockAt(FC, 0, VBC, "verbatim", "endverbatim",
+    ASSERT_TRUE(HasVerbatimBlockAt(FC, Traits, 0, VBC,
+                                   "verbatim", "endverbatim",
                                    NoLines()));
   }
 }
@@ -1121,7 +1267,8 @@ TEST_F(CommentParserTest, VerbatimBlock5) {
 
     {
       VerbatimBlockComment *VBC;
-      ASSERT_TRUE(HasVerbatimBlockAt(FC, 0, VBC, "verbatim", "endverbatim",
+      ASSERT_TRUE(HasVerbatimBlockAt(FC, Traits, 0, VBC,
+                                     "verbatim", "endverbatim",
                                      Lines(), " Aaa"));
     }
   }
@@ -1145,7 +1292,8 @@ TEST_F(CommentParserTest, VerbatimBlock6) {
     ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
     {
       VerbatimBlockComment *VBC;
-      ASSERT_TRUE(HasVerbatimBlockAt(FC, 1, VBC, "verbatim", "endverbatim",
+      ASSERT_TRUE(HasVerbatimBlockAt(FC, Traits, 1, VBC,
+                                     "verbatim", "endverbatim",
                                      Lines(), " Aaa"));
     }
   }
@@ -1171,7 +1319,8 @@ TEST_F(CommentParserTest, VerbatimBlock7) {
     ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
     {
       VerbatimBlockComment *VBC;
-      ASSERT_TRUE(HasVerbatimBlockAt(FC, 1, VBC, "verbatim", "endverbatim",
+      ASSERT_TRUE(HasVerbatimBlockAt(FC, Traits, 1, VBC,
+                                     "verbatim", "endverbatim",
                                      Lines(), " Aaa", " Bbb"));
     }
   }
@@ -1198,7 +1347,8 @@ TEST_F(CommentParserTest, VerbatimBlock8) {
     ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
     {
       VerbatimBlockComment *VBC;
-      ASSERT_TRUE(HasVerbatimBlockAt(FC, 1, VBC, "verbatim", "endverbatim"));
+      ASSERT_TRUE(HasVerbatimBlockAt(FC, Traits, 1, VBC,
+                                     "verbatim", "endverbatim"));
       ASSERT_EQ(3U, VBC->getNumLines());
       ASSERT_EQ(" Aaa", VBC->getText(0));
       ASSERT_EQ("",     VBC->getText(1));
@@ -1220,7 +1370,7 @@ TEST_F(CommentParserTest, VerbatimLine1) {
     ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
     {
       VerbatimLineComment *VLC;
-      ASSERT_TRUE(HasVerbatimLineAt(FC, 1, VLC, "fn", ""));
+      ASSERT_TRUE(HasVerbatimLineAt(FC, Traits, 1, VLC, "fn", ""));
     }
   }
 }
@@ -1238,7 +1388,7 @@ TEST_F(CommentParserTest, VerbatimLine2) {
     ASSERT_TRUE(HasParagraphCommentAt(FC, 0, " "));
     {
       VerbatimLineComment *VLC;
-      ASSERT_TRUE(HasVerbatimLineAt(FC, 1, VLC, "fn",
+      ASSERT_TRUE(HasVerbatimLineAt(FC, Traits, 1, VLC, "fn",
                   " void *foo(const char *zzz = \"\\$\");"));
     }
   }

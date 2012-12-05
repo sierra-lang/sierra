@@ -35,7 +35,8 @@ USEDLIBS = clangFrontendTool.a clangFrontend.a clangDriver.a \
            clangSerialization.a clangCodeGen.a clangParse.a clangSema.a \
            clangStaticAnalyzerFrontend.a clangStaticAnalyzerCheckers.a \
            clangStaticAnalyzerCore.a \
-           clangAnalysis.a clangARCMigrate.a clangRewrite.a \
+           clangAnalysis.a clangARCMigrate.a \
+           clangRewriteFrontend.a clangRewriteCore.a \
            clangEdit.a clangAST.a clangLex.a clangBasic.a
 
 include $(CLANG_LEVEL)/Makefile
@@ -61,9 +62,4 @@ TOOL_INFO_BUILD_VERSION := $(LLVM_SUBMIT_VERSION).$(LLVM_SUBMIT_SUBVERSION)
 else
 TOOL_INFO_BUILD_VERSION := 
 endif
-endif
-
-# Translate make variable to define when building a "production" clang.
-ifdef CLANG_IS_PRODUCTION
-CPP.Defines += -DCLANG_IS_PRODUCTION
 endif

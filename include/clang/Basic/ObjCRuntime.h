@@ -126,12 +126,25 @@ public:
     return !isGNUFamily();
   }
 
+  /// \brief Does this runtime allow ARC at all?
+  bool allowsARC() const {
+    switch (getKind()) {
+    case FragileMacOSX: return false;
+    case MacOSX: return true;
+    case iOS: return true;
+    case GCC: return false;
+    case GNUstep: return true;
+    case ObjFW: return true;
+    }
+    llvm_unreachable("bad kind");
+  }
+
   /// \brief Does this runtime natively provide the ARC entrypoints? 
   ///
   /// ARC cannot be directly supported on a platform that does not provide
   /// these entrypoints, although it may be supportable via a stub
   /// library.
-  bool hasARC() const {
+  bool hasNativeARC() const {
     switch (getKind()) {
     case FragileMacOSX: return false;
     case MacOSX: return getVersion() >= VersionTuple(10, 7);
@@ -139,16 +152,35 @@ public:
 
     case GCC: return false;
     case GNUstep: return getVersion() >= VersionTuple(1, 6);
-    case ObjFW: return false; // XXX: this will change soon
+    case ObjFW: return true;
     }
     llvm_unreachable("bad kind");
   }
 
+  /// \brief Does this runtime supports optimized setter entrypoints?
+  bool hasOptimizedSetter() const {
+    switch (getKind()) {
+      case MacOSX:
+        return getVersion() >= VersionTuple(10, 8);
+      case iOS:
+        return (getVersion() >= VersionTuple(6));
+    
+      default:
+      return false;
+    }
+  }
+
+  /// Does this runtime allow the use of __weak?
+  bool allowsWeak() const {
+    return hasNativeWeak();
+  }
+
   /// \brief Does this runtime natively provide ARC-compliant 'weak'
   /// entrypoints?
-  bool hasWeak() const {
-    // Right now, this is always equivalent to the ARC decision.
-    return hasARC();
+  bool hasNativeWeak() const {
+    // Right now, this is always equivalent to whether the runtime
+    // natively supports ARC decision.
+    return hasNativeARC();
   }
 
   /// \brief Does this runtime directly support the subscripting methods?
@@ -158,7 +190,7 @@ public:
     switch (getKind()) {
     case FragileMacOSX: return false;
     case MacOSX: return getVersion() >= VersionTuple(10, 8);
-    case iOS: return false;
+    case iOS: return getVersion() >= VersionTuple(6);
 
     // This is really a lie, because some implementations and versions
     // of the runtime do not support ARC.  Probably -fgnu-runtime
@@ -168,6 +200,34 @@ public:
     case ObjFW: return true;
     }
     llvm_unreachable("bad kind");
+  }
+
+  /// \brief Does this runtime allow sizeof or alignof on object types?
+  bool allowsSizeofAlignof() const {
+    return isFragile();
+  }
+
+  /// \brief Does this runtime allow pointer arithmetic on objects?
+  ///
+  /// This covers +, -, ++, --, and (if isSubscriptPointerArithmetic()
+  /// yields true) [].
+  bool allowsPointerArithmetic() const {
+    switch (getKind()) {
+    case FragileMacOSX:
+    case GCC:
+      return true;
+    case MacOSX:
+    case iOS:
+    case GNUstep:
+    case ObjFW:
+      return false;
+    }
+    llvm_unreachable("bad kind");
+  }
+
+  /// \brief Is subscripting pointer arithmetic?
+  bool isSubscriptPointerArithmetic() const {
+    return allowsPointerArithmetic();
   }
 
   /// \brief Does this runtime provide an objc_terminate function?
@@ -198,6 +258,7 @@ public:
     }
     llvm_unreachable("bad kind");
   }
+
   /// \brief Does this runtime use zero-cost exceptions?
   bool hasUnwindExceptions() const {
     switch (getKind()) {

@@ -12,39 +12,40 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Frontend/ASTUnit.h"
-#include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTConsumer.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclVisitor.h"
-#include "clang/AST/TypeOrdering.h"
 #include "clang/AST/StmtVisitor.h"
+#include "clang/AST/TypeOrdering.h"
+#include "clang/Basic/Diagnostic.h"
+#include "clang/Basic/TargetInfo.h"
+#include "clang/Basic/TargetOptions.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendActions.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/FrontendOptions.h"
 #include "clang/Frontend/MultiplexConsumer.h"
 #include "clang/Frontend/Utils.h"
-#include "clang/Serialization/ASTReader.h"
-#include "clang/Serialization/ASTWriter.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/Preprocessor.h"
-#include "clang/Basic/TargetOptions.h"
-#include "clang/Basic/TargetInfo.h"
-#include "clang/Basic/Diagnostic.h"
+#include "clang/Lex/PreprocessorOptions.h"
+#include "clang/Serialization/ASTReader.h"
+#include "clang/Serialization/ASTWriter.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/Atomic.h"
-#include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/Host.h"
-#include "llvm/Support/Path.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Timer.h"
+#include "llvm/Support/CrashRecoveryContext.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Host.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Mutex.h"
 #include "llvm/Support/MutexGuard.h"
-#include "llvm/Support/CrashRecoveryContext.h"
-#include <cstdlib>
+#include "llvm/Support/Path.h"
+#include "llvm/Support/Timer.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cstdio>
+#include <cstdlib>
 #include <sys/stat.h>
 using namespace clang;
 
@@ -102,7 +103,7 @@ static llvm::sys::SmartMutex<false> &getOnDiskMutex() {
   return M;
 }
 
-static void cleanupOnDiskMapAtExit(void);
+static void cleanupOnDiskMapAtExit();
 
 typedef llvm::DenseMap<const ASTUnit *, OnDiskData *> OnDiskDataMap;
 static OnDiskDataMap &getOnDiskDataMap() {
@@ -115,7 +116,7 @@ static OnDiskDataMap &getOnDiskDataMap() {
   return M;
 }
 
-static void cleanupOnDiskMapAtExit(void) {
+static void cleanupOnDiskMapAtExit() {
   // Use the mutex because there can be an alive thread destroying an ASTUnit.
   llvm::MutexGuard Guard(getOnDiskMutex());
   OnDiskDataMap &M = getOnDiskDataMap();
@@ -179,6 +180,14 @@ void OnDiskData::Cleanup() {
   CleanTemporaryFiles();
   CleanPreambleFile();
 }
+
+struct ASTUnit::ASTWriterData {
+  SmallString<128> Buffer;
+  llvm::BitstreamWriter Stream;
+  ASTWriter Writer;
+
+  ASTWriterData() : Stream(Buffer), Writer(Stream) { }
+};
 
 void ASTUnit::clearFileLevelDecls() {
   for (FileDeclsTy::iterator
@@ -271,43 +280,43 @@ static unsigned getDeclShowContexts(NamedDecl *ND,
   if (!ND)
     return 0;
   
-  unsigned Contexts = 0;
+  uint64_t Contexts = 0;
   if (isa<TypeDecl>(ND) || isa<ObjCInterfaceDecl>(ND) || 
       isa<ClassTemplateDecl>(ND) || isa<TemplateTemplateParmDecl>(ND)) {
     // Types can appear in these contexts.
     if (LangOpts.CPlusPlus || !isa<TagDecl>(ND))
-      Contexts |= (1 << (CodeCompletionContext::CCC_TopLevel - 1))
-                | (1 << (CodeCompletionContext::CCC_ObjCIvarList - 1))
-                | (1 << (CodeCompletionContext::CCC_ClassStructUnion - 1))
-                | (1 << (CodeCompletionContext::CCC_Statement - 1))
-                | (1 << (CodeCompletionContext::CCC_Type - 1))
-              | (1 << (CodeCompletionContext::CCC_ParenthesizedExpression - 1));
+      Contexts |= (1LL << CodeCompletionContext::CCC_TopLevel)
+               |  (1LL << CodeCompletionContext::CCC_ObjCIvarList)
+               |  (1LL << CodeCompletionContext::CCC_ClassStructUnion)
+               |  (1LL << CodeCompletionContext::CCC_Statement)
+               |  (1LL << CodeCompletionContext::CCC_Type)
+               |  (1LL << CodeCompletionContext::CCC_ParenthesizedExpression);
 
     // In C++, types can appear in expressions contexts (for functional casts).
     if (LangOpts.CPlusPlus)
-      Contexts |= (1 << (CodeCompletionContext::CCC_Expression - 1));
+      Contexts |= (1LL << CodeCompletionContext::CCC_Expression);
     
     // In Objective-C, message sends can send interfaces. In Objective-C++,
     // all types are available due to functional casts.
     if (LangOpts.CPlusPlus || isa<ObjCInterfaceDecl>(ND))
-      Contexts |= (1 << (CodeCompletionContext::CCC_ObjCMessageReceiver - 1));
+      Contexts |= (1LL << CodeCompletionContext::CCC_ObjCMessageReceiver);
     
     // In Objective-C, you can only be a subclass of another Objective-C class
     if (isa<ObjCInterfaceDecl>(ND))
-      Contexts |= (1 << (CodeCompletionContext::CCC_ObjCInterfaceName - 1));
+      Contexts |= (1LL << CodeCompletionContext::CCC_ObjCInterfaceName);
 
     // Deal with tag names.
     if (isa<EnumDecl>(ND)) {
-      Contexts |= (1 << (CodeCompletionContext::CCC_EnumTag - 1));
+      Contexts |= (1LL << CodeCompletionContext::CCC_EnumTag);
       
       // Part of the nested-name-specifier in C++0x.
       if (LangOpts.CPlusPlus0x)
         IsNestedNameSpecifier = true;
     } else if (RecordDecl *Record = dyn_cast<RecordDecl>(ND)) {
       if (Record->isUnion())
-        Contexts |= (1 << (CodeCompletionContext::CCC_UnionTag - 1));
+        Contexts |= (1LL << CodeCompletionContext::CCC_UnionTag);
       else
-        Contexts |= (1 << (CodeCompletionContext::CCC_ClassOrStructTag - 1));
+        Contexts |= (1LL << CodeCompletionContext::CCC_ClassOrStructTag);
       
       if (LangOpts.CPlusPlus)
         IsNestedNameSpecifier = true;
@@ -315,16 +324,16 @@ static unsigned getDeclShowContexts(NamedDecl *ND,
       IsNestedNameSpecifier = true;
   } else if (isa<ValueDecl>(ND) || isa<FunctionTemplateDecl>(ND)) {
     // Values can appear in these contexts.
-    Contexts = (1 << (CodeCompletionContext::CCC_Statement - 1))
-             | (1 << (CodeCompletionContext::CCC_Expression - 1))
-             | (1 << (CodeCompletionContext::CCC_ParenthesizedExpression - 1))
-             | (1 << (CodeCompletionContext::CCC_ObjCMessageReceiver - 1));
+    Contexts = (1LL << CodeCompletionContext::CCC_Statement)
+             | (1LL << CodeCompletionContext::CCC_Expression)
+             | (1LL << CodeCompletionContext::CCC_ParenthesizedExpression)
+             | (1LL << CodeCompletionContext::CCC_ObjCMessageReceiver);
   } else if (isa<ObjCProtocolDecl>(ND)) {
-    Contexts = (1 << (CodeCompletionContext::CCC_ObjCProtocolName - 1));
+    Contexts = (1LL << CodeCompletionContext::CCC_ObjCProtocolName);
   } else if (isa<ObjCCategoryDecl>(ND)) {
-    Contexts = (1 << (CodeCompletionContext::CCC_ObjCCategoryName - 1));
+    Contexts = (1LL << CodeCompletionContext::CCC_ObjCCategoryName);
   } else if (isa<NamespaceDecl>(ND) || isa<NamespaceAliasDecl>(ND)) {
-    Contexts = (1 << (CodeCompletionContext::CCC_Namespace - 1));
+    Contexts = (1LL << CodeCompletionContext::CCC_Namespace);
    
     // Part of the nested-name-specifier.
     IsNestedNameSpecifier = true;
@@ -347,8 +356,9 @@ void ASTUnit::CacheCodeCompletionResults() {
   typedef CodeCompletionResult Result;
   SmallVector<Result, 8> Results;
   CachedCompletionAllocator = new GlobalCodeCompletionAllocator;
+  CodeCompletionTUInfo CCTUInfo(CachedCompletionAllocator);
   TheSema->GatherGlobalCodeCompletions(*CachedCompletionAllocator,
-                                       getCodeCompletionTUInfo(), Results);
+                                       CCTUInfo, Results);
   
   // Translate global code completions into cached completions.
   llvm::DenseMap<CanQualType, unsigned> CompletionTypes;
@@ -360,7 +370,7 @@ void ASTUnit::CacheCodeCompletionResults() {
       CachedCodeCompletionResult CachedResult;
       CachedResult.Completion = Results[I].CreateCodeCompletionString(*TheSema,
                                                     *CachedCompletionAllocator,
-                                                    getCodeCompletionTUInfo(),
+                                                    CCTUInfo,
                                           IncludeBriefCommentsInCodeCompletion);
       CachedResult.ShowInContexts = getDeclShowContexts(Results[I].Declaration,
                                                         Ctx->getLangOpts(),
@@ -399,23 +409,23 @@ void ASTUnit::CacheCodeCompletionResults() {
       if (TheSema->Context.getLangOpts().CPlusPlus && 
           IsNestedNameSpecifier && !Results[I].StartsNestedNameSpecifier) {
         // The contexts in which a nested-name-specifier can appear in C++.
-        unsigned NNSContexts
-          = (1 << (CodeCompletionContext::CCC_TopLevel - 1))
-          | (1 << (CodeCompletionContext::CCC_ObjCIvarList - 1))
-          | (1 << (CodeCompletionContext::CCC_ClassStructUnion - 1))
-          | (1 << (CodeCompletionContext::CCC_Statement - 1))
-          | (1 << (CodeCompletionContext::CCC_Expression - 1))
-          | (1 << (CodeCompletionContext::CCC_ObjCMessageReceiver - 1))
-          | (1 << (CodeCompletionContext::CCC_EnumTag - 1))
-          | (1 << (CodeCompletionContext::CCC_UnionTag - 1))
-          | (1 << (CodeCompletionContext::CCC_ClassOrStructTag - 1))
-          | (1 << (CodeCompletionContext::CCC_Type - 1))
-          | (1 << (CodeCompletionContext::CCC_PotentiallyQualifiedName - 1))
-          | (1 << (CodeCompletionContext::CCC_ParenthesizedExpression - 1));
+        uint64_t NNSContexts
+          = (1LL << CodeCompletionContext::CCC_TopLevel)
+          | (1LL << CodeCompletionContext::CCC_ObjCIvarList)
+          | (1LL << CodeCompletionContext::CCC_ClassStructUnion)
+          | (1LL << CodeCompletionContext::CCC_Statement)
+          | (1LL << CodeCompletionContext::CCC_Expression)
+          | (1LL << CodeCompletionContext::CCC_ObjCMessageReceiver)
+          | (1LL << CodeCompletionContext::CCC_EnumTag)
+          | (1LL << CodeCompletionContext::CCC_UnionTag)
+          | (1LL << CodeCompletionContext::CCC_ClassOrStructTag)
+          | (1LL << CodeCompletionContext::CCC_Type)
+          | (1LL << CodeCompletionContext::CCC_PotentiallyQualifiedName)
+          | (1LL << CodeCompletionContext::CCC_ParenthesizedExpression);
 
         if (isa<NamespaceDecl>(Results[I].Declaration) ||
             isa<NamespaceAliasDecl>(Results[I].Declaration))
-          NNSContexts |= (1 << (CodeCompletionContext::CCC_Namespace - 1));
+          NNSContexts |= (1LL << CodeCompletionContext::CCC_Namespace);
 
         if (unsigned RemainingContexts 
                                 = NNSContexts & ~CachedResult.ShowInContexts) {
@@ -426,7 +436,7 @@ void ASTUnit::CacheCodeCompletionResults() {
           CachedResult.Completion 
             = Results[I].CreateCodeCompletionString(*TheSema,
                                                     *CachedCompletionAllocator,
-                                                    getCodeCompletionTUInfo(),
+                                                    CCTUInfo,
                                         IncludeBriefCommentsInCodeCompletion);
           CachedResult.ShowInContexts = RemainingContexts;
           CachedResult.Priority = CCP_NestedNameSpecifier;
@@ -449,21 +459,21 @@ void ASTUnit::CacheCodeCompletionResults() {
       CachedResult.Completion 
         = Results[I].CreateCodeCompletionString(*TheSema,
                                                 *CachedCompletionAllocator,
-                                                getCodeCompletionTUInfo(),
+                                                CCTUInfo,
                                           IncludeBriefCommentsInCodeCompletion);
       CachedResult.ShowInContexts
-        = (1 << (CodeCompletionContext::CCC_TopLevel - 1))
-        | (1 << (CodeCompletionContext::CCC_ObjCInterface - 1))
-        | (1 << (CodeCompletionContext::CCC_ObjCImplementation - 1))
-        | (1 << (CodeCompletionContext::CCC_ObjCIvarList - 1))
-        | (1 << (CodeCompletionContext::CCC_ClassStructUnion - 1))
-        | (1 << (CodeCompletionContext::CCC_Statement - 1))
-        | (1 << (CodeCompletionContext::CCC_Expression - 1))
-        | (1 << (CodeCompletionContext::CCC_ObjCMessageReceiver - 1))
-        | (1 << (CodeCompletionContext::CCC_MacroNameUse - 1))
-        | (1 << (CodeCompletionContext::CCC_PreprocessorExpression - 1))
-        | (1 << (CodeCompletionContext::CCC_ParenthesizedExpression - 1))
-        | (1 << (CodeCompletionContext::CCC_OtherWithMacros - 1));
+        = (1LL << CodeCompletionContext::CCC_TopLevel)
+        | (1LL << CodeCompletionContext::CCC_ObjCInterface)
+        | (1LL << CodeCompletionContext::CCC_ObjCImplementation)
+        | (1LL << CodeCompletionContext::CCC_ObjCIvarList)
+        | (1LL << CodeCompletionContext::CCC_ClassStructUnion)
+        | (1LL << CodeCompletionContext::CCC_Statement)
+        | (1LL << CodeCompletionContext::CCC_Expression)
+        | (1LL << CodeCompletionContext::CCC_ObjCMessageReceiver)
+        | (1LL << CodeCompletionContext::CCC_MacroNameUse)
+        | (1LL << CodeCompletionContext::CCC_PreprocessorExpression)
+        | (1LL << CodeCompletionContext::CCC_ParenthesizedExpression)
+        | (1LL << CodeCompletionContext::CCC_OtherWithMacros);
       
       CachedResult.Priority = Results[I].Priority;
       CachedResult.Kind = Results[I].CursorKind;
@@ -495,8 +505,8 @@ class ASTInfoCollector : public ASTReaderListener {
   ASTContext &Context;
   LangOptions &LangOpt;
   HeaderSearch &HSI;
+  IntrusiveRefCntPtr<TargetOptions> &TargetOpts;
   IntrusiveRefCntPtr<TargetInfo> &Target;
-  std::string &Predefines;
   unsigned &Counter;
 
   unsigned NumHeaderInfos;
@@ -504,54 +514,38 @@ class ASTInfoCollector : public ASTReaderListener {
   bool InitializedLanguage;
 public:
   ASTInfoCollector(Preprocessor &PP, ASTContext &Context, LangOptions &LangOpt, 
-                   HeaderSearch &HSI,
+                   HeaderSearch &HSI, 
+                   IntrusiveRefCntPtr<TargetOptions> &TargetOpts,
                    IntrusiveRefCntPtr<TargetInfo> &Target,
-                   std::string &Predefines,
                    unsigned &Counter)
-    : PP(PP), Context(Context), LangOpt(LangOpt), HSI(HSI), Target(Target),
-      Predefines(Predefines), Counter(Counter), NumHeaderInfos(0),
+    : PP(PP), Context(Context), LangOpt(LangOpt), HSI(HSI), 
+      TargetOpts(TargetOpts), Target(Target),
+      Counter(Counter), NumHeaderInfos(0),
       InitializedLanguage(false) {}
 
-  virtual bool ReadLanguageOptions(const LangOptions &LangOpts) {
+  virtual bool ReadLanguageOptions(const LangOptions &LangOpts,
+                                   bool Complain) {
     if (InitializedLanguage)
       return false;
     
     LangOpt = LangOpts;
-    
-    // Initialize the preprocessor.
-    PP.Initialize(*Target);
-    
-    // Initialize the ASTContext
-    Context.InitBuiltinTypes(*Target);
-    
     InitializedLanguage = true;
+    
+    updated();
     return false;
   }
 
-  virtual bool ReadTargetTriple(StringRef Triple) {
+  virtual bool ReadTargetOptions(const TargetOptions &TargetOpts,
+                                 bool Complain) {
     // If we've already initialized the target, don't do it again.
     if (Target)
       return false;
     
-    // FIXME: This is broken, we should store the TargetOptions in the AST file.
-    TargetOptions TargetOpts;
-    TargetOpts.ABI = "";
-    TargetOpts.CXXABI = "";
-    TargetOpts.CPU = "";
-    TargetOpts.Features.clear();
-    TargetOpts.Triple = Triple;
-    Target = TargetInfo::CreateTargetInfo(PP.getDiagnostics(), TargetOpts);
-    return false;
-  }
+    this->TargetOpts = new TargetOptions(TargetOpts);
+    Target = TargetInfo::CreateTargetInfo(PP.getDiagnostics(),
+                                          &*this->TargetOpts);
 
-  virtual bool ReadPredefinesBuffer(const PCHPredefinesBlocks &Buffers,
-                                    StringRef OriginalFileName,
-                                    std::string &SuggestedPredefines,
-                                    FileManager &FileMgr) {
-    Predefines = Buffers[0].Data;
-    for (unsigned I = 1, N = Buffers.size(); I != N; ++I) {
-      Predefines += Buffers[I].Data;
-    }
+    updated();
     return false;
   }
 
@@ -559,8 +553,26 @@ public:
     HSI.setHeaderFileInfoForUID(HFI, NumHeaderInfos++);
   }
 
-  virtual void ReadCounter(unsigned Value) {
+  virtual void ReadCounter(const serialization::ModuleFile &M, unsigned Value) {
     Counter = Value;
+  }
+
+private:
+  void updated() {
+    if (!Target || !InitializedLanguage)
+      return;
+
+    // Inform the target of the language options.
+    //
+    // FIXME: We shouldn't need to do this, the target should be immutable once
+    // created. This complexity should be lifted elsewhere.
+    Target->setForcedLangOptions(LangOpt);
+
+    // Initialize the preprocessor.
+    PP.Initialize(*Target);
+
+    // Initialize the ASTContext
+    Context.InitBuiltinTypes(*Target);
   }
 };
 
@@ -621,8 +633,10 @@ void StoredDiagnosticConsumer::HandleDiagnostic(DiagnosticsEngine::Level Level,
   StoredDiags.push_back(StoredDiagnostic(Level, Info));
 }
 
-const std::string &ASTUnit::getOriginalSourceFileName() {
-  return OriginalSourceFile;
+ASTDeserializationListener *ASTUnit::getDeserializationListener() {
+  if (WriterData)
+    return &WriterData->Writer;
+  return 0;
 }
 
 llvm::MemoryBuffer *ASTUnit::getBufferForFile(StringRef Filename,
@@ -638,11 +652,11 @@ void ASTUnit::ConfigureDiags(IntrusiveRefCntPtr<DiagnosticsEngine> &Diags,
   if (!Diags.getPtr()) {
     // No diagnostics engine was provided, so create our own diagnostics object
     // with the default options.
-    DiagnosticOptions DiagOpts;
     DiagnosticConsumer *Client = 0;
     if (CaptureDiagnostics)
       Client = new StoredDiagnosticConsumer(AST.StoredDiagnostics);
-    Diags = CompilerInstance::createDiagnostics(DiagOpts, ArgEnd-ArgBegin,
+    Diags = CompilerInstance::createDiagnostics(new DiagnosticOptions(),
+                                                ArgEnd-ArgBegin,
                                                 ArgBegin, Client,
                                                 /*ShouldOwnClient=*/true,
                                                 /*ShouldCloneClient=*/false);
@@ -679,7 +693,10 @@ ASTUnit *ASTUnit::LoadFromASTFile(const std::string &Filename,
   AST->SourceMgr = new SourceManager(AST->getDiagnostics(),
                                      AST->getFileManager(),
                                      UserFilesAreVolatile);
-  AST->HeaderInfo.reset(new HeaderSearch(AST->getFileManager(),
+  AST->HSOpts = new HeaderSearchOptions();
+  
+  AST->HeaderInfo.reset(new HeaderSearch(AST->HSOpts,
+                                         AST->getFileManager(),
                                          AST->getDiagnostics(),
                                          AST->ASTFileLangOpts,
                                          /*Target=*/0));
@@ -734,12 +751,12 @@ ASTUnit *ASTUnit::LoadFromASTFile(const std::string &Filename,
   // Gather Info for preprocessor construction later on.
 
   HeaderSearch &HeaderInfo = *AST->HeaderInfo.get();
-  std::string Predefines;
   unsigned Counter;
 
   OwningPtr<ASTReader> Reader;
 
-  AST->PP = new Preprocessor(AST->getDiagnostics(), AST->ASTFileLangOpts, 
+  AST->PP = new Preprocessor(new PreprocessorOptions(),
+                             AST->getDiagnostics(), AST->ASTFileLangOpts,
                              /*Target=*/0, AST->getSourceManager(), HeaderInfo, 
                              *AST, 
                              /*IILookup=*/0,
@@ -757,10 +774,12 @@ ASTUnit *ASTUnit::LoadFromASTFile(const std::string &Filename,
                             /*DelayInitialization=*/true);
   ASTContext &Context = *AST->Ctx;
 
+  bool disableValid = false;
+  if (::getenv("LIBCLANG_DISABLE_PCH_VALIDATION"))
+    disableValid = true;
   Reader.reset(new ASTReader(PP, Context,
                              /*isysroot=*/"",
-                             /*DisableValidation=*/false,
-                             /*DisableStatCache=*/false,
+                             /*DisableValidation=*/disableValid,
                              AllowPCHWithCompilerErrors));
   
   // Recover resources if we crash before exiting this method.
@@ -769,21 +788,25 @@ ASTUnit *ASTUnit::LoadFromASTFile(const std::string &Filename,
 
   Reader->setListener(new ASTInfoCollector(*AST->PP, Context,
                                            AST->ASTFileLangOpts, HeaderInfo, 
-                                           AST->Target, Predefines, Counter));
+                                           AST->TargetOpts, AST->Target, 
+                                           Counter));
 
-  switch (Reader->ReadAST(Filename, serialization::MK_MainFile)) {
+  switch (Reader->ReadAST(Filename, serialization::MK_MainFile,
+                          SourceLocation(), ASTReader::ARR_None)) {
   case ASTReader::Success:
     break;
 
   case ASTReader::Failure:
-  case ASTReader::IgnorePCH:
+  case ASTReader::OutOfDate:
+  case ASTReader::VersionMismatch:
+  case ASTReader::ConfigurationMismatch:
+  case ASTReader::HadErrors:
     AST->getDiagnostics().Report(diag::err_fe_unable_to_load_pch);
     return NULL;
   }
 
   AST->OriginalSourceFile = Reader->getOriginalSourceFile();
 
-  PP.setPredefines(Reader->getSuggestedPredefines());
   PP.setCounterValue(Counter);
 
   // Attach the AST reader to the AST context as an external AST
@@ -896,6 +919,10 @@ public:
   void HandleTopLevelDeclInObjCContainer(DeclGroupRef D) {
     for (DeclGroupRef::iterator it = D.begin(), ie = D.end(); it != ie; ++it)
       handleTopLevelDecl(*it);
+  }
+
+  virtual ASTDeserializationListener *GetASTDeserializationListener() {
+    return Unit.getDeserializationListener();
   }
 };
 
@@ -1047,16 +1074,15 @@ bool ASTUnit::Parse(llvm::MemoryBuffer *OverrideMainBuffer) {
     CCInvocation(new CompilerInvocation(*Invocation));
 
   Clang->setInvocation(CCInvocation.getPtr());
-  OriginalSourceFile = Clang->getFrontendOpts().Inputs[0].File;
+  OriginalSourceFile = Clang->getFrontendOpts().Inputs[0].getFile();
     
   // Set up diagnostics, capturing any diagnostics that would
   // otherwise be dropped.
   Clang->setDiagnostics(&getDiagnostics());
   
   // Create the target instance.
-  Clang->getTargetOpts().Features = TargetFeatures;
   Clang->setTarget(TargetInfo::CreateTargetInfo(Clang->getDiagnostics(),
-                   Clang->getTargetOpts()));
+                   &Clang->getTargetOpts()));
   if (!Clang->hasTarget()) {
     delete OverrideMainBuffer;
     return true;
@@ -1070,9 +1096,9 @@ bool ASTUnit::Parse(llvm::MemoryBuffer *OverrideMainBuffer) {
   
   assert(Clang->getFrontendOpts().Inputs.size() == 1 &&
          "Invocation must have exactly one source file!");
-  assert(Clang->getFrontendOpts().Inputs[0].Kind != IK_AST &&
+  assert(Clang->getFrontendOpts().Inputs[0].getKind() != IK_AST &&
          "FIXME: AST inputs not yet supported here!");
-  assert(Clang->getFrontendOpts().Inputs[0].Kind != IK_LLVM_IR &&
+  assert(Clang->getFrontendOpts().Inputs[0].getKind() != IK_LLVM_IR &&
          "IR inputs not support here!");
 
   // Configure the various subsystems.
@@ -1217,7 +1243,7 @@ ASTUnit::ComputePreamble(CompilerInvocation &Invocation,
   // command line (to another file) or directly through the compiler invocation
   // (to a memory buffer).
   llvm::MemoryBuffer *Buffer = 0;
-  llvm::sys::PathWithStatus MainFilePath(FrontendOpts.Inputs[0].File);
+  llvm::sys::PathWithStatus MainFilePath(FrontendOpts.Inputs[0].getFile());
   if (const llvm::sys::FileStatus *MainFileStatus = MainFilePath.getFileStatus()) {
     // Check whether there is a file-file remapping of the main file
     for (PreprocessorOptions::remapped_file_iterator
@@ -1267,7 +1293,7 @@ ASTUnit::ComputePreamble(CompilerInvocation &Invocation,
   
   // If the main source file was not remapped, load it now.
   if (!Buffer) {
-    Buffer = getBufferForFile(FrontendOpts.Inputs[0].File);
+    Buffer = getBufferForFile(FrontendOpts.Inputs[0].getFile());
     if (!Buffer)
       return std::make_pair((llvm::MemoryBuffer*)0, std::make_pair(0, true));    
     
@@ -1429,7 +1455,7 @@ llvm::MemoryBuffer *ASTUnit::getMainBufferWithPrecompiledPreamble(
         // buffer size we reserved when creating the preamble.
         return CreatePaddedMainFileBuffer(NewPreamble.first, 
                                           PreambleReservedSize,
-                                          FrontendOpts.Inputs[0].File);
+                                          FrontendOpts.Inputs[0].getFile());
       }
     }
 
@@ -1482,7 +1508,7 @@ llvm::MemoryBuffer *ASTUnit::getMainBufferWithPrecompiledPreamble(
 
   // Save the preamble text for later; we'll need to compare against it for
   // subsequent reparses.
-  StringRef MainFilename = PreambleInvocation->getFrontendOpts().Inputs[0].File;
+  StringRef MainFilename = PreambleInvocation->getFrontendOpts().Inputs[0].getFile();
   Preamble.assign(FileMgr->getFile(MainFilename),
                   NewPreamble.first->getBufferStart(), 
                   NewPreamble.first->getBufferStart() 
@@ -1492,7 +1518,7 @@ llvm::MemoryBuffer *ASTUnit::getMainBufferWithPrecompiledPreamble(
   delete PreambleBuffer;
   PreambleBuffer
     = llvm::MemoryBuffer::getNewUninitMemBuffer(PreambleReservedSize,
-                                                FrontendOpts.Inputs[0].File);
+                                                FrontendOpts.Inputs[0].getFile());
   memcpy(const_cast<char*>(PreambleBuffer->getBufferStart()), 
          NewPreamble.first->getBufferStart(), Preamble.size());
   memset(const_cast<char*>(PreambleBuffer->getBufferStart()) + Preamble.size(), 
@@ -1500,7 +1526,7 @@ llvm::MemoryBuffer *ASTUnit::getMainBufferWithPrecompiledPreamble(
   const_cast<char*>(PreambleBuffer->getBufferEnd())[-1] = '\n';  
   
   // Remap the main source file to the preamble buffer.
-  llvm::sys::PathWithStatus MainFilePath(FrontendOpts.Inputs[0].File);
+  llvm::sys::PathWithStatus MainFilePath(FrontendOpts.Inputs[0].getFile());
   PreprocessorOpts.addRemappedFile(MainFilePath.str(), PreambleBuffer);
   
   // Tell the compiler invocation to generate a temporary precompiled header.
@@ -1518,15 +1544,14 @@ llvm::MemoryBuffer *ASTUnit::getMainBufferWithPrecompiledPreamble(
     CICleanup(Clang.get());
 
   Clang->setInvocation(&*PreambleInvocation);
-  OriginalSourceFile = Clang->getFrontendOpts().Inputs[0].File;
+  OriginalSourceFile = Clang->getFrontendOpts().Inputs[0].getFile();
   
   // Set up diagnostics, capturing all of the diagnostics produced.
   Clang->setDiagnostics(&getDiagnostics());
   
   // Create the target instance.
-  Clang->getTargetOpts().Features = TargetFeatures;
   Clang->setTarget(TargetInfo::CreateTargetInfo(Clang->getDiagnostics(),
-                                               Clang->getTargetOpts()));
+                                                &Clang->getTargetOpts()));
   if (!Clang->hasTarget()) {
     llvm::sys::Path(FrontendOpts.OutputFile).eraseFromDisk();
     Preamble.clear();
@@ -1544,9 +1569,9 @@ llvm::MemoryBuffer *ASTUnit::getMainBufferWithPrecompiledPreamble(
   
   assert(Clang->getFrontendOpts().Inputs.size() == 1 &&
          "Invocation must have exactly one source file!");
-  assert(Clang->getFrontendOpts().Inputs[0].Kind != IK_AST &&
+  assert(Clang->getFrontendOpts().Inputs[0].getKind() != IK_AST &&
          "FIXME: AST inputs not yet supported here!");
-  assert(Clang->getFrontendOpts().Inputs[0].Kind != IK_LLVM_IR &&
+  assert(Clang->getFrontendOpts().Inputs[0].getKind() != IK_LLVM_IR &&
          "IR inputs not support here!");
   
   // Clear out old caches and data.
@@ -1633,7 +1658,7 @@ llvm::MemoryBuffer *ASTUnit::getMainBufferWithPrecompiledPreamble(
   
   return CreatePaddedMainFileBuffer(NewPreamble.first, 
                                     PreambleReservedSize,
-                                    FrontendOpts.Inputs[0].File);
+                                    FrontendOpts.Inputs[0].getFile());
 }
 
 void ASTUnit::RealizeTopLevelDeclsFromPreamble() {
@@ -1664,7 +1689,7 @@ void ASTUnit::transferASTDataFromCompilerInstance(CompilerInstance &CI) {
 }
 
 StringRef ASTUnit::getMainFileName() const {
-  return Invocation->getFrontendOpts().Inputs[0].File;
+  return Invocation->getFrontendOpts().Inputs[0].getFile();
 }
 
 ASTUnit *ASTUnit::create(CompilerInvocation *CI,
@@ -1733,9 +1758,6 @@ ASTUnit *ASTUnit::LoadFromCompilerInvocationAction(CompilerInvocation *CI,
   CI->getFrontendOpts().DisableFree = false;
   ProcessWarningOptions(AST->getDiagnostics(), CI->getDiagnosticOpts());
 
-  // Save the target features.
-  AST->TargetFeatures = CI->getTargetOpts().Features;
-
   // Create the compiler instance to use for building the AST.
   OwningPtr<CompilerInstance> Clang(new CompilerInstance());
 
@@ -1744,16 +1766,15 @@ ASTUnit *ASTUnit::LoadFromCompilerInvocationAction(CompilerInvocation *CI,
     CICleanup(Clang.get());
 
   Clang->setInvocation(CI);
-  AST->OriginalSourceFile = Clang->getFrontendOpts().Inputs[0].File;
+  AST->OriginalSourceFile = Clang->getFrontendOpts().Inputs[0].getFile();
     
   // Set up diagnostics, capturing any diagnostics that would
   // otherwise be dropped.
   Clang->setDiagnostics(&AST->getDiagnostics());
   
   // Create the target instance.
-  Clang->getTargetOpts().Features = AST->TargetFeatures;
   Clang->setTarget(TargetInfo::CreateTargetInfo(Clang->getDiagnostics(),
-                   Clang->getTargetOpts()));
+                                                &Clang->getTargetOpts()));
   if (!Clang->hasTarget())
     return 0;
 
@@ -1765,9 +1786,9 @@ ASTUnit *ASTUnit::LoadFromCompilerInvocationAction(CompilerInvocation *CI,
   
   assert(Clang->getFrontendOpts().Inputs.size() == 1 &&
          "Invocation must have exactly one source file!");
-  assert(Clang->getFrontendOpts().Inputs[0].Kind != IK_AST &&
+  assert(Clang->getFrontendOpts().Inputs[0].getKind() != IK_AST &&
          "FIXME: AST inputs not yet supported here!");
-  assert(Clang->getFrontendOpts().Inputs[0].Kind != IK_LLVM_IR &&
+  assert(Clang->getFrontendOpts().Inputs[0].getKind() != IK_LLVM_IR &&
          "IR inputs not supported here!");
 
   // Configure the various subsystems.
@@ -1840,9 +1861,6 @@ bool ASTUnit::LoadFromCompilerInvocation(bool PrecompilePreamble) {
   Invocation->getFrontendOpts().DisableFree = false;
   ProcessWarningOptions(getDiagnostics(), Invocation->getDiagnosticOpts());
 
-  // Save the target features.
-  TargetFeatures = Invocation->getTargetOpts().Features;
-  
   llvm::MemoryBuffer *OverrideMainBuffer = 0;
   if (PrecompilePreamble) {
     PreambleRebuildCounter = 2;
@@ -1909,12 +1927,13 @@ ASTUnit *ASTUnit::LoadFromCommandLine(const char **ArgBegin,
                                       bool AllowPCHWithCompilerErrors,
                                       bool SkipFunctionBodies,
                                       bool UserFilesAreVolatile,
+                                      bool ForSerialization,
                                       OwningPtr<ASTUnit> *ErrAST) {
   if (!Diags.getPtr()) {
     // No diagnostics engine was provided, so create our own diagnostics object
     // with the default options.
-    DiagnosticOptions DiagOpts;
-    Diags = CompilerInstance::createDiagnostics(DiagOpts, ArgEnd - ArgBegin, 
+    Diags = CompilerInstance::createDiagnostics(new DiagnosticOptions(),
+                                                ArgEnd - ArgBegin,
                                                 ArgBegin);
   }
 
@@ -1972,6 +1991,8 @@ ASTUnit *ASTUnit::LoadFromCommandLine(const char **ArgBegin,
   AST->NumStoredDiagnosticsFromDriver = StoredDiagnostics.size();
   AST->StoredDiagnostics.swap(StoredDiagnostics);
   AST->Invocation = CI;
+  if (ForSerialization)
+    AST->WriterData.reset(new ASTWriterData());
   CI = 0; // Zero out now to ease cleanup during crash recovery.
   
   // Recover resources if we crash before exiting this method.
@@ -2002,7 +2023,6 @@ bool ASTUnit::Reparse(RemappedFile *RemappedFiles, unsigned NumRemappedFiles) {
 
   // Remap files.
   PreprocessorOptions &PPOpts = Invocation->getPreprocessorOpts();
-  PPOpts.DisableStatCache = true;
   for (PreprocessorOptions::remapped_file_buffer_iterator 
          R = PPOpts.remapped_file_buffer_begin(),
          REnd = PPOpts.remapped_file_buffer_end();
@@ -2061,7 +2081,7 @@ namespace {
   /// results from an ASTUnit with the code-completion results provided to it,
   /// then passes the result on to 
   class AugmentedCodeCompleteConsumer : public CodeCompleteConsumer {
-    unsigned long long NormalContexts;
+    uint64_t NormalContexts;
     ASTUnit &AST;
     CodeCompleteConsumer &Next;
     
@@ -2074,24 +2094,24 @@ namespace {
       // Compute the set of contexts in which we will look when we don't have
       // any information about the specific context.
       NormalContexts 
-        = (1LL << (CodeCompletionContext::CCC_TopLevel - 1))
-        | (1LL << (CodeCompletionContext::CCC_ObjCInterface - 1))
-        | (1LL << (CodeCompletionContext::CCC_ObjCImplementation - 1))
-        | (1LL << (CodeCompletionContext::CCC_ObjCIvarList - 1))
-        | (1LL << (CodeCompletionContext::CCC_Statement - 1))
-        | (1LL << (CodeCompletionContext::CCC_Expression - 1))
-        | (1LL << (CodeCompletionContext::CCC_ObjCMessageReceiver - 1))
-        | (1LL << (CodeCompletionContext::CCC_DotMemberAccess - 1))
-        | (1LL << (CodeCompletionContext::CCC_ArrowMemberAccess - 1))
-        | (1LL << (CodeCompletionContext::CCC_ObjCPropertyAccess - 1))
-        | (1LL << (CodeCompletionContext::CCC_ObjCProtocolName - 1))
-        | (1LL << (CodeCompletionContext::CCC_ParenthesizedExpression - 1))
-        | (1LL << (CodeCompletionContext::CCC_Recovery - 1));
+        = (1LL << CodeCompletionContext::CCC_TopLevel)
+        | (1LL << CodeCompletionContext::CCC_ObjCInterface)
+        | (1LL << CodeCompletionContext::CCC_ObjCImplementation)
+        | (1LL << CodeCompletionContext::CCC_ObjCIvarList)
+        | (1LL << CodeCompletionContext::CCC_Statement)
+        | (1LL << CodeCompletionContext::CCC_Expression)
+        | (1LL << CodeCompletionContext::CCC_ObjCMessageReceiver)
+        | (1LL << CodeCompletionContext::CCC_DotMemberAccess)
+        | (1LL << CodeCompletionContext::CCC_ArrowMemberAccess)
+        | (1LL << CodeCompletionContext::CCC_ObjCPropertyAccess)
+        | (1LL << CodeCompletionContext::CCC_ObjCProtocolName)
+        | (1LL << CodeCompletionContext::CCC_ParenthesizedExpression)
+        | (1LL << CodeCompletionContext::CCC_Recovery);
 
       if (AST.getASTContext().getLangOpts().CPlusPlus)
-        NormalContexts |= (1LL << (CodeCompletionContext::CCC_EnumTag - 1))
-                   | (1LL << (CodeCompletionContext::CCC_UnionTag - 1))
-                   | (1LL << (CodeCompletionContext::CCC_ClassOrStructTag - 1));
+        NormalContexts |= (1LL << CodeCompletionContext::CCC_EnumTag)
+                       |  (1LL << CodeCompletionContext::CCC_UnionTag)
+                       |  (1LL << CodeCompletionContext::CCC_ClassOrStructTag);
     }
     
     virtual void ProcessCodeCompleteResults(Sema &S, 
@@ -2206,9 +2226,9 @@ void AugmentedCodeCompleteConsumer::ProcessCodeCompleteResults(Sema &S,
                                             unsigned NumResults) { 
   // Merge the results we were given with the results we cached.
   bool AddedResult = false;
-  unsigned InContexts  
-    = (Context.getKind() == CodeCompletionContext::CCC_Recovery? NormalContexts
-                                        : (1ULL << (Context.getKind() - 1)));
+  uint64_t InContexts =
+      Context.getKind() == CodeCompletionContext::CCC_Recovery
+        ? NormalContexts : (1LL << Context.getKind());
   // Contains the set of names that are hidden by "local" completion results.
   llvm::StringSet<llvm::BumpPtrAllocator> HiddenNames;
   typedef CodeCompletionResult Result;
@@ -2238,7 +2258,6 @@ void AugmentedCodeCompleteConsumer::ProcessCodeCompleteResults(Sema &S,
     
     // Adjust priority based on similar type classes.
     unsigned Priority = C->Priority;
-    CXCursorKind CursorKind = C->Kind;
     CodeCompletionString *Completion = C->Completion;
     if (!Context.getPreferredType().isNull()) {
       if (C->Kind == CXCursor_MacroDefinition) {
@@ -2272,12 +2291,11 @@ void AugmentedCodeCompleteConsumer::ProcessCodeCompleteResults(Sema &S,
       CodeCompletionBuilder Builder(getAllocator(), getCodeCompletionTUInfo(),
                                     CCP_CodePattern, C->Availability);
       Builder.AddTypedTextChunk(C->Completion->getTypedText());
-      CursorKind = CXCursor_NotImplemented;
       Priority = CCP_CodePattern;
       Completion = Builder.TakeString();
     }
     
-    AllResults.push_back(Result(Completion, Priority, CursorKind, 
+    AllResults.push_back(Result(Completion, Priority, C->Kind,
                                 C->Availability));
   }
   
@@ -2341,7 +2359,7 @@ void ASTUnit::CodeComplete(StringRef File, unsigned Line, unsigned Column,
     CICleanup(Clang.get());
 
   Clang->setInvocation(&*CCInvocation);
-  OriginalSourceFile = Clang->getFrontendOpts().Inputs[0].File;
+  OriginalSourceFile = Clang->getFrontendOpts().Inputs[0].getFile();
     
   // Set up diagnostics, capturing any diagnostics produced.
   Clang->setDiagnostics(&Diag);
@@ -2351,9 +2369,8 @@ void ASTUnit::CodeComplete(StringRef File, unsigned Line, unsigned Column,
                                     StoredDiagnostics);
   
   // Create the target instance.
-  Clang->getTargetOpts().Features = TargetFeatures;
   Clang->setTarget(TargetInfo::CreateTargetInfo(Clang->getDiagnostics(),
-                                               Clang->getTargetOpts()));
+                                                &Clang->getTargetOpts()));
   if (!Clang->hasTarget()) {
     Clang->setInvocation(0);
     return;
@@ -2367,9 +2384,9 @@ void ASTUnit::CodeComplete(StringRef File, unsigned Line, unsigned Column,
   
   assert(Clang->getFrontendOpts().Inputs.size() == 1 &&
          "Invocation must have exactly one source file!");
-  assert(Clang->getFrontendOpts().Inputs[0].Kind != IK_AST &&
+  assert(Clang->getFrontendOpts().Inputs[0].getKind() != IK_AST &&
          "FIXME: AST inputs not yet supported here!");
-  assert(Clang->getFrontendOpts().Inputs[0].Kind != IK_LLVM_IR &&
+  assert(Clang->getFrontendOpts().Inputs[0].getKind() != IK_LLVM_IR &&
          "IR inputs not support here!");
 
   
@@ -2398,8 +2415,6 @@ void ASTUnit::CodeComplete(StringRef File, unsigned Line, unsigned Column,
     = new AugmentedCodeCompleteConsumer(*this, Consumer, CodeCompleteOpts);
   Clang->setCodeCompletionConsumer(AugmentedConsumer);
 
-  Clang->getFrontendOpts().SkipFunctionBodies = true;
-
   // If we have a precompiled preamble, try to use it. We only allow
   // the use of the precompiled preamble if we're if the completion
   // point is within the main file, after the end of the precompiled
@@ -2420,7 +2435,6 @@ void ASTUnit::CodeComplete(StringRef File, unsigned Line, unsigned Column,
 
   // If the main file has been overridden due to the use of a preamble,
   // make that override happen and introduce the preamble.
-  PreprocessorOpts.DisableStatCache = true;
   StoredDiagnostics.insert(StoredDiagnostics.end(),
                            stored_diag_begin(),
                            stored_diag_afterDriver_begin());
@@ -2438,8 +2452,9 @@ void ASTUnit::CodeComplete(StringRef File, unsigned Line, unsigned Column,
     PreprocessorOpts.PrecompiledPreambleBytes.second = false;
   }
 
-  // Disable the preprocessing record
-  PreprocessorOpts.DetailedRecord = false;
+  // Disable the preprocessing record if modules are not enabled.
+  if (!Clang->getLangOpts().Modules)
+    PreprocessorOpts.DetailedRecord = false;
   
   OwningPtr<SyntaxOnlyAction> Act;
   Act.reset(new SyntaxOnlyAction);
@@ -2457,7 +2472,7 @@ void ASTUnit::CodeComplete(StringRef File, unsigned Line, unsigned Column,
   checkAndSanitizeDiags(StoredDiagnostics, getSourceManager());
 }
 
-CXSaveError ASTUnit::Save(StringRef File) {
+bool ASTUnit::Save(StringRef File) {
   // Write to a temporary file and later rename it to the actual file, to avoid
   // possible race conditions.
   SmallString<128> TempPath;
@@ -2466,7 +2481,7 @@ CXSaveError ASTUnit::Save(StringRef File) {
   int fd;
   if (llvm::sys::fs::unique_file(TempPath.str(), fd, TempPath,
                                  /*makeAbsolute=*/false))
-    return CXSaveError_Unknown;
+    return true;
 
   // FIXME: Can we somehow regenerate the stat cache here, or do we need to 
   // unconditionally create a stat cache when we parse the file?
@@ -2476,32 +2491,43 @@ CXSaveError ASTUnit::Save(StringRef File) {
   Out.close();
   if (Out.has_error()) {
     Out.clear_error();
-    return CXSaveError_Unknown;
+    return true;
   }
 
   if (llvm::sys::fs::rename(TempPath.str(), File)) {
     bool exists;
     llvm::sys::fs::remove(TempPath.str(), exists);
-    return CXSaveError_Unknown;
+    return true;
   }
 
-  return CXSaveError_None;
+  return false;
+}
+
+static bool serializeUnit(ASTWriter &Writer,
+                          SmallVectorImpl<char> &Buffer,
+                          Sema &S,
+                          bool hasErrors,
+                          raw_ostream &OS) {
+  Writer.WriteAST(S, std::string(), 0, "", hasErrors);
+
+  // Write the generated bitstream to "Out".
+  if (!Buffer.empty())
+    OS.write(Buffer.data(), Buffer.size());
+
+  return false;
 }
 
 bool ASTUnit::serialize(raw_ostream &OS) {
   bool hasErrors = getDiagnostics().hasErrorOccurred();
 
+  if (WriterData)
+    return serializeUnit(WriterData->Writer, WriterData->Buffer,
+                         getSema(), hasErrors, OS);
+
   SmallString<128> Buffer;
   llvm::BitstreamWriter Stream(Buffer);
   ASTWriter Writer(Stream);
-  // FIXME: Handle modules
-  Writer.WriteAST(getSema(), 0, std::string(), 0, "", hasErrors);
-  
-  // Write the generated bitstream to "Out".
-  if (!Buffer.empty())
-    OS.write((char *)&Buffer.front(), Buffer.size());
-
-  return false;
+  return serializeUnit(Writer, Buffer, getSema(), hasErrors, OS);
 }
 
 typedef ContinuousRangeMap<unsigned, int, 2> SLocRemap;
@@ -2759,6 +2785,85 @@ SourceLocation ASTUnit::getStartOfMainFileID() {
     return SourceLocation();
   
   return SourceMgr->getLocForStartOfFile(FID);
+}
+
+std::pair<PreprocessingRecord::iterator, PreprocessingRecord::iterator>
+ASTUnit::getLocalPreprocessingEntities() const {
+  if (isMainFileAST()) {
+    serialization::ModuleFile &
+      Mod = Reader->getModuleManager().getPrimaryModule();
+    return Reader->getModulePreprocessedEntities(Mod);
+  }
+
+  if (PreprocessingRecord *PPRec = PP->getPreprocessingRecord())
+    return std::make_pair(PPRec->local_begin(), PPRec->local_end());
+
+  return std::make_pair(PreprocessingRecord::iterator(),
+                        PreprocessingRecord::iterator());
+}
+
+bool ASTUnit::visitLocalTopLevelDecls(void *context, DeclVisitorFn Fn) {
+  if (isMainFileAST()) {
+    serialization::ModuleFile &
+      Mod = Reader->getModuleManager().getPrimaryModule();
+    ASTReader::ModuleDeclIterator MDI, MDE;
+    llvm::tie(MDI, MDE) = Reader->getModuleFileLevelDecls(Mod);
+    for (; MDI != MDE; ++MDI) {
+      if (!Fn(context, *MDI))
+        return false;
+    }
+
+    return true;
+  }
+
+  for (ASTUnit::top_level_iterator TL = top_level_begin(),
+                                TLEnd = top_level_end();
+         TL != TLEnd; ++TL) {
+    if (!Fn(context, *TL))
+      return false;
+  }
+
+  return true;
+}
+
+namespace {
+struct PCHLocatorInfo {
+  serialization::ModuleFile *Mod;
+  PCHLocatorInfo() : Mod(0) {}
+};
+}
+
+static bool PCHLocator(serialization::ModuleFile &M, void *UserData) {
+  PCHLocatorInfo &Info = *static_cast<PCHLocatorInfo*>(UserData);
+  switch (M.Kind) {
+  case serialization::MK_Module:
+    return true; // skip dependencies.
+  case serialization::MK_PCH:
+    Info.Mod = &M;
+    return true; // found it.
+  case serialization::MK_Preamble:
+    return false; // look in dependencies.
+  case serialization::MK_MainFile:
+    return false; // look in dependencies.
+  }
+
+  return true;
+}
+
+const FileEntry *ASTUnit::getPCHFile() {
+  if (!Reader)
+    return 0;
+
+  PCHLocatorInfo Info;
+  Reader->getModuleManager().visit(PCHLocator, &Info);
+  if (Info.Mod)
+    return Info.Mod->File;
+
+  return 0;
+}
+
+bool ASTUnit::isModuleFile() {
+  return isMainFileAST() && !ASTFileLangOpts.CurrentModule.empty();
 }
 
 void ASTUnit::PreambleData::countLines() const {

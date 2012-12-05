@@ -12,11 +12,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Basic/Diagnostic.h"
+#include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "llvm/ADT/SmallString.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/CrashRecoveryContext.h"
+#include "llvm/Support/raw_ostream.h"
+#include <cctype>
 
 using namespace clang;
 
@@ -35,9 +38,10 @@ static void DummyArgToStringFn(DiagnosticsEngine::ArgumentKind AK, intptr_t QT,
 
 DiagnosticsEngine::DiagnosticsEngine(
                        const IntrusiveRefCntPtr<DiagnosticIDs> &diags,
+                       DiagnosticOptions *DiagOpts,       
                        DiagnosticConsumer *client, bool ShouldOwnClient)
-  : Diags(diags), Client(client), OwnsDiagClient(ShouldOwnClient),
-    SourceMgr(0) {
+  : Diags(diags), DiagOpts(DiagOpts), Client(client),
+    OwnsDiagClient(ShouldOwnClient), SourceMgr(0) {
   ArgToStringFn = DummyArgToStringFn;
   ArgToStringCookie = 0;
 
@@ -118,7 +122,7 @@ void DiagnosticsEngine::Reset() {
   // Create a DiagState and DiagStatePoint representing diagnostic changes
   // through command-line.
   DiagStates.push_back(DiagState());
-  PushDiagStatePoint(&DiagStates.back(), SourceLocation());
+  DiagStatePoints.push_back(DiagStatePoint(&DiagStates.back(), FullSourceLoc()));
 }
 
 void DiagnosticsEngine::SetDelayedDiagnostic(unsigned DiagID, StringRef Arg1,
@@ -144,6 +148,9 @@ DiagnosticsEngine::GetDiagStatePointForLoc(SourceLocation L) const {
   assert(DiagStatePoints.front().Loc.isInvalid() &&
          "Should have created a DiagStatePoint for command-line");
 
+  if (!SourceMgr)
+    return DiagStatePoints.end() - 1;
+
   FullSourceLoc Loc(L, *SourceMgr);
   if (Loc.isInvalid())
     return DiagStatePoints.end() - 1;
@@ -166,8 +173,9 @@ void DiagnosticsEngine::setDiagnosticMapping(diag::kind Diag, diag::Mapping Map,
           (Map == diag::MAP_FATAL || Map == diag::MAP_ERROR)) &&
          "Cannot map errors into warnings!");
   assert(!DiagStatePoints.empty());
+  assert((L.isInvalid() || SourceMgr) && "No SourceMgr for valid location");
 
-  FullSourceLoc Loc(L, *SourceMgr);
+  FullSourceLoc Loc = SourceMgr? FullSourceLoc(L, *SourceMgr) : FullSourceLoc();
   FullSourceLoc LastStateChangePos = DiagStatePoints.back().Loc;
   // Don't allow a mapping to a warning override an error/fatal mapping.
   if (Map == diag::MAP_WARNING) {
@@ -510,23 +518,7 @@ static void HandleOrdinalModifier(unsigned ValNo,
 
   // We could use text forms for the first N ordinals, but the numeric
   // forms are actually nicer in diagnostics because they stand out.
-  Out << ValNo;
-
-  // It is critically important that we do this perfectly for
-  // user-written sequences with over 100 elements.
-  switch (ValNo % 100) {
-  case 11:
-  case 12:
-  case 13:
-    Out << "th"; return;
-  default:
-    switch (ValNo % 10) {
-    case 1: Out << "st"; return;
-    case 2: Out << "nd"; return;
-    case 3: Out << "rd"; return;
-    default: Out << "th"; return;
-    }
-  }
+  Out << ValNo << llvm::getOrdinalSuffix(ValNo);
 }
 
 

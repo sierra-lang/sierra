@@ -12,15 +12,16 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Lex/HeaderSearch.h"
-#include "clang/Lex/HeaderMap.h"
-#include "clang/Lex/Lexer.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/IdentifierTable.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/Path.h"
+#include "clang/Lex/HeaderMap.h"
+#include "clang/Lex/HeaderSearchOptions.h"
+#include "clang/Lex/Lexer.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/Capacity.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Path.h"
 #include <cstdio>
 using namespace clang;
 
@@ -38,10 +39,11 @@ HeaderFileInfo::getControllingMacro(ExternalIdentifierLookup *External) {
 
 ExternalHeaderFileInfoSource::~ExternalHeaderFileInfoSource() {}
 
-HeaderSearch::HeaderSearch(FileManager &FM, DiagnosticsEngine &Diags,
+HeaderSearch::HeaderSearch(llvm::IntrusiveRefCntPtr<HeaderSearchOptions> HSOpts,
+                           FileManager &FM, DiagnosticsEngine &Diags,
                            const LangOptions &LangOpts, 
                            const TargetInfo *Target)
-  : FileMgr(FM), Diags(Diags), FrameworkMap(64), 
+  : HSOpts(HSOpts), FileMgr(FM), FrameworkMap(64),
     ModMap(FileMgr, *Diags.getClient(), LangOpts, Target)
 {
   AngledDirIdx = 0;
@@ -442,11 +444,19 @@ const FileEntry *HeaderSearch::LookupFile(
       // Leave CurDir unset.
       // This file is a system header or C++ unfriendly if the old file is.
       //
-      // Note that the temporary 'DirInfo' is required here, as either call to
-      // getFileInfo could resize the vector and we don't want to rely on order
-      // of evaluation.
-      unsigned DirInfo = getFileInfo(CurFileEnt).DirInfo;
-      getFileInfo(FE).DirInfo = DirInfo;
+      // Note that we only use one of FromHFI/ToHFI at once, due to potential
+      // reallocation of the underlying vector potentially making the first
+      // reference binding dangling.
+      HeaderFileInfo &FromHFI = getFileInfo(CurFileEnt);
+      unsigned DirInfo = FromHFI.DirInfo;
+      bool IndexHeaderMapHeader = FromHFI.IndexHeaderMapHeader;
+      StringRef Framework = FromHFI.Framework;
+
+      HeaderFileInfo &ToHFI = getFileInfo(FE);
+      ToHFI.DirInfo = DirInfo;
+      ToHFI.IndexHeaderMapHeader = IndexHeaderMapHeader;
+      ToHFI.Framework = Framework;
+
       if (SearchPath != NULL) {
         StringRef SearchPathRef(CurFileEnt->getDir()->getName());
         SearchPath->clear();
@@ -897,7 +907,20 @@ Module *HeaderSearch::loadFrameworkModule(StringRef Name,
   SubmodulePath.push_back(Name);
   
   // Walk the directory structure to find any enclosing frameworks.
+#ifdef LLVM_ON_UNIX
+  // Note: as an egregious but useful hack we use the real path here, because
+  // frameworks moving from top-level frameworks to embedded frameworks tend
+  // to be symlinked from the top-level location to the embedded location,
+  // and we need to resolve lookups as if we had found the embedded location.
+  char RealDirName[PATH_MAX];
+  StringRef DirName;
+  if (realpath(Dir->getName(), RealDirName))
+    DirName = RealDirName;
+  else
+    DirName = Dir->getName();
+#else
   StringRef DirName = Dir->getName();
+#endif
   do {
     // Get the parent directory name.
     DirName = llvm::sys::path::parent_path(DirName);
@@ -916,7 +939,33 @@ Module *HeaderSearch::loadFrameworkModule(StringRef Name,
       TopFrameworkDir = Dir;
     }
   } while (true);
-  
+
+  // Determine whether we're allowed to infer a module map.
+  bool canInfer = false;
+  if (llvm::sys::path::has_parent_path(TopFrameworkDir->getName())) {
+    // Figure out the parent path.
+    StringRef Parent = llvm::sys::path::parent_path(TopFrameworkDir->getName());
+    if (const DirectoryEntry *ParentDir = FileMgr.getDirectory(Parent)) {
+      // If there's a module map file in the parent directory, it can
+      // explicitly allow us to infer framework modules.
+      switch (loadModuleMapFile(ParentDir)) {
+        case LMM_AlreadyLoaded:
+        case LMM_NewlyLoaded: {
+          StringRef Name = llvm::sys::path::stem(TopFrameworkDir->getName());
+          canInfer = ModMap.canInferFrameworkModule(ParentDir, Name, IsSystem);
+          break;
+        }
+        case LMM_InvalidModuleMap:
+        case LMM_NoDirectory:
+          break;
+      }
+    }
+  }
+
+  // If we're not allowed to infer a module map, we're done.
+  if (!canInfer)
+    return 0;
+
   // Try to infer a module map from the top-level framework directory.
   Module *Result = ModMap.inferFrameworkModule(SubmodulePath.back(), 
                                                TopFrameworkDir,

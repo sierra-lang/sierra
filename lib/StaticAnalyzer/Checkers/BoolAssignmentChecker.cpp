@@ -13,10 +13,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "ClangSACheckers.h"
+#include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
-#include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 
 using namespace clang;
 using namespace ento;
@@ -35,7 +35,7 @@ void BoolAssignmentChecker::emitReport(ProgramStateRef state,
   if (ExplodedNode *N = C.addTransition(state)) {
     if (!BT)
       BT.reset(new BuiltinBug("Assignment of a non-Boolean value"));    
-    C.EmitReport(new BugReport(*BT, BT->getDescription(), N));
+    C.emitReport(new BugReport(*BT, BT->getDescription(), N));
   }
 }
 

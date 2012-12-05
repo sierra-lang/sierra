@@ -11,16 +11,18 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/Optional.h"
+#include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/TableGen/Error.h"
 #include "llvm/TableGen/Record.h"
 #include "llvm/TableGen/TableGenBackend.h"
 #include <algorithm>
+#include <cctype>
 #include <functional>
 #include <map>
 #include <set>
@@ -74,7 +76,7 @@ getCategoryFromDiagGroup(const Record *Group,
 static std::string getDiagnosticCategory(const Record *R,
                                          DiagGroupParentMap &DiagGroupParents) {
   // If the diagnostic is in a group, and that group has a category, use it.
-  if (DefInit *Group = dynamic_cast<DefInit*>(R->getValueInit("Group"))) {
+  if (DefInit *Group = dyn_cast<DefInit>(R->getValueInit("Group"))) {
     // Check the diagnostic's diag group for a category.
     std::string CatName = getCategoryFromDiagGroup(Group->getDef(),
                                                    DiagGroupParents);
@@ -135,7 +137,7 @@ static void groupDiagnostics(const std::vector<Record*> &Diags,
                              std::map<std::string, GroupInfo> &DiagsInGroup) {
   for (unsigned i = 0, e = Diags.size(); i != e; ++i) {
     const Record *R = Diags[i];
-    DefInit *DI = dynamic_cast<DefInit*>(R->getValueInit("Group"));
+    DefInit *DI = dyn_cast<DefInit>(R->getValueInit("Group"));
     if (DI == 0) continue;
     assert(R->getValueAsDef("Class")->getName() != "CLASS_NOTE" &&
            "Note can't be in a DiagGroup");
@@ -203,6 +205,9 @@ private:
   /// Determine if the diagnostic is an extension.
   bool isExtension(const Record *Diag);
 
+  /// Determine if the diagnostic is off by default.
+  bool isOffByDefault(const Record *Diag);
+
   /// Increment the count for a group, and transitively marked
   /// parent groups when appropriate.
   void markGroup(const Record *Group);
@@ -231,6 +236,11 @@ bool InferPedantic::isSubGroupOfGroup(const Record *Group,
 bool InferPedantic::isExtension(const Record *Diag) {
   const std::string &ClsName = Diag->getValueAsDef("Class")->getName();
   return ClsName == "CLASS_EXTENSION";
+}
+
+bool InferPedantic::isOffByDefault(const Record *Diag) {
+  const std::string &DefMap = Diag->getValueAsDef("DefaultMapping")->getName();
+  return DefMap == "MAP_IGNORE";
 }
 
 bool InferPedantic::groupInPedantic(const Record *Group, bool increment) {
@@ -264,14 +274,14 @@ void InferPedantic::markGroup(const Record *Group) {
 
 void InferPedantic::compute(VecOrSet DiagsInPedantic,
                             VecOrSet GroupsInPedantic) {
-  // All extensions are implicitly in the "pedantic" group.  For those that
-  // aren't explicitly included in -Wpedantic, mark them for consideration
-  // to be included in -Wpedantic directly.
+  // All extensions that are not on by default are implicitly in the
+  // "pedantic" group.  For those that aren't explicitly included in -Wpedantic,
+  // mark them for consideration to be included in -Wpedantic directly.
   for (unsigned i = 0, e = Diags.size(); i != e; ++i) {
     Record *R = Diags[i];
-    if (isExtension(R)) {
+    if (isExtension(R) && isOffByDefault(R)) {
       DiagsSet.insert(R);
-      if (DefInit *Group = dynamic_cast<DefInit*>(R->getValueInit("Group"))) {
+      if (DefInit *Group = dyn_cast<DefInit>(R->getValueInit("Group"))) {
         const Record *GroupRec = Group->getDef();
         if (!isSubGroupOfGroup(GroupRec, "pedantic")) {
           markGroup(GroupRec);
@@ -290,7 +300,7 @@ void InferPedantic::compute(VecOrSet DiagsInPedantic,
     // Check if the group is implicitly in -Wpedantic.  If so,
     // the diagnostic should not be directly included in the -Wpedantic
     // diagnostic group.
-    if (DefInit *Group = dynamic_cast<DefInit*>(R->getValueInit("Group")))
+    if (DefInit *Group = dyn_cast<DefInit>(R->getValueInit("Group")))
       if (groupInPedantic(Group->getDef()))
         continue;
 
@@ -339,6 +349,11 @@ void InferPedantic::compute(VecOrSet DiagsInPedantic,
 // Warning Tables (.inc file) generation.
 //===----------------------------------------------------------------------===//
 
+static bool isError(const Record &Diag) {
+  const std::string &ClsName = Diag.getValueAsDef("Class")->getName();
+  return ClsName == "CLASS_ERROR";
+}
+
 /// ClangDiagsDefsEmitter - The top-level class emits .def files containing
 /// declarations of Clang diagnostics.
 namespace clang {
@@ -373,6 +388,18 @@ void EmitClangDiagsDefs(RecordKeeper &Records, raw_ostream &OS,
 
   for (unsigned i = 0, e = Diags.size(); i != e; ++i) {
     const Record &R = *Diags[i];
+    
+    // Check if this is an error that is accidentally in a warning
+    // group.
+    if (isError(R)) {
+      if (DefInit *Group = dyn_cast<DefInit>(R.getValueInit("Group"))) {
+        const Record *GroupRec = Group->getDef();
+        const std::string &GroupName = GroupRec->getValueAsString("GroupName");
+        PrintFatalError(R.getLoc(), "Error " + R.getName() +
+                      " cannot be in a warning group [" + GroupName + "]");
+      }
+    }
+
     // Filter by component.
     if (!Component.empty() && Component != R.getValueAsString("Component"))
       continue;
@@ -387,7 +414,7 @@ void EmitClangDiagsDefs(RecordKeeper &Records, raw_ostream &OS,
     
     // Warning associated with the diagnostic. This is stored as an index into
     // the alphabetically sorted warning table.
-    if (DefInit *DI = dynamic_cast<DefInit*>(R.getValueInit("Group"))) {
+    if (DefInit *DI = dyn_cast<DefInit>(R.getValueInit("Group"))) {
       std::map<std::string, GroupInfo>::iterator I =
           DiagsInGroup.find(DI->getDef()->getValueAsString("GroupName"));
       assert(I != DiagsInGroup.end());
@@ -530,7 +557,8 @@ void EmitClangDiagGroups(RecordKeeper &Records, raw_ostream &OS) {
     if (I->first.find_first_not_of("abcdefghijklmnopqrstuvwxyz"
                                    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                    "0123456789!@#$%^*-+=:?")!=std::string::npos)
-      throw "Invalid character in diagnostic group '" + I->first + "'";
+      PrintFatalError("Invalid character in diagnostic group '" +
+                      I->first + "'");
     OS.write_escaped(I->first) << "\","
                                << std::string(MaxLen-I->first.size()+1, ' ');
 

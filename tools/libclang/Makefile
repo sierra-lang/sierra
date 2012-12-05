@@ -15,11 +15,13 @@ EXPORTED_SYMBOL_FILE = $(PROJ_SRC_DIR)/libclang.exports
 LINK_LIBS_IN_SHARED = 1
 SHARED_LIBRARY = 1
 
-LINK_COMPONENTS := support mc
-USEDLIBS = clangARCMigrate.a clangRewrite.a clangFrontend.a clangDriver.a \
-     clangSerialization.a \
-		 clangParse.a clangSema.a clangEdit.a clangAnalysis.a \
-		 clangAST.a clangLex.a clangTooling.a clangBasic.a
+include $(CLANG_LEVEL)/../../Makefile.config
+LINK_COMPONENTS := $(TARGETS_TO_BUILD) asmparser support mc
+USEDLIBS = clangARCMigrate.a clangRewriteCore.a clangRewriteFrontend.a \
+	   clangFrontend.a clangDriver.a \
+	   clangSerialization.a \
+	   clangParse.a clangSema.a clangEdit.a clangAnalysis.a \
+	   clangAST.a clangLex.a clangTooling.a clangBasic.a
 
 include $(CLANG_LEVEL)/Makefile
 
@@ -49,5 +51,11 @@ ifeq ($(HOST_OS),Darwin)
     ifneq ($(DARWIN_VERS),8)
        LLVMLibsOptions += -Wl,-install_name \
                           -Wl,"@rpath/lib$(LIBRARYNAME)$(SHLIBEXT)"
+    endif
+
+    # If we're doing an Apple-style build, add the LTO object path.
+    ifeq ($(RC_BUILDIT),YES)
+       TempFile        := $(shell mkdir -p ${OBJROOT}/dSYMs ; mktemp ${OBJROOT}/dSYMs/clang-lto.XXXXXX)
+       LLVMLibsOptions += -Wl,-object_path_lto -Wl,$(TempFile)
     endif
 endif

@@ -87,9 +87,8 @@ namespace clang {
     Sema::ParsingDeclState State;
     bool Popped;
 
-    // Do not implement.
-    ParsingDeclRAIIObject(const ParsingDeclRAIIObject &other);
-    ParsingDeclRAIIObject &operator=(const ParsingDeclRAIIObject &other);
+    ParsingDeclRAIIObject(const ParsingDeclRAIIObject &) LLVM_DELETED_FUNCTION;
+    void operator=(const ParsingDeclRAIIObject &) LLVM_DELETED_FUNCTION;
 
   public:
     enum NoParent_t { NoParent };
@@ -218,13 +217,36 @@ namespace clang {
     }
   };
 
+  /// A class for parsing a field declarator.
+  class ParsingFieldDeclarator : public FieldDeclarator {
+    ParsingDeclRAIIObject ParsingRAII;
+
+  public:
+    ParsingFieldDeclarator(Parser &P, const ParsingDeclSpec &DS)
+      : FieldDeclarator(DS), ParsingRAII(P, &DS.getDelayedDiagnosticPool()) {
+    }
+
+    const ParsingDeclSpec &getDeclSpec() const {
+      return static_cast<const ParsingDeclSpec&>(D.getDeclSpec());
+    }
+
+    ParsingDeclSpec &getMutableDeclSpec() const {
+      return const_cast<ParsingDeclSpec&>(getDeclSpec());
+    }
+
+    void complete(Decl *D) {
+      ParsingRAII.complete(D);
+    }
+  };
+
   /// ExtensionRAIIObject - This saves the state of extension warnings when
   /// constructed and disables them.  When destructed, it restores them back to
   /// the way they used to be.  This is used to handle __extension__ in the
   /// parser.
   class ExtensionRAIIObject {
-    void operator=(const ExtensionRAIIObject &);     // DO NOT IMPLEMENT
-    ExtensionRAIIObject(const ExtensionRAIIObject&); // DO NOT IMPLEMENT
+    ExtensionRAIIObject(const ExtensionRAIIObject &) LLVM_DELETED_FUNCTION;
+    void operator=(const ExtensionRAIIObject &) LLVM_DELETED_FUNCTION;
+
     DiagnosticsEngine &Diags;
   public:
     ExtensionRAIIObject(DiagnosticsEngine &diags) : Diags(diags) {

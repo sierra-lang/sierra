@@ -12,11 +12,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
-#include "clang/StaticAnalyzer/Core/Checker.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
-#include "clang/Analysis/ProgramPoint.h"
 #include "clang/AST/DeclBase.h"
+#include "clang/Analysis/ProgramPoint.h"
+#include "clang/StaticAnalyzer/Core/Checker.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 
 using namespace clang;
 using namespace ento;
@@ -36,8 +36,7 @@ bool CheckerManager::hasPathSensitiveCheckers() const {
          !DeadSymbolsCheckers.empty()       ||
          !RegionChangesCheckers.empty()     ||
          !EvalAssumeCheckers.empty()        ||
-         !EvalCallCheckers.empty()          ||
-         !InlineCallCheckers.empty();
+         !EvalCallCheckers.empty();
 }
 
 void CheckerManager::finishedCheckerRegistration() {
@@ -140,7 +139,7 @@ namespace {
     const CheckersTy &Checkers;
     const Stmt *S;
     ExprEngine &Eng;
-    bool wasInlined;
+    bool WasInlined;
 
     CheckersTy::const_iterator checkers_begin() { return Checkers.begin(); }
     CheckersTy::const_iterator checkers_end() { return Checkers.end(); }
@@ -148,7 +147,7 @@ namespace {
     CheckStmtContext(bool isPreVisit, const CheckersTy &checkers,
                      const Stmt *s, ExprEngine &eng, bool wasInlined = false)
       : IsPreVisit(isPreVisit), Checkers(checkers), S(s), Eng(eng),
-        wasInlined(wasInlined) {}
+        WasInlined(wasInlined) {}
 
     void runChecker(CheckerManager::CheckStmtFunc checkFn,
                     NodeBuilder &Bldr, ExplodedNode *Pred) {
@@ -157,7 +156,7 @@ namespace {
                                            ProgramPoint::PostStmtKind;
       const ProgramPoint &L = ProgramPoint::getProgramPoint(S, K,
                                 Pred->getLocationContext(), checkFn.Checker);
-      CheckerContext C(Bldr, Eng, Pred, L, wasInlined);
+      CheckerContext C(Bldr, Eng, Pred, L, WasInlined);
       checkFn(S, C);
     }
   };
@@ -169,16 +168,16 @@ void CheckerManager::runCheckersForStmt(bool isPreVisit,
                                         const ExplodedNodeSet &Src,
                                         const Stmt *S,
                                         ExprEngine &Eng,
-                                        bool wasInlined) {
+                                        bool WasInlined) {
   CheckStmtContext C(isPreVisit, *getCachedStmtCheckersFor(S, isPreVisit),
-                     S, Eng, wasInlined);
+                     S, Eng, WasInlined);
   expandGraphWithCheckers(C, Dst, Src);
 }
 
 namespace {
   struct CheckObjCMessageContext {
     typedef std::vector<CheckerManager::CheckObjCMessageFunc> CheckersTy;
-    bool IsPreVisit;
+    bool IsPreVisit, WasInlined;
     const CheckersTy &Checkers;
     const ObjCMethodCall &Msg;
     ExprEngine &Eng;
@@ -187,20 +186,17 @@ namespace {
     CheckersTy::const_iterator checkers_end() { return Checkers.end(); }
 
     CheckObjCMessageContext(bool isPreVisit, const CheckersTy &checkers,
-                            const ObjCMethodCall &msg, ExprEngine &eng)
-      : IsPreVisit(isPreVisit), Checkers(checkers), Msg(msg), Eng(eng) { }
+                            const ObjCMethodCall &msg, ExprEngine &eng,
+                            bool wasInlined)
+      : IsPreVisit(isPreVisit), WasInlined(wasInlined), Checkers(checkers),
+        Msg(msg), Eng(eng) { }
 
     void runChecker(CheckerManager::CheckObjCMessageFunc checkFn,
                     NodeBuilder &Bldr, ExplodedNode *Pred) {
-      ProgramPoint::Kind K =  IsPreVisit ? ProgramPoint::PreStmtKind :
-                                           ProgramPoint::PostStmtKind;
-      const ProgramPoint &L =
-        ProgramPoint::getProgramPoint(Msg.getOriginExpr(),
-                                      K, Pred->getLocationContext(),
-                                      checkFn.Checker);
-      CheckerContext C(Bldr, Eng, Pred, L);
+      const ProgramPoint &L = Msg.getProgramPoint(IsPreVisit,checkFn.Checker);
+      CheckerContext C(Bldr, Eng, Pred, L, WasInlined);
 
-      checkFn(Msg, C);
+      checkFn(*Msg.cloneWithState<ObjCMethodCall>(Pred->getState()), C);
     }
   };
 }
@@ -210,11 +206,12 @@ void CheckerManager::runCheckersForObjCMessage(bool isPreVisit,
                                                ExplodedNodeSet &Dst,
                                                const ExplodedNodeSet &Src,
                                                const ObjCMethodCall &msg,
-                                               ExprEngine &Eng) {
+                                               ExprEngine &Eng,
+                                               bool WasInlined) {
   CheckObjCMessageContext C(isPreVisit,
                             isPreVisit ? PreObjCMessageCheckers
                                        : PostObjCMessageCheckers,
-                            msg, Eng);
+                            msg, Eng, WasInlined);
   expandGraphWithCheckers(C, Dst, Src);
 }
 
@@ -223,7 +220,7 @@ namespace {
   // Is there a way we can merge the two?
   struct CheckCallContext {
     typedef std::vector<CheckerManager::CheckCallFunc> CheckersTy;
-    bool IsPreVisit;
+    bool IsPreVisit, WasInlined;
     const CheckersTy &Checkers;
     const CallEvent &Call;
     ExprEngine &Eng;
@@ -232,15 +229,17 @@ namespace {
     CheckersTy::const_iterator checkers_end() { return Checkers.end(); }
 
     CheckCallContext(bool isPreVisit, const CheckersTy &checkers,
-                     const CallEvent &call, ExprEngine &eng)
-    : IsPreVisit(isPreVisit), Checkers(checkers), Call(call), Eng(eng) { }
+                     const CallEvent &call, ExprEngine &eng,
+                     bool wasInlined)
+    : IsPreVisit(isPreVisit), WasInlined(wasInlined), Checkers(checkers),
+      Call(call), Eng(eng) { }
 
     void runChecker(CheckerManager::CheckCallFunc checkFn,
                     NodeBuilder &Bldr, ExplodedNode *Pred) {
-      const ProgramPoint &L = Call.getProgramPoint(IsPreVisit, checkFn.Checker);
-      CheckerContext C(Bldr, Eng, Pred, L);
+      const ProgramPoint &L = Call.getProgramPoint(IsPreVisit,checkFn.Checker);
+      CheckerContext C(Bldr, Eng, Pred, L, WasInlined);
 
-      checkFn(Call, C);
+      checkFn(*Call.cloneWithState(Pred->getState()), C);
     }
   };
 }
@@ -250,11 +249,12 @@ void CheckerManager::runCheckersForCallEvent(bool isPreVisit,
                                              ExplodedNodeSet &Dst,
                                              const ExplodedNodeSet &Src,
                                              const CallEvent &Call,
-                                             ExprEngine &Eng) {
+                                             ExprEngine &Eng,
+                                             bool WasInlined) {
   CheckCallContext C(isPreVisit,
                      isPreVisit ? PreCallCheckers
                                 : PostCallCheckers,
-                     Call, Eng);
+                     Call, Eng, WasInlined);
   expandGraphWithCheckers(C, Dst, Src);
 }
 
@@ -313,20 +313,19 @@ namespace {
     SVal Val;
     const Stmt *S;
     ExprEngine &Eng;
-    ProgramPoint::Kind PointKind;
+    const ProgramPoint &PP;
 
     CheckersTy::const_iterator checkers_begin() { return Checkers.begin(); }
     CheckersTy::const_iterator checkers_end() { return Checkers.end(); }
 
     CheckBindContext(const CheckersTy &checkers,
                      SVal loc, SVal val, const Stmt *s, ExprEngine &eng,
-                     ProgramPoint::Kind PK)
-      : Checkers(checkers), Loc(loc), Val(val), S(s), Eng(eng), PointKind(PK) {}
+                     const ProgramPoint &pp)
+      : Checkers(checkers), Loc(loc), Val(val), S(s), Eng(eng), PP(pp) {}
 
     void runChecker(CheckerManager::CheckBindFunc checkFn,
                     NodeBuilder &Bldr, ExplodedNode *Pred) {
-      const ProgramPoint &L = ProgramPoint::getProgramPoint(S, PointKind,
-                                Pred->getLocationContext(), checkFn.Checker);
+      const ProgramPoint &L = PP.withTag(checkFn.Checker);
       CheckerContext C(Bldr, Eng, Pred, L);
 
       checkFn(Loc, Val, S, C);
@@ -339,8 +338,8 @@ void CheckerManager::runCheckersForBind(ExplodedNodeSet &Dst,
                                         const ExplodedNodeSet &Src,
                                         SVal location, SVal val,
                                         const Stmt *S, ExprEngine &Eng,
-                                        ProgramPoint::Kind PointKind) {
-  CheckBindContext C(BindCheckers, location, val, S, Eng, PointKind);
+                                        const ProgramPoint &PP) {
+  CheckBindContext C(BindCheckers, location, val, S, Eng, PP);
   expandGraphWithCheckers(C, Dst, Src);
 }
 
@@ -356,8 +355,8 @@ void CheckerManager::runCheckersForEndAnalysis(ExplodedGraph &G,
 // for this callback since end of path nodes are expected to be final.
 void CheckerManager::runCheckersForEndPath(NodeBuilderContext &BC,
                                            ExplodedNodeSet &Dst,
+                                           ExplodedNode *Pred,
                                            ExprEngine &Eng) {
-  ExplodedNode *Pred = BC.Pred;
   
   // We define the builder outside of the loop bacause if at least one checkers
   // creates a sucsessor for Pred, we do not need to generate an 
@@ -503,46 +502,18 @@ CheckerManager::runCheckersForEvalAssume(ProgramStateRef state,
 /// Only one checker will evaluate the call.
 void CheckerManager::runCheckersForEvalCall(ExplodedNodeSet &Dst,
                                             const ExplodedNodeSet &Src,
-                                            const SimpleCall &Call,
+                                            const CallEvent &Call,
                                             ExprEngine &Eng) {
-  const CallExpr *CE = Call.getOriginExpr();
+  const CallExpr *CE = cast<CallExpr>(Call.getOriginExpr());
   for (ExplodedNodeSet::iterator
          NI = Src.begin(), NE = Src.end(); NI != NE; ++NI) {
-
     ExplodedNode *Pred = *NI;
     bool anyEvaluated = false;
 
-    // First, check if any of the InlineCall callbacks can evaluate the call.
-    assert(InlineCallCheckers.size() <= 1 &&
-           "InlineCall is a special hacky callback to allow intrusive"
-           "evaluation of the call (which simulates inlining). It is "
-           "currently only used by OSAtomicChecker and should go away "
-           "at some point.");
-    for (std::vector<InlineCallFunc>::iterator
-           EI = InlineCallCheckers.begin(), EE = InlineCallCheckers.end();
-         EI != EE; ++EI) {
-      ExplodedNodeSet checkDst;
-      bool evaluated = (*EI)(CE, Eng, Pred, checkDst);
-      assert(!(evaluated && anyEvaluated)
-             && "There are more than one checkers evaluating the call");
-      if (evaluated) {
-        anyEvaluated = true;
-        Dst.insert(checkDst);
-#ifdef NDEBUG
-        break; // on release don't check that no other checker also evals.
-#endif
-      }
-    }
-
-#ifdef NDEBUG // on release don't check that no other checker also evals.
-    if (anyEvaluated) {
-      break;
-    }
-#endif
-
     ExplodedNodeSet checkDst;
     NodeBuilder B(Pred, checkDst, Eng.getBuilderContext());
-    // Next, check if any of the EvalCall callbacks can evaluate the call.
+
+    // Check if any of the EvalCall callbacks can evaluate the call.
     for (std::vector<EvalCallFunc>::iterator
            EI = EvalCallCheckers.begin(), EE = EvalCallCheckers.end();
          EI != EE; ++EI) {
@@ -676,10 +647,6 @@ void CheckerManager::_registerForEvalAssume(EvalAssumeFunc checkfn) {
 
 void CheckerManager::_registerForEvalCall(EvalCallFunc checkfn) {
   EvalCallCheckers.push_back(checkfn);
-}
-
-void CheckerManager::_registerForInlineCall(InlineCallFunc checkfn) {
-  InlineCallCheckers.push_back(checkfn);
 }
 
 void CheckerManager::_registerForEndOfTranslationUnit(

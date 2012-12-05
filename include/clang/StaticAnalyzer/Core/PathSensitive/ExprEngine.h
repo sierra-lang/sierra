@@ -16,14 +16,15 @@
 #ifndef LLVM_CLANG_GR_EXPRENGINE
 #define LLVM_CLANG_GR_EXPRENGINE
 
+#include "clang/AST/Expr.h"
+#include "clang/AST/Type.h"
+#include "clang/Analysis/DomainSpecific/ObjCNoReturn.h"
+#include "clang/StaticAnalyzer/Core/BugReporter/BugReporter.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/AnalysisManager.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/SubEngine.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CoreEngine.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramStateTrait.h"
-#include "clang/StaticAnalyzer/Core/BugReporter/BugReporter.h"
-#include "clang/AST/Expr.h"
-#include "clang/AST/Type.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/SubEngine.h"
 
 namespace clang {
 
@@ -43,7 +44,6 @@ namespace ento {
 class AnalysisManager;
 class CallEvent;
 class SimpleCall;
-class ObjCMethodCall;
 
 class ExprEngine : public SubEngine {
   AnalysisManager &AMgr;
@@ -71,17 +71,14 @@ class ExprEngine : public SubEngine {
   ///  variables and symbols (as determined by a liveness analysis).
   ProgramStateRef CleanedState;
 
-  /// currentStmt - The current block-level statement.
-  const Stmt *currentStmt;
-  unsigned int currentStmtIdx;
-  const NodeBuilderContext *currentBuilderContext;
-
-  /// Obj-C Class Identifiers.
-  IdentifierInfo* NSExceptionII;
-
-  /// Obj-C Selectors.
-  Selector* NSExceptionInstanceRaiseSelectors;
-  Selector RaiseSel;
+  /// currStmt - The current block-level statement.
+  const Stmt *currStmt;
+  unsigned int currStmtIdx;
+  const NodeBuilderContext *currBldrCtx;
+  
+  /// Helper object to determine if an Objective-C message expression
+  /// implicitly never returns.
+  ObjCNoReturn ObjCNoRet;
   
   /// Whether or not GC is enabled in this analysis.
   bool ObjCGCEnabled;
@@ -91,9 +88,13 @@ class ExprEngine : public SubEngine {
   ///  destructor is called before the rest of the ExprEngine is destroyed.
   GRBugReporter BR;
 
+  /// The functions which have been analyzed through inlining. This is owned by
+  /// AnalysisConsumer. It can be null.
+  SetOfConstDecls *VisitedCallees;
+
 public:
   ExprEngine(AnalysisManager &mgr, bool gcEnabled,
-             SetOfConstDecls *VisitedCallees,
+             SetOfConstDecls *VisitedCalleesIn,
              FunctionSummariesTy *FS);
 
   ~ExprEngine();
@@ -127,8 +128,8 @@ public:
   BugReporter& getBugReporter() { return BR; }
 
   const NodeBuilderContext &getBuilderContext() {
-    assert(currentBuilderContext);
-    return *currentBuilderContext;
+    assert(currBldrCtx);
+    return *currBldrCtx;
   }
 
   bool isObjCGCEnabled() { return ObjCGCEnabled; }
@@ -153,22 +154,33 @@ public:
   const ExplodedGraph& getGraph() const { return G; }
 
   /// \brief Run the analyzer's garbage collection - remove dead symbols and
-  /// bindings.
+  /// bindings from the state.
   ///
-  /// \param Node - The predecessor node, from which the processing should 
-  /// start.
-  /// \param Out - The returned set of output nodes.
-  /// \param ReferenceStmt - Run garbage collection using the symbols, 
-  /// which are live before the given statement.
-  /// \param LC - The location context of the ReferenceStmt.
-  /// \param DiagnosticStmt - the statement used to associate the diagnostic 
-  /// message, if any warnings should occur while removing the dead (leaks 
-  /// are usually reported here).
-  /// \param K - In some cases it is possible to use PreStmt kind. (Do 
-  /// not use it unless you know what you are doing.) 
+  /// Checkers can participate in this process with two callbacks:
+  /// \c checkLiveSymbols and \c checkDeadSymbols. See the CheckerDocumentation
+  /// class for more information.
+  ///
+  /// \param Node The predecessor node, from which the processing should start.
+  /// \param Out The returned set of output nodes.
+  /// \param ReferenceStmt The statement which is about to be processed.
+  ///        Everything needed for this statement should be considered live.
+  ///        A null statement means that everything in child LocationContexts
+  ///        is dead.
+  /// \param LC The location context of the \p ReferenceStmt. A null location
+  ///        context means that we have reached the end of analysis and that
+  ///        all statements and local variables should be considered dead.
+  /// \param DiagnosticStmt Used as a location for any warnings that should
+  ///        occur while removing the dead (e.g. leaks). By default, the
+  ///        \p ReferenceStmt is used.
+  /// \param K Denotes whether this is a pre- or post-statement purge. This
+  ///        must only be ProgramPoint::PostStmtPurgeDeadSymbolsKind if an
+  ///        entire location context is being cleared, in which case the
+  ///        \p ReferenceStmt must either be a ReturnStmt or \c NULL. Otherwise,
+  ///        it must be ProgramPoint::PreStmtPurgeDeadSymbolsKind (the default)
+  ///        and \p ReferenceStmt must be valid (non-null).
   void removeDead(ExplodedNode *Node, ExplodedNodeSet &Out,
             const Stmt *ReferenceStmt, const LocationContext *LC,
-            const Stmt *DiagnosticStmt,
+            const Stmt *DiagnosticStmt = 0,
             ProgramPoint::Kind K = ProgramPoint::PreStmtPurgeDeadSymbolsKind);
 
   /// processCFGElement - Called by CoreEngine. Used to generate new successor
@@ -193,7 +205,8 @@ public:
 
   /// Called by CoreEngine when processing the entrance of a CFGBlock.
   virtual void processCFGBlockEntrance(const BlockEdge &L,
-                                       NodeBuilderWithSinks &nodeBuilder);
+                                       NodeBuilderWithSinks &nodeBuilder,
+                                       ExplodedNode *Pred);
   
   /// ProcessBranch - Called by CoreEngine.  Used to generate successor
   ///  nodes by processing the 'effects' of a branch condition.
@@ -214,7 +227,13 @@ public:
 
   /// ProcessEndPath - Called by CoreEngine.  Used to generate end-of-path
   ///  nodes when the control reaches the end of a function.
-  void processEndOfFunction(NodeBuilderContext& BC);
+  void processEndOfFunction(NodeBuilderContext& BC,
+                            ExplodedNode *Pred);
+
+  /// Remove dead bindings/symbols before exiting a function.
+  void removeDeadOnEndOfFunction(NodeBuilderContext& BC,
+                                 ExplodedNode *Pred,
+                                 ExplodedNodeSet &Dst);
 
   /// Generate the entry node of the callee.
   void processCallEnter(CallEnter CE, ExplodedNode *Pred);
@@ -259,9 +278,6 @@ public:
   BasicValueFactory& getBasicVals() {
     return StateMgr.getBasicVals();
   }
-  const BasicValueFactory& getBasicVals() const {
-    return StateMgr.getBasicVals();
-  }
 
   // FIXME: Remove when we migrate over to just using ValueManager.
   SymbolManager& getSymbolManager() { return SymMgr; }
@@ -284,13 +300,14 @@ public:
                                    ExplodedNode *Pred,
                                    ExplodedNodeSet &Dst);
 
-  /// VisitAsmStmt - Transfer function logic for inline asm.
-  void VisitAsmStmt(const AsmStmt *A, ExplodedNode *Pred, ExplodedNodeSet &Dst);
+  /// VisitGCCAsmStmt - Transfer function logic for inline asm.
+  void VisitGCCAsmStmt(const GCCAsmStmt *A, ExplodedNode *Pred,
+                       ExplodedNodeSet &Dst);
 
   /// VisitMSAsmStmt - Transfer function logic for MS inline asm.
   void VisitMSAsmStmt(const MSAsmStmt *A, ExplodedNode *Pred,
                       ExplodedNodeSet &Dst);
-  
+
   /// VisitBlockExpr - Transfer function logic for BlockExprs.
   void VisitBlockExpr(const BlockExpr *BE, ExplodedNode *Pred, 
                       ExplodedNodeSet &Dst);
@@ -348,7 +365,7 @@ public:
   void VisitObjCForCollectionStmt(const ObjCForCollectionStmt *S, 
                                   ExplodedNode *Pred, ExplodedNodeSet &Dst);
 
-  void VisitObjCMessage(const ObjCMethodCall &Msg, ExplodedNode *Pred,
+  void VisitObjCMessage(const ObjCMessageExpr *ME, ExplodedNode *Pred,
                         ExplodedNodeSet &Dst);
 
   /// VisitReturnStmt - Transfer function logic for return statements.
@@ -381,8 +398,8 @@ public:
   void VisitCXXConstructExpr(const CXXConstructExpr *E, ExplodedNode *Pred,
                              ExplodedNodeSet &Dst);
 
-  void VisitCXXDestructor(QualType ObjectType,
-                          const MemRegion *Dest, const Stmt *S,
+  void VisitCXXDestructor(QualType ObjectType, const MemRegion *Dest,
+                          const Stmt *S, bool IsBaseDtor,
                           ExplodedNode *Pred, ExplodedNodeSet &Dst);
 
   void VisitCXXNewExpr(const CXXNewExpr *CNE, ExplodedNode *Pred,
@@ -396,14 +413,14 @@ public:
                                 ExplodedNode *Pred, 
                                 ExplodedNodeSet &Dst);
   
-  /// evalEagerlyAssume - Given the nodes in 'Src', eagerly assume symbolic
+  /// evalEagerlyAssumeBinOpBifurcation - Given the nodes in 'Src', eagerly assume symbolic
   ///  expressions of the form 'x != 0' and generate new nodes (stored in Dst)
   ///  with those assumptions.
-  void evalEagerlyAssume(ExplodedNodeSet &Dst, ExplodedNodeSet &Src, 
+  void evalEagerlyAssumeBinOpBifurcation(ExplodedNodeSet &Dst, ExplodedNodeSet &Src, 
                          const Expr *Ex);
   
   std::pair<const ProgramPointTag *, const ProgramPointTag*>
-    getEagerlyAssumeTags();
+    geteagerlyAssumeBinOpBifurcationTags();
 
   SVal evalMinus(SVal X) {
     return X.isValid() ? svalBuilder.evalMinus(cast<NonLoc>(X)) : X;
@@ -431,14 +448,11 @@ public:
   }
   
 protected:
-  void evalObjCMessage(StmtNodeBuilder &Bldr, const ObjCMethodCall &Msg,
-                       ExplodedNode *Pred, ProgramStateRef state,
-                       bool GenSink);
-
   /// evalBind - Handle the semantics of binding a value to a specific location.
   ///  This method is used by evalStore, VisitDeclStmt, and others.
   void evalBind(ExplodedNodeSet &Dst, const Stmt *StoreE, ExplodedNode *Pred,
-                SVal location, SVal Val, bool atDeclInit = false);
+                SVal location, SVal Val, bool atDeclInit = false,
+                const ProgramPoint *PP = 0);
 
 public:
   // FIXME: 'tag' should be removed, and a LocationContext should be used
@@ -468,8 +482,10 @@ public:
                                   const LocationContext *LCtx,
                                   ProgramStateRef State);
 
+  /// Evaluate a call, running pre- and post-call checks and allowing checkers
+  /// to be responsible for handling the evaluation of the call itself.
   void evalCall(ExplodedNodeSet &Dst, ExplodedNode *Pred,
-                const SimpleCall &Call);
+                const CallEvent &Call);
 
   /// \brief Default implementation of call evaluation.
   void defaultEvalCall(NodeBuilder &B, ExplodedNode *Pred,
@@ -493,14 +509,32 @@ private:
                     ProgramStateRef St, SVal location,
                     const ProgramPointTag *tag, bool isLoad);
 
+  /// Count the stack depth and determine if the call is recursive.
+  void examineStackFrames(const Decl *D, const LocationContext *LCtx,
+                          bool &IsRecursive, unsigned &StackDepth);
+
   bool shouldInlineDecl(const Decl *D, ExplodedNode *Pred);
-  bool inlineCall(const CallEvent &Call, ExplodedNode *Pred);
+  bool inlineCall(const CallEvent &Call, const Decl *D, NodeBuilder &Bldr,
+                  ExplodedNode *Pred, ProgramStateRef State);
+
+  /// \brief Conservatively evaluate call by invalidating regions and binding
+  /// a conjured return value.
+  void conservativeEvalCall(const CallEvent &Call, NodeBuilder &Bldr,
+                            ExplodedNode *Pred, ProgramStateRef State);
+
+  /// \brief Either inline or process the call conservatively (or both), based
+  /// on DynamicDispatchBifurcation data.
+  void BifurcateCall(const MemRegion *BifurReg,
+                     const CallEvent &Call, const Decl *D, NodeBuilder &Bldr,
+                     ExplodedNode *Pred);
 
   bool replayWithoutInlining(ExplodedNode *P, const LocationContext *CalleeLC);
 };
 
 /// Traits for storing the call processing policy inside GDM.
 /// The GDM stores the corresponding CallExpr pointer.
+// FIXME: This does not use the nice trait macros because it must be accessible
+// from multiple translation units.
 struct ReplayWithoutInlining{};
 template <>
 struct ProgramStateTrait<ReplayWithoutInlining> :
