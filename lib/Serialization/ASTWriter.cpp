@@ -817,7 +817,7 @@ void ASTWriter::WriteBlockInfoBlock() {
   RECORD(STATISTICS);
   RECORD(TENTATIVE_DEFINITIONS);
   RECORD(UNUSED_FILESCOPED_DECLS);
-  RECORD(LOCALLY_SCOPED_EXTERNAL_DECLS);
+  RECORD(LOCALLY_SCOPED_EXTERN_C_DECLS);
   RECORD(SELECTOR_OFFSETS);
   RECORD(METHOD_POOL);
   RECORD(PP_COUNTER_VALUE);
@@ -843,6 +843,7 @@ void ASTWriter::WriteBlockInfoBlock() {
   RECORD(OPENCL_EXTENSIONS);
   RECORD(DELEGATING_CTORS);
   RECORD(KNOWN_NAMESPACES);
+  RECORD(UNDEFINED_BUT_USED);
   RECORD(MODULE_OFFSET_MAP);
   RECORD(SOURCE_MANAGER_LINE_TABLE);
   RECORD(OBJC_CATEGORIES_MAP);
@@ -1040,7 +1041,7 @@ void ASTWriter::WriteControlBlock(Preprocessor &PP, ASTContext &Context,
   // Imports
   if (Chain) {
     serialization::ModuleManager &Mgr = Chain->getModuleManager();
-    llvm::SmallVector<char, 128> ModulePaths;
+    SmallVector<char, 128> ModulePaths;
     Record.clear();
 
     for (ModuleManager::ModuleIterator M = Mgr.begin(), MEnd = Mgr.end();
@@ -1067,6 +1068,8 @@ void ASTWriter::WriteControlBlock(Preprocessor &PP, ASTContext &Context,
 #define ENUM_LANGOPT(Name, Type, Bits, Default, Description) \
   Record.push_back(static_cast<unsigned>(LangOpts.get##Name()));
 #include "clang/Basic/LangOptions.def"  
+#define SANITIZER(NAME, ID) Record.push_back(LangOpts.Sanitize.ID);
+#include "clang/Basic/Sanitizers.def"
 
   Record.push_back((unsigned) LangOpts.ObjCRuntime.getKind());
   AddVersionTuple(LangOpts.ObjCRuntime.getVersion(), Record);
@@ -1128,11 +1131,8 @@ void ASTWriter::WriteControlBlock(Preprocessor &PP, ASTContext &Context,
     const HeaderSearchOptions::Entry &Entry = HSOpts.UserEntries[I];
     AddString(Entry.Path, Record);
     Record.push_back(static_cast<unsigned>(Entry.Group));
-    Record.push_back(Entry.IsUserSupplied);
     Record.push_back(Entry.IsFramework);
     Record.push_back(Entry.IgnoreSysRoot);
-    Record.push_back(Entry.IsInternal);
-    Record.push_back(Entry.ImplicitExternC);
   }
 
   // System header prefixes.
@@ -1254,9 +1254,14 @@ void ASTWriter::WriteInputFiles(SourceManager &SourceMgr, StringRef isysroot) {
     if (!Cache->OrigEntry)
       continue;
 
+    uint32_t &InputFileID = InputFileIDs[Cache->OrigEntry];
+    if (InputFileID != 0)
+      continue; // already recorded this file.
+
     // Record this entry's offset.
     InputFileOffsets.push_back(Stream.GetCurrentBitNo());
-    InputFileIDs[Cache->OrigEntry] = InputFileOffsets.size();
+
+    InputFileID = InputFileOffsets.size();
 
     Record.clear();
     Record.push_back(INPUT_FILE);
@@ -1302,54 +1307,6 @@ void ASTWriter::WriteInputFiles(SourceManager &SourceMgr, StringRef isysroot) {
   Record.push_back(InputFileOffsets.size());
   Stream.EmitRecordWithBlob(OffsetsAbbrevCode, Record, data(InputFileOffsets));
 }
-
-//===----------------------------------------------------------------------===//
-// stat cache Serialization
-//===----------------------------------------------------------------------===//
-
-namespace {
-// Trait used for the on-disk hash table of stat cache results.
-class ASTStatCacheTrait {
-public:
-  typedef const char * key_type;
-  typedef key_type key_type_ref;
-
-  typedef struct stat data_type;
-  typedef const data_type &data_type_ref;
-
-  static unsigned ComputeHash(const char *path) {
-    return llvm::HashString(path);
-  }
-
-  std::pair<unsigned,unsigned>
-    EmitKeyDataLength(raw_ostream& Out, const char *path,
-                      data_type_ref Data) {
-    unsigned StrLen = strlen(path);
-    clang::io::Emit16(Out, StrLen);
-    unsigned DataLen = 4 + 4 + 2 + 8 + 8;
-    clang::io::Emit8(Out, DataLen);
-    return std::make_pair(StrLen + 1, DataLen);
-  }
-
-  void EmitKey(raw_ostream& Out, const char *path, unsigned KeyLen) {
-    Out.write(path, KeyLen);
-  }
-
-  void EmitData(raw_ostream &Out, key_type_ref,
-                data_type_ref Data, unsigned DataLen) {
-    using namespace clang::io;
-    uint64_t Start = Out.tell(); (void)Start;
-
-    Emit32(Out, (uint32_t) Data.st_ino);
-    Emit32(Out, (uint32_t) Data.st_dev);
-    Emit16(Out, (uint16_t) Data.st_mode);
-    Emit64(Out, (uint64_t) Data.st_mtime);
-    Emit64(Out, (uint64_t) Data.st_size);
-
-    assert(Out.tell() - Start == DataLen && "Wrong data length");
-  }
-};
-} // end anonymous namespace
 
 //===----------------------------------------------------------------------===//
 // Source Manager Serialization
@@ -1566,7 +1523,7 @@ void ASTWriter::WriteHeaderSearch(const HeaderSearch &HS, StringRef isysroot) {
   
   // Free all of the strings we had to duplicate.
   for (unsigned I = 0, N = SavedStrings.size(); I != N; ++I)
-    free((void*)SavedStrings[I]);
+    free(const_cast<char *>(SavedStrings[I]));
 }
 
 /// \brief Writes the block containing the serialized form of the
@@ -1867,6 +1824,7 @@ void ASTWriter::WritePreprocessor(const Preprocessor &PP, bool IsModule) {
       addMacroRef(MI, Record);
       Record.push_back(inferSubmoduleIDFromLocation(MI->getDefinitionLoc()));
       AddSourceLocation(MI->getDefinitionLoc(), Record);
+      AddSourceLocation(MI->getDefinitionEndLoc(), Record);
       AddSourceLocation(MI->getUndefLoc(), Record);
       Record.push_back(MI->isUsed());
       Record.push_back(MI->isPublic());
@@ -2120,6 +2078,12 @@ void ASTWriter::WriteSubmodules(Module *WritingModule) {
   Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Blob)); // Name
   unsigned ExcludedHeaderAbbrev = Stream.EmitAbbrev(Abbrev);
 
+  Abbrev = new BitCodeAbbrev();
+  Abbrev->Add(BitCodeAbbrevOp(SUBMODULE_LINK_LIBRARY));
+  Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // IsFramework
+  Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Blob));     // Name
+  unsigned LinkLibraryAbbrev = Stream.EmitAbbrev(Abbrev);
+
   // Write the submodule metadata block.
   RecordData Record;
   Record.push_back(getNumberOfModules(WritingModule));
@@ -2222,7 +2186,16 @@ void ASTWriter::WriteSubmodules(Module *WritingModule) {
       }
       Stream.EmitRecord(SUBMODULE_EXPORTS, Record);
     }
-    
+
+    // Emit the link libraries.
+    for (unsigned I = 0, N = Mod->LinkLibraries.size(); I != N; ++I) {
+      Record.clear();
+      Record.push_back(SUBMODULE_LINK_LIBRARY);
+      Record.push_back(Mod->LinkLibraries[I].IsFramework);
+      Stream.EmitRecordWithBlob(LinkLibraryAbbrev, Record,
+                                Mod->LinkLibraries[I].Library);
+    }
+
     // Queue up the submodules of this module.
     for (Module::submodule_iterator Sub = Mod->submodule_begin(),
                                  SubEnd = Mod->submodule_end();
@@ -2961,7 +2934,7 @@ public:
     clang::io::Emit16(Out, KeyLen);
 
     // 2 bytes for num of decls and 4 for each DeclID.
-    unsigned DataLen = 2 + 4 * (Lookup.second - Lookup.first);
+    unsigned DataLen = 2 + 4 * Lookup.size();
     clang::io::Emit16(Out, DataLen);
 
     return std::make_pair(KeyLen, DataLen);
@@ -3001,9 +2974,10 @@ public:
   void EmitData(raw_ostream& Out, key_type_ref,
                 data_type Lookup, unsigned DataLen) {
     uint64_t Start = Out.tell(); (void)Start;
-    clang::io::Emit16(Out, Lookup.second - Lookup.first);
-    for (; Lookup.first != Lookup.second; ++Lookup.first)
-      clang::io::Emit32(Out, Writer.GetDeclRef(*Lookup.first));
+    clang::io::Emit16(Out, Lookup.size());
+    for (DeclContext::lookup_iterator I = Lookup.begin(), E = Lookup.end();
+         I != E; ++I)
+      clang::io::Emit32(Out, Writer.GetDeclRef(*I));
 
     assert(Out.tell() - Start == DataLen && "Data length is wrong");
   }
@@ -3047,12 +3021,12 @@ uint64_t ASTWriter::WriteDeclContextVisibleBlock(ASTContext &Context,
 
   // Create the on-disk hash table representation.
   DeclarationName ConversionName;
-  llvm::SmallVector<NamedDecl *, 4> ConversionDecls;
+  SmallVector<NamedDecl *, 4> ConversionDecls;
   for (StoredDeclsMap::iterator D = Map->begin(), DEnd = Map->end();
        D != DEnd; ++D) {
     DeclarationName Name = D->first;
     DeclContext::lookup_result Result = D->second.getLookupResult();
-    if (Result.first != Result.second) {
+    if (!Result.empty()) {
       if (Name.getNameKind() == DeclarationName::CXXConversionFunctionName) {
         // Hash all conversion function names to the same name. The actual
         // type information in conversion function name is not used in the
@@ -3061,7 +3035,7 @@ uint64_t ASTWriter::WriteDeclContextVisibleBlock(ASTContext &Context,
         // functions under a single key.
         if (!ConversionName)
           ConversionName = Name;
-        ConversionDecls.append(Result.first, Result.second);
+        ConversionDecls.append(Result.begin(), Result.end());
         continue;
       }
       
@@ -3120,7 +3094,7 @@ void ASTWriter::WriteDeclContextVisibleUpdate(const DeclContext *DC) {
     DeclContext::lookup_result Result = D->second.getLookupResult();
     // For any name that appears in this table, the results are complete, i.e.
     // they overwrite results from previous PCHs. Merging is always a mess.
-    if (Result.first != Result.second)
+    if (!Result.empty())
       Generator.insert(Name, Result, Trait);
   }
 
@@ -3229,7 +3203,7 @@ void ASTWriter::WriteRedeclarations() {
 }
 
 void ASTWriter::WriteObjCCategories() {
-  llvm::SmallVector<ObjCCategoriesInfo, 2> CategoriesMap;
+  SmallVector<ObjCCategoriesInfo, 2> CategoriesMap;
   RecordData Categories;
   
   for (unsigned I = 0, N = ObjCClassesWithCategories.size(); I != N; ++I) {
@@ -3242,10 +3216,12 @@ void ASTWriter::WriteObjCCategories() {
     Categories.push_back(0);
     
     // Add the categories.
-    for (ObjCCategoryDecl *Cat = Class->getCategoryList();
-         Cat; Cat = Cat->getNextClassCategory(), ++Size) {
-      assert(getDeclID(Cat) != 0 && "Bogus category");
-      AddDeclRef(Cat, Categories);
+    for (ObjCInterfaceDecl::known_categories_iterator
+           Cat = Class->known_categories_begin(),
+           CatEnd = Class->known_categories_end();
+         Cat != CatEnd; ++Cat, ++Size) {
+      assert(getDeclID(*Cat) != 0 && "Bogus category");
+      AddDeclRef(*Cat, Categories);
     }
     
     // Update the size.
@@ -3472,11 +3448,19 @@ void ASTWriter::WriteASTCore(Sema &SemaRef,
 
   // If there are any out-of-date identifiers, bring them up to date.
   if (ExternalPreprocessorSource *ExtSource = PP.getExternalSource()) {
+    // Find out-of-date identifiers.
+    SmallVector<IdentifierInfo *, 4> OutOfDate;
     for (IdentifierTable::iterator ID = PP.getIdentifierTable().begin(),
                                 IDEnd = PP.getIdentifierTable().end();
-         ID != IDEnd; ++ID)
+         ID != IDEnd; ++ID) {
       if (ID->second->isOutOfDate())
-        ExtSource->updateOutOfDateIdentifier(*ID->second);
+        OutOfDate.push_back(ID->second);
+    }
+
+    // Update the out-of-date identifiers.
+    for (unsigned I = 0, N = OutOfDate.size(); I != N; ++I) {
+      ExtSource->updateOutOfDateIdentifier(*OutOfDate[I]);
+    }
   }
 
   // Build a record containing all of the tentative definitions in this file, in
@@ -3510,18 +3494,18 @@ void ASTWriter::WriteASTCore(Sema &SemaRef,
     }
   }
 
-  // Build a record containing all of the locally-scoped external
+  // Build a record containing all of the locally-scoped extern "C"
   // declarations in this header file. Generally, this record will be
   // empty.
-  RecordData LocallyScopedExternalDecls;
+  RecordData LocallyScopedExternCDecls;
   // FIXME: This is filling in the AST file in densemap order which is
   // nondeterminstic!
   for (llvm::DenseMap<DeclarationName, NamedDecl *>::iterator
-         TD = SemaRef.LocallyScopedExternalDecls.begin(),
-         TDEnd = SemaRef.LocallyScopedExternalDecls.end();
+         TD = SemaRef.LocallyScopedExternCDecls.begin(),
+         TDEnd = SemaRef.LocallyScopedExternCDecls.end();
        TD != TDEnd; ++TD) {
     if (!TD->second->isFromASTFile())
-      AddDeclRef(TD->second, LocallyScopedExternalDecls);
+      AddDeclRef(TD->second, LocallyScopedExternCDecls);
   }
   
   // Build a record containing all of the ext_vector declarations.
@@ -3569,12 +3553,23 @@ void ASTWriter::WriteASTCore(Sema &SemaRef,
 
   // Build a record containing all of the known namespaces.
   RecordData KnownNamespaces;
-  for (llvm::DenseMap<NamespaceDecl*, bool>::iterator 
+  for (llvm::MapVector<NamespaceDecl*, bool>::iterator
             I = SemaRef.KnownNamespaces.begin(),
          IEnd = SemaRef.KnownNamespaces.end();
        I != IEnd; ++I) {
     if (!I->second)
       AddDeclRef(I->first, KnownNamespaces);
+  }
+
+  // Build a record of all used, undefined objects that require definitions.
+  RecordData UndefinedButUsed;
+
+  SmallVector<std::pair<NamedDecl *, SourceLocation>, 16> Undefined;
+  SemaRef.getUndefinedButUsed(Undefined);
+  for (SmallVectorImpl<std::pair<NamedDecl *, SourceLocation> >::iterator
+         I = Undefined.begin(), E = Undefined.end(); I != E; ++I) {
+    AddDeclRef(I->first, UndefinedButUsed);
+    AddSourceLocation(I->second, UndefinedButUsed);
   }
 
   // Write the control block
@@ -3583,6 +3578,12 @@ void ASTWriter::WriteASTCore(Sema &SemaRef,
   // Write the remaining AST contents.
   RecordData Record;
   Stream.EnterSubblock(AST_BLOCK_ID, 5);
+
+  // This is so that older clang versions, before the introduction
+  // of the control block, can read and reject the newer PCH format.
+  Record.clear();
+  Record.push_back(VERSION_MAJOR);
+  Stream.EmitRecord(METADATA_OLD_FORMAT, Record);
 
   // Create a lexical update block containing all of the declarations in the
   // translation unit that do not come from other AST files.
@@ -3749,10 +3750,10 @@ void ASTWriter::WriteASTCore(Sema &SemaRef,
     Stream.EmitRecord(WEAK_UNDECLARED_IDENTIFIERS,
                       WeakUndeclaredIdentifiers);
 
-  // Write the record containing locally-scoped external definitions.
-  if (!LocallyScopedExternalDecls.empty())
-    Stream.EmitRecord(LOCALLY_SCOPED_EXTERNAL_DECLS,
-                      LocallyScopedExternalDecls);
+  // Write the record containing locally-scoped extern "C" definitions.
+  if (!LocallyScopedExternCDecls.empty())
+    Stream.EmitRecord(LOCALLY_SCOPED_EXTERN_C_DECLS,
+                      LocallyScopedExternCDecls);
 
   // Write the record containing ext_vector type names.
   if (!ExtVectorDecls.empty())
@@ -3785,6 +3786,10 @@ void ASTWriter::WriteASTCore(Sema &SemaRef,
   // Write the known namespaces.
   if (!KnownNamespaces.empty())
     Stream.EmitRecord(KNOWN_NAMESPACES, KnownNamespaces);
+
+  // Write the undefined internal functions and variables, and inline functions.
+  if (!UndefinedButUsed.empty())
+    Stream.EmitRecord(UNDEFINED_BUT_USED, UndefinedButUsed);
   
   // Write the visible updates to DeclContexts.
   for (llvm::SmallPtrSet<const DeclContext *, 16>::iterator
@@ -4609,6 +4614,13 @@ void ASTWriter::AddCXXDefinitionData(const CXXRecordDecl *D, RecordDataImpl &Rec
   Record.push_back(Data.HasMutableFields);
   Record.push_back(Data.HasOnlyCMembers);
   Record.push_back(Data.HasInClassInitializer);
+  Record.push_back(Data.HasUninitializedReferenceMember);
+  Record.push_back(Data.NeedOverloadResolutionForMoveConstructor);
+  Record.push_back(Data.NeedOverloadResolutionForMoveAssignment);
+  Record.push_back(Data.NeedOverloadResolutionForDestructor);
+  Record.push_back(Data.DefaultedMoveConstructorIsDeleted);
+  Record.push_back(Data.DefaultedMoveAssignmentIsDeleted);
+  Record.push_back(Data.DefaultedDestructorIsDeleted);
   Record.push_back(Data.HasTrivialSpecialMembers);
   Record.push_back(Data.HasIrrelevantDestructor);
   Record.push_back(Data.HasConstexprNonCopyMoveConstructor);
@@ -4754,6 +4766,7 @@ void ASTWriter::AddedVisibleDecl(const DeclContext *DC, const Decl *D) {
   if (!(!D->isFromASTFile() && cast<Decl>(DC)->isFromASTFile()))
     return; // Not a source decl added to a DeclContext from PCH.
 
+  assert(!getDefinitiveDeclContext(DC) && "DeclContext not definitive!");
   AddUpdatedDeclContext(DC);
   UpdatingVisibleDecls.push_back(D);
 }

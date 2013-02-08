@@ -1265,7 +1265,7 @@ TemplateInstantiator::TransformFunctionParmPackExpr(FunctionParmPackExpr *E) {
 
   // Transform each of the parameter expansions into the corresponding
   // parameters in the instantiation of the function decl.
-  llvm::SmallVector<Decl*, 8> Parms;
+  SmallVector<Decl *, 8> Parms;
   Parms.reserve(E->getNumExpansions());
   for (FunctionParmPackExpr::iterator I = E->begin(), End = E->end();
        I != End; ++I) {
@@ -2045,6 +2045,7 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
   CheckCompletedCXXClass(Instantiation);
 
   // Attach any in-class member initializers now the class is complete.
+  // FIXME: We are supposed to defer instantiating these until they are needed.
   if (!FieldsWithMemberInitializers.empty()) {
     // C++11 [expr.prim.general]p4:
     //   Otherwise, if a member-declarator declares a non-static data member 
@@ -2581,12 +2582,21 @@ Sema::SubstExpr(Expr *E, const MultiLevelTemplateArgumentList &TemplateArgs) {
   return Instantiator.TransformExpr(E);
 }
 
+ExprResult Sema::SubstInitializer(Expr *Init,
+                          const MultiLevelTemplateArgumentList &TemplateArgs,
+                          bool CXXDirectInit) {
+  TemplateInstantiator Instantiator(*this, TemplateArgs,
+                                    SourceLocation(),
+                                    DeclarationName());
+  return Instantiator.TransformInitializer(Init, CXXDirectInit);
+}
+
 bool Sema::SubstExprs(Expr **Exprs, unsigned NumExprs, bool IsCall,
                       const MultiLevelTemplateArgumentList &TemplateArgs,
                       SmallVectorImpl<Expr *> &Outputs) {
   if (NumExprs == 0)
     return false;
-  
+
   TemplateInstantiator Instantiator(*this, TemplateArgs,
                                     SourceLocation(),
                                     DeclarationName());

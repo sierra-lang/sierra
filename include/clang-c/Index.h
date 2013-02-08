@@ -32,7 +32,7 @@
  * compatible, thus CINDEX_VERSION_MAJOR is expected to remain stable.
  */
 #define CINDEX_VERSION_MAJOR 0
-#define CINDEX_VERSION_MINOR 8
+#define CINDEX_VERSION_MINOR 11
 
 #define CINDEX_VERSION_ENCODE(major, minor) ( \
       ((major) * 10000)                       \
@@ -297,6 +297,24 @@ CINDEX_LINKAGE CXString clang_getFileName(CXFile SFile);
 CINDEX_LINKAGE time_t clang_getFileTime(CXFile SFile);
 
 /**
+ * \brief Uniquely identifies a CXFile, that refers to the same underlying file,
+ * across an indexing session.
+ */
+typedef struct {
+  unsigned long long data[3];
+} CXFileUniqueID;
+
+/**
+ * \brief Retrieve the unique ID for the given \c file.
+ *
+ * \param file the file to get the ID for.
+ * \param outID stores the returned CXFileUniqueID.
+ * \returns If there was a failure getting the unique ID, returns non-zero,
+ * otherwise returns 0.
+*/
+CINDEX_LINKAGE int clang_getFileUniqueID(CXFile file, CXFileUniqueID *outID);
+
+/**
  * \brief Determine whether the given header is guarded against
  * multiple inclusions, either with the conventional
  * \#ifndef/\#define/\#endif macro guards or with \#pragma once.
@@ -342,7 +360,7 @@ CINDEX_LINKAGE CXFile clang_getFile(CXTranslationUnit tu,
  * to map a source location to a particular file, line, and column.
  */
 typedef struct {
-  void *ptr_data[2];
+  const void *ptr_data[2];
   unsigned int_data;
 } CXSourceLocation;
 
@@ -353,7 +371,7 @@ typedef struct {
  * starting and end locations from a source range, respectively.
  */
 typedef struct {
-  void *ptr_data[2];
+  const void *ptr_data[2];
   unsigned begin_int_data;
   unsigned end_int_data;
 } CXSourceRange;
@@ -361,7 +379,7 @@ typedef struct {
 /**
  * \brief Retrieve a NULL (invalid) source location.
  */
-CINDEX_LINKAGE CXSourceLocation clang_getNullLocation();
+CINDEX_LINKAGE CXSourceLocation clang_getNullLocation(void);
 
 /**
  * \brief Determine whether two source locations, which must refer into
@@ -393,7 +411,7 @@ CINDEX_LINKAGE CXSourceLocation clang_getLocationForOffset(CXTranslationUnit tu,
 /**
  * \brief Retrieve a NULL (invalid) source range.
  */
-CINDEX_LINKAGE CXSourceRange clang_getNullRange();
+CINDEX_LINKAGE CXSourceRange clang_getNullRange(void);
 
 /**
  * \brief Retrieve a source range given the beginning and ending source
@@ -529,6 +547,35 @@ CINDEX_LINKAGE void clang_getSpellingLocation(CXSourceLocation location,
                                               unsigned *line,
                                               unsigned *column,
                                               unsigned *offset);
+
+/**
+ * \brief Retrieve the file, line, column, and offset represented by
+ * the given source location.
+ *
+ * If the location refers into a macro expansion, return where the macro was
+ * expanded or where the macro argument was written, if the location points at
+ * a macro argument.
+ *
+ * \param location the location within a source file that will be decomposed
+ * into its parts.
+ *
+ * \param file [out] if non-NULL, will be set to the file to which the given
+ * source location points.
+ *
+ * \param line [out] if non-NULL, will be set to the line to which the given
+ * source location points.
+ *
+ * \param column [out] if non-NULL, will be set to the column to which the given
+ * source location points.
+ *
+ * \param offset [out] if non-NULL, will be set to the offset into the
+ * buffer to which the given source location points.
+ */
+CINDEX_LINKAGE void clang_getFileLocation(CXSourceLocation location,
+                                          CXFile *file,
+                                          unsigned *line,
+                                          unsigned *column,
+                                          unsigned *offset);
 
 /**
  * \brief Retrieve a source location representing the first character within a
@@ -2072,7 +2119,7 @@ enum CXCursorKind {
 typedef struct {
   enum CXCursorKind kind;
   int xdata;
-  void *data[3];
+  const void *data[3];
 } CXCursor;
 
 /**
@@ -2330,7 +2377,7 @@ typedef struct CXCursorSetImpl *CXCursorSet;
 /**
  * \brief Creates an empty CXCursorSet.
  */
-CINDEX_LINKAGE CXCursorSet clang_createCXCursorSet();
+CINDEX_LINKAGE CXCursorSet clang_createCXCursorSet(void);
 
 /**
  * \brief Disposes a CXCursorSet and releases its associated memory.
@@ -2626,6 +2673,7 @@ enum CXCallingConv {
   CXCallingConv_AAPCS = 6,
   CXCallingConv_AAPCS_VFP = 7,
   CXCallingConv_PnaclCall = 8,
+  CXCallingConv_IntelOclBicc = 9,
 
   CXCallingConv_Invalid = 100,
   CXCallingConv_Unexposed = 200
@@ -4835,7 +4883,7 @@ CXString clang_codeCompleteGetObjCSelector(CXCodeCompleteResults *Results);
  * \brief Return a version string, suitable for showing to a user, but not
  *        intended to be parsed (the format is not guaranteed to be stable).
  */
-CINDEX_LINKAGE CXString clang_getClangVersion();
+CINDEX_LINKAGE CXString clang_getClangVersion(void);
 
   
 /**
@@ -5151,6 +5199,10 @@ typedef struct {
   CXIdxLoc classLoc;
 } CXIdxIBOutletCollectionAttrInfo;
 
+typedef enum {
+  CXIdxDeclFlag_Skipped = 0x1
+} CXIdxDeclInfoFlags;
+
 typedef struct {
   const CXIdxEntityInfo *entityInfo;
   CXCursor cursor;
@@ -5172,6 +5224,9 @@ typedef struct {
   int isImplicit;
   const CXIdxAttrInfo *const *attributes;
   unsigned numAttributes;
+
+  unsigned flags;
+
 } CXIdxDeclInfo;
 
 typedef enum {
@@ -5379,16 +5434,14 @@ CINDEX_LINKAGE void
 clang_index_setClientEntity(const CXIdxEntityInfo *, CXIdxClientEntity);
 
 /**
- * \brief An indexing action, to be applied to one or multiple translation units
- * but not on concurrent threads. If there are threads doing indexing
- * concurrently, they should use different CXIndexAction objects.
+ * \brief An indexing action/session, to be applied to one or multiple
+ * translation units.
  */
 typedef void *CXIndexAction;
 
 /**
- * \brief An indexing action, to be applied to one or multiple translation units
- * but not on concurrent threads. If there are threads doing indexing
- * concurrently, they should use different CXIndexAction objects.
+ * \brief An indexing action/session, to be applied to one or multiple
+ * translation units.
  *
  * \param CIdx The index object with which the index action will be associated.
  */
@@ -5430,7 +5483,15 @@ typedef enum {
   /**
    * \brief Suppress all compiler warnings when parsing for indexing.
    */
-  CXIndexOpt_SuppressWarnings = 0x8
+  CXIndexOpt_SuppressWarnings = 0x8,
+
+  /**
+   * \brief Skip a function/method body that was already parsed during an
+   * indexing session assosiated with a \c CXIndexAction object.
+   * Bodies in system headers are always skipped.
+   */
+  CXIndexOpt_SkipParsedBodiesInSession = 0x10
+
 } CXIndexOptFlags;
 
 /**

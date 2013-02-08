@@ -44,10 +44,14 @@ private:
   unsigned AttrKind : 16;
 
 protected:
+  /// An index into the spelling list of an
+  /// attribute defined in Attr.td file.
+  unsigned SpellingListIndex : 4;
+
   bool Inherited : 1;
 
   virtual ~Attr();
-  
+
   void* operator new(size_t bytes) throw() {
     llvm_unreachable("Attrs cannot be allocated with regular 'new'.");
   }
@@ -67,14 +71,17 @@ public:
   }
 
 protected:
-  Attr(attr::Kind AK, SourceRange R)
-    : Range(R), AttrKind(AK), Inherited(false) {}
+  Attr(attr::Kind AK, SourceRange R, unsigned SpellingListIndex = 0)
+    : Range(R), AttrKind(AK), SpellingListIndex(SpellingListIndex),
+  Inherited(false) {}
 
 public:
 
   attr::Kind getKind() const {
     return static_cast<attr::Kind>(AttrKind);
   }
+  
+  unsigned getSpellingListIndex() const { return SpellingListIndex; }
 
   SourceLocation getLocation() const { return Range.getBegin(); }
   SourceRange getRange() const { return Range; }
@@ -88,15 +95,15 @@ public:
   virtual bool isLateParsed() const { return false; }
 
   // Pretty print this attribute.
-  virtual void printPretty(llvm::raw_ostream &OS,
+  virtual void printPretty(raw_ostream &OS,
                            const PrintingPolicy &Policy) const = 0;
 };
 
 class InheritableAttr : public Attr {
   virtual void anchor();
 protected:
-  InheritableAttr(attr::Kind AK, SourceRange R)
-    : Attr(AK, R) {}
+  InheritableAttr(attr::Kind AK, SourceRange R, unsigned SpellingListIndex = 0)
+    : Attr(AK, R, SpellingListIndex) {}
 
 public:
   void setInherited(bool I) { Inherited = I; }
@@ -110,8 +117,9 @@ public:
 class InheritableParamAttr : public InheritableAttr {
   virtual void anchor();
 protected:
-  InheritableParamAttr(attr::Kind AK, SourceRange R)
-    : InheritableAttr(AK, R) {}
+  InheritableParamAttr(attr::Kind AK, SourceRange R,
+                       unsigned SpellingListIndex = 0)
+    : InheritableAttr(AK, R, SpellingListIndex) {}
 
 public:
   // Implement isa/cast/dyncast/etc.

@@ -163,8 +163,10 @@ clang_getEnumDeclIntegerType
 clang_getFieldDeclBitWidth
 clang_getExpansionLocation
 clang_getFile
+clang_getFileLocation
 clang_getFileName
 clang_getFileTime
+clang_getFileUniqueID
 clang_getFunctionTypeCallingConv
 clang_getIBOutletCollectionType
 clang_getIncludedFile

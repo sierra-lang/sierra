@@ -97,6 +97,7 @@ bool DiagnosticsEngine::popMappings(SourceLocation Loc) {
 
 void DiagnosticsEngine::Reset() {
   ErrorOccurred = false;
+  UncompilableErrorOccurred = false;
   FatalErrorOccurred = false;
   UnrecoverableErrorOccurred = false;
   
@@ -107,11 +108,7 @@ void DiagnosticsEngine::Reset() {
   TrapNumUnrecoverableErrorsOccurred = 0;
   
   CurDiagID = ~0U;
-  // Set LastDiagLevel to an "unset" state. If we set it to 'Ignored', notes
-  // using a DiagnosticsEngine associated to a translation unit that follow
-  // diagnostics from a DiagnosticsEngine associated to anoter t.u. will not be
-  // displayed.
-  LastDiagLevel = (DiagnosticIDs::Level)-1;
+  LastDiagLevel = DiagnosticIDs::Ignored;
   DelayedDiagID = 0;
 
   // Clear state related to #pragma diagnostic.
@@ -237,7 +234,7 @@ bool DiagnosticsEngine::setDiagnosticGroupMapping(
   StringRef Group, diag::Mapping Map, SourceLocation Loc)
 {
   // Get the diagnostics in this group.
-  llvm::SmallVector<diag::kind, 8> GroupDiags;
+  SmallVector<diag::kind, 8> GroupDiags;
   if (Diags->getDiagnosticsInGroup(Group, GroupDiags))
     return true;
 
@@ -277,7 +274,7 @@ bool DiagnosticsEngine::setDiagnosticGroupWarningAsError(StringRef Group,
   // potentially downgrade anything already mapped to be a warning.
 
   // Get the diagnostics in this group.
-  llvm::SmallVector<diag::kind, 8> GroupDiags;
+  SmallVector<diag::kind, 8> GroupDiags;
   if (Diags->getDiagnosticsInGroup(Group, GroupDiags))
     return true;
 
@@ -324,7 +321,7 @@ bool DiagnosticsEngine::setDiagnosticGroupErrorAsFatal(StringRef Group,
   // potentially downgrade anything already mapped to be an error.
 
   // Get the diagnostics in this group.
-  llvm::SmallVector<diag::kind, 8> GroupDiags;
+  SmallVector<diag::kind, 8> GroupDiags;
   if (Diags->getDiagnosticsInGroup(Group, GroupDiags))
     return true;
 
@@ -345,7 +342,7 @@ bool DiagnosticsEngine::setDiagnosticGroupErrorAsFatal(StringRef Group,
 void DiagnosticsEngine::setMappingToAllDiagnostics(diag::Mapping Map,
                                                    SourceLocation Loc) {
   // Get all the diagnostics.
-  llvm::SmallVector<diag::kind, 64> AllDiags;
+  SmallVector<diag::kind, 64> AllDiags;
   Diags->getAllDiagnostics(AllDiags);
 
   // Set the mapping.
@@ -729,15 +726,33 @@ FormatDiagnostic(const char *DiagStr, const char *DiagEnd,
     unsigned ArgNo2 = ArgNo;
 
     DiagnosticsEngine::ArgumentKind Kind = getArgKind(ArgNo);
-    if (Kind == DiagnosticsEngine::ak_qualtype &&
-        ModifierIs(Modifier, ModifierLen, "diff")) {
-      Kind = DiagnosticsEngine::ak_qualtype_pair;
+    if (ModifierIs(Modifier, ModifierLen, "diff")) {
       assert(*DiagStr == ',' && isdigit(*(DiagStr + 1)) &&
              "Invalid format for diff modifier");
       ++DiagStr;  // Comma.
       ArgNo2 = *DiagStr++ - '0';
-      assert(getArgKind(ArgNo2) == DiagnosticsEngine::ak_qualtype &&
-             "Second value of type diff must be a qualtype");
+      DiagnosticsEngine::ArgumentKind Kind2 = getArgKind(ArgNo2);
+      if (Kind == DiagnosticsEngine::ak_qualtype &&
+          Kind2 == DiagnosticsEngine::ak_qualtype)
+        Kind = DiagnosticsEngine::ak_qualtype_pair;
+      else {
+        // %diff only supports QualTypes.  For other kinds of arguments,
+        // use the default printing.  For example, if the modifier is:
+        //   "%diff{compare $ to $|other text}1,2"
+        // treat it as:
+        //   "compare %1 to %2"
+        const char *Pipe = ScanFormat(Argument, Argument + ArgumentLen, '|');
+        const char *FirstDollar = ScanFormat(Argument, Pipe, '$');
+        const char *SecondDollar = ScanFormat(FirstDollar + 1, Pipe, '$');
+        const char ArgStr1[] = { '%', static_cast<char>('0' + ArgNo) };
+        const char ArgStr2[] = { '%', static_cast<char>('0' + ArgNo2) };
+        FormatDiagnostic(Argument, FirstDollar, OutStr);
+        FormatDiagnostic(ArgStr1, ArgStr1 + 2, OutStr);
+        FormatDiagnostic(FirstDollar + 1, SecondDollar, OutStr);
+        FormatDiagnostic(ArgStr2, ArgStr2 + 2, OutStr);
+        FormatDiagnostic(SecondDollar + 1, Pipe, OutStr);
+        continue;
+      }
     }
     
     switch (Kind) {

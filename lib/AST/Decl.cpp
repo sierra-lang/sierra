@@ -262,8 +262,8 @@ static LinkageInfo getLVForNamespaceScopeDecl(const NamedDecl *D,
   if (D->isInAnonymousNamespace()) {
     const VarDecl *Var = dyn_cast<VarDecl>(D);
     const FunctionDecl *Func = dyn_cast<FunctionDecl>(D);
-    if ((!Var || !Var->getDeclContext()->isExternCContext()) &&
-        (!Func || !Func->getDeclContext()->isExternCContext()))
+    if ((!Var || !Var->hasCLanguageLinkage()) &&
+        (!Func || !Func->hasCLanguageLinkage()))
       return LinkageInfo::uniqueExternal();
   }
 
@@ -587,8 +587,7 @@ void NamedDecl::ClearLinkageCache() {
   if (const CXXRecordDecl *record = dyn_cast<CXXRecordDecl>(this))
     clearLinkageForClass(record);
 
-  if (ClassTemplateDecl *temp =
-        dyn_cast<ClassTemplateDecl>(const_cast<NamedDecl*>(this))) {
+  if (ClassTemplateDecl *temp = dyn_cast<ClassTemplateDecl>(this)) {
     // Clear linkage for the template pattern.
     CXXRecordDecl *record = temp->getTemplatedDecl();
     record->HasCachedLinkage = 0;
@@ -601,8 +600,7 @@ void NamedDecl::ClearLinkageCache() {
   }
 
   // Clear cached linkage for function template decls, too.
-  if (FunctionTemplateDecl *temp =
-        dyn_cast<FunctionTemplateDecl>(const_cast<NamedDecl*>(this))) {
+  if (FunctionTemplateDecl *temp = dyn_cast<FunctionTemplateDecl>(this)) {
     temp->getTemplatedDecl()->ClearLinkageCache();
     for (FunctionTemplateDecl::spec_iterator
            i = temp->spec_begin(), e = temp->spec_end(); i != e; ++i)
@@ -614,21 +612,58 @@ void NamedDecl::ClearLinkageCache() {
 Linkage NamedDecl::getLinkage() const {
   if (HasCachedLinkage) {
     assert(Linkage(CachedLinkage) ==
-             getLVForDecl(this, true).linkage());
+           getLVForDecl(this, true).linkage());
     return Linkage(CachedLinkage);
   }
 
   CachedLinkage = getLVForDecl(this, true).linkage();
   HasCachedLinkage = 1;
+
+#ifndef NDEBUG
+  verifyLinkage();
+#endif
+
   return Linkage(CachedLinkage);
 }
 
 LinkageInfo NamedDecl::getLinkageAndVisibility() const {
   LinkageInfo LI = getLVForDecl(this, false);
-  assert(!HasCachedLinkage || Linkage(CachedLinkage) == LI.linkage());
+  if (HasCachedLinkage) {
+    assert(Linkage(CachedLinkage) == LI.linkage());
+    return LI;
+  }
   HasCachedLinkage = 1;
   CachedLinkage = LI.linkage();
+
+#ifndef NDEBUG
+  verifyLinkage();
+#endif
+
   return LI;
+}
+
+void NamedDecl::verifyLinkage() const {
+  // In C (because of gnu inline) and in c++ with microsoft extensions an
+  // static can follow an extern, so we can have two decls with different
+  // linkages.
+  const LangOptions &Opts = getASTContext().getLangOpts();
+  if (!Opts.CPlusPlus || Opts.MicrosoftExt)
+    return;
+
+  // We have just computed the linkage for this decl. By induction we know
+  // that all other computed linkages match, check that the one we just computed
+  // also does.
+  NamedDecl *D = NULL;
+  for (redecl_iterator I = redecls_begin(), E = redecls_end(); I != E; ++I) {
+    NamedDecl *T = cast<NamedDecl>(*I);
+    if (T == this)
+      continue;
+    if (T->HasCachedLinkage != 0) {
+      D = T;
+      break;
+    }
+  }
+  assert(!D || D->CachedLinkage == CachedLinkage);
 }
 
 llvm::Optional<Visibility> NamedDecl::getExplicitVisibility() const {
@@ -766,11 +801,15 @@ static LinkageInfo getLVForDecl(const NamedDecl *D, bool OnlyTemplate) {
   //   one such matching entity, the program is ill-formed. Otherwise,
   //   if no matching entity is found, the block scope entity receives
   //   external linkage.
-  if (D->getLexicalDeclContext()->isFunctionOrMethod()) {
+  if (D->getDeclContext()->isFunctionOrMethod()) {
     if (const FunctionDecl *Function = dyn_cast<FunctionDecl>(D)) {
       if (Function->isInAnonymousNamespace() &&
           !Function->getDeclContext()->isExternCContext())
         return LinkageInfo::uniqueExternal();
+
+      // This is a "void f();" which got merged with a file static.
+      if (Function->getStorageClass() == SC_Static)
+        return LinkageInfo::internal();
 
       LinkageInfo LV;
       if (!OnlyTemplate) {
@@ -786,11 +825,15 @@ static LinkageInfo getLVForDecl(const NamedDecl *D, bool OnlyTemplate) {
     }
 
     if (const VarDecl *Var = dyn_cast<VarDecl>(D))
-      if (Var->getStorageClass() == SC_Extern ||
-          Var->getStorageClass() == SC_PrivateExtern) {
+      if (Var->getStorageClassAsWritten() == SC_Extern ||
+          Var->getStorageClassAsWritten() == SC_PrivateExtern) {
         if (Var->isInAnonymousNamespace() &&
             !Var->getDeclContext()->isExternCContext())
           return LinkageInfo::uniqueExternal();
+
+        // This is an "extern int foo;" which got merged with a file static.
+        if (Var->getStorageClass() == SC_Static)
+          return LinkageInfo::internal();
 
         LinkageInfo LV;
         if (Var->getStorageClass() == SC_PrivateExtern)
@@ -1161,10 +1204,38 @@ void VarDecl::setStorageClass(StorageClass SC) {
 SourceRange VarDecl::getSourceRange() const {
   if (const Expr *Init = getInit()) {
     SourceLocation InitEnd = Init->getLocEnd();
-    if (InitEnd.isValid())
+    // If Init is implicit, ignore its source range and fallback on 
+    // DeclaratorDecl::getSourceRange() to handle postfix elements.
+    if (InitEnd.isValid() && InitEnd != getLocation())
       return SourceRange(getOuterLocStart(), InitEnd);
   }
   return DeclaratorDecl::getSourceRange();
+}
+
+template<typename T>
+static bool hasCLanguageLinkageTemplate(const T &D) {
+  // Language linkage is a C++ concept, but saying that everything in C has
+  // C language linkage fits the implementation nicely.
+  ASTContext &Context = D.getASTContext();
+  if (!Context.getLangOpts().CPlusPlus)
+    return true;
+
+  // dcl.link 4: A C language linkage is ignored in determining the language
+  // linkage of the names of class members and the function type of class member
+  // functions.
+  const DeclContext *DC = D.getDeclContext();
+  if (DC->isRecord())
+    return false;
+
+  // If the first decl is in an extern "C" context, any other redeclaration
+  // will have C language linkage. If the first one is not in an extern "C"
+  // context, we would have reported an error for any other decl being in one.
+  const T *First = D.getFirstDeclaration();
+  return First->getDeclContext()->isExternCContext();
+}
+
+bool VarDecl::hasCLanguageLinkage() const {
+  return hasCLanguageLinkageTemplate(*this);
 }
 
 bool VarDecl::isExternC() const {
@@ -1220,7 +1291,7 @@ VarDecl::DefinitionKind VarDecl::isThisDeclarationADefinition(
        getStorageClassAsWritten() == SC_PrivateExtern) {
     for (const VarDecl *PrevVar = getPreviousDecl();
          PrevVar; PrevVar = PrevVar->getPreviousDecl()) {
-      if (PrevVar->getLinkage() == InternalLinkage && PrevVar->hasInit())
+      if (PrevVar->getLinkage() == InternalLinkage)
         return DeclarationOnly;
     }
   }
@@ -1349,7 +1420,7 @@ bool VarDecl::isUsableInConstantExpressions(ASTContext &C) const {
 
   // In C++11, any variable of reference type can be used in a constant
   // expression if it is initialized by a constant expression.
-  if (Lang.CPlusPlus0x && getType()->isReferenceType())
+  if (Lang.CPlusPlus11 && getType()->isReferenceType())
     return true;
 
   // Only const objects can be used in constant expressions in C++. C++98 does
@@ -1365,7 +1436,7 @@ bool VarDecl::isUsableInConstantExpressions(ASTContext &C) const {
 
   // Additionally, in C++11, non-volatile constexpr variables can be used in
   // constant expressions.
-  return Lang.CPlusPlus0x && isConstexpr();
+  return Lang.CPlusPlus11 && isConstexpr();
 }
 
 /// Convert the initializer for this declaration to the elaborated EvaluatedStmt
@@ -1383,12 +1454,12 @@ EvaluatedStmt *VarDecl::ensureEvaluatedStmt() const {
 }
 
 APValue *VarDecl::evaluateValue() const {
-  llvm::SmallVector<PartialDiagnosticAt, 8> Notes;
+  SmallVector<PartialDiagnosticAt, 8> Notes;
   return evaluateValue(Notes);
 }
 
 APValue *VarDecl::evaluateValue(
-    llvm::SmallVectorImpl<PartialDiagnosticAt> &Notes) const {
+    SmallVectorImpl<PartialDiagnosticAt> &Notes) const {
   EvaluatedStmt *Eval = ensureEvaluatedStmt();
 
   // We only produce notes indicating why an initializer is non-constant the
@@ -1421,7 +1492,7 @@ APValue *VarDecl::evaluateValue(
 
   // In C++11, we have determined whether the initializer was a constant
   // expression as a side-effect.
-  if (getASTContext().getLangOpts().CPlusPlus0x && !Eval->CheckedICE) {
+  if (getASTContext().getLangOpts().CPlusPlus11 && !Eval->CheckedICE) {
     Eval->CheckedICE = true;
     Eval->IsICE = Result && Notes.empty();
   }
@@ -1445,8 +1516,8 @@ bool VarDecl::checkInitIsICE() const {
 
   // In C++11, evaluate the initializer to check whether it's a constant
   // expression.
-  if (getASTContext().getLangOpts().CPlusPlus0x) {
-    llvm::SmallVector<PartialDiagnosticAt, 8> Notes;
+  if (getASTContext().getLangOpts().CPlusPlus11) {
+    SmallVector<PartialDiagnosticAt, 8> Notes;
     evaluateValue(Notes);
     return Eval->IsICE;
   }
@@ -1658,13 +1729,6 @@ void FunctionDecl::setPure(bool P) {
       Parent->markedVirtualFunctionPure();
 }
 
-void FunctionDecl::setConstexpr(bool IC) {
-  IsConstexpr = IC;
-  CXXConstructorDecl *CD = dyn_cast<CXXConstructorDecl>(this);
-  if (IC && CD)
-    CD->getParent()->markedConstructorConstexpr(CD);
-}
-
 bool FunctionDecl::isMain() const {
   const TranslationUnitDecl *tunit =
     dyn_cast<TranslationUnitDecl>(getDeclContext()->getRedeclContext());
@@ -1694,6 +1758,16 @@ bool FunctionDecl::isReservedGlobalPlacementOperator() const {
   // The result type and first argument type are constant across all
   // these operators.  The second argument must be exactly void*.
   return (proto->getArgType(1).getCanonicalType() == Context.VoidPtrTy);
+}
+
+bool FunctionDecl::hasCLanguageLinkage() const {
+  // Users expect to be able to write
+  // extern "C" void *__builtin_alloca (size_t);
+  // so consider builtins as having C language linkage.
+  if (getBuiltinID())
+    return true;
+
+  return hasCLanguageLinkageTemplate(*this);
 }
 
 bool FunctionDecl::isExternC() const {
@@ -1732,6 +1806,12 @@ bool FunctionDecl::isGlobal() const {
   }
 
   return true;
+}
+
+bool FunctionDecl::isNoReturn() const {
+  return hasAttr<NoReturnAttr>() || hasAttr<CXX11NoReturnAttr>() ||
+         hasAttr<C11NoReturnAttr>() ||
+         getType()->getAs<FunctionType>()->getNoReturnAttr();
 }
 
 void
@@ -1825,7 +1905,7 @@ unsigned FunctionDecl::getNumParams() const {
 }
 
 void FunctionDecl::setParams(ASTContext &C,
-                             llvm::ArrayRef<ParmVarDecl *> NewParamInfo) {
+                             ArrayRef<ParmVarDecl *> NewParamInfo) {
   assert(ParamInfo == 0 && "Already has param info!");
   assert(NewParamInfo.size() == getNumParams() && "Parameter count mismatch!");
 
@@ -1836,13 +1916,13 @@ void FunctionDecl::setParams(ASTContext &C,
   }
 }
 
-void FunctionDecl::setDeclsInPrototypeScope(llvm::ArrayRef<NamedDecl *> NewDecls) {
+void FunctionDecl::setDeclsInPrototypeScope(ArrayRef<NamedDecl *> NewDecls) {
   assert(DeclsInPrototypeScope.empty() && "Already has prototype decls!");
 
   if (!NewDecls.empty()) {
     NamedDecl **A = new (getASTContext()) NamedDecl*[NewDecls.size()];
     std::copy(NewDecls.begin(), NewDecls.end(), A);
-    DeclsInPrototypeScope = llvm::ArrayRef<NamedDecl*>(A, NewDecls.size());
+    DeclsInPrototypeScope = ArrayRef<NamedDecl *>(A, NewDecls.size());
   }
 }
 
@@ -1879,38 +1959,6 @@ unsigned FunctionDecl::getMinRequiredArguments() const {
   }
   
   return NumRequiredArgs;
-}
-
-bool FunctionDecl::isInlined() const {
-  if (IsInline)
-    return true;
-  
-  if (isa<CXXMethodDecl>(this)) {
-    if (!isOutOfLine() || getCanonicalDecl()->isInlineSpecified())
-      return true;
-  }
-
-  switch (getTemplateSpecializationKind()) {
-  case TSK_Undeclared:
-  case TSK_ExplicitSpecialization:
-    return false;
-
-  case TSK_ImplicitInstantiation:
-  case TSK_ExplicitInstantiationDeclaration:
-  case TSK_ExplicitInstantiationDefinition:
-    // Handle below.
-    break;
-  }
-
-  const FunctionDecl *PatternDecl = getTemplateInstantiationPattern();
-  bool HasPattern = false;
-  if (PatternDecl)
-    HasPattern = PatternDecl->hasBody(PatternDecl);
-  
-  if (HasPattern && PatternDecl)
-    return PatternDecl->isInlined();
-  
-  return false;
 }
 
 static bool RedeclForcesDefC99(const FunctionDecl *Redecl) {
@@ -1988,8 +2036,8 @@ bool FunctionDecl::doesDeclarationForceExternallyVisibleDefinition() const {
   return FoundBody;
 }
 
-/// \brief For an inline function definition in C or C++, determine whether the 
-/// definition will be externally visible.
+/// \brief For an inline function definition in C, or for a gnu_inline function
+/// in C++, determine whether the definition will be externally visible.
 ///
 /// Inline function definitions are always available for inlining optimizations.
 /// However, depending on the language dialect, declaration specifiers, and
@@ -2032,6 +2080,10 @@ bool FunctionDecl::isInlineDefinitionExternallyVisible() const {
     
     return false;
   }
+
+  // The rest of this function is C-only.
+  assert(!Context.getLangOpts().CPlusPlus &&
+         "should not use C inline rules in C++");
 
   // C99 6.7.4p6:
   //   [...] If all of the file scope declarations for a function in a 
@@ -2404,7 +2456,7 @@ unsigned FunctionDecl::getMemoryFunctionKind() const {
     return Builtin::BIstrlen;
 
   default:
-    if (isExternC()) {
+    if (hasCLanguageLinkage()) {
       if (FnInfo->isStr("memset"))
         return Builtin::BImemset;
       else if (FnInfo->isStr("memcpy"))
@@ -2681,6 +2733,7 @@ RecordDecl::RecordDecl(Kind DK, TagKind TK, DeclContext *DC,
   HasFlexibleArrayMember = false;
   AnonymousStructOrUnion = false;
   HasObjectMember = false;
+  HasVolatileMember = false;
   LoadedFieldsFromExternalStorage = false;
   assert(classof(static_cast<Decl*>(this)) && "Invalid Kind!");
 }
@@ -2766,7 +2819,7 @@ void RecordDecl::LoadFieldsFromExternalStorage() const {
 // BlockDecl Implementation
 //===----------------------------------------------------------------------===//
 
-void BlockDecl::setParams(llvm::ArrayRef<ParmVarDecl *> NewParamInfo) {
+void BlockDecl::setParams(ArrayRef<ParmVarDecl *> NewParamInfo) {
   assert(ParamInfo == 0 && "Already has param info!");
 
   // Zero params -> null pointer.

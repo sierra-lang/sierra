@@ -974,9 +974,16 @@ bool SourceManager::isMacroArgExpansion(SourceLocation Loc) const {
   if (!Loc.isMacroID()) return false;
 
   FileID FID = getFileID(Loc);
-  const SrcMgr::SLocEntry *E = &getSLocEntry(FID);
-  const SrcMgr::ExpansionInfo &Expansion = E->getExpansion();
+  const SrcMgr::ExpansionInfo &Expansion = getSLocEntry(FID).getExpansion();
   return Expansion.isMacroArgExpansion();
+}
+
+bool SourceManager::isMacroBodyExpansion(SourceLocation Loc) const {
+  if (!Loc.isMacroID()) return false;
+
+  FileID FID = getFileID(Loc);
+  const SrcMgr::ExpansionInfo &Expansion = getSLocEntry(FID).getExpansion();
+  return Expansion.isMacroBodyExpansion();
 }
 
 
@@ -1032,7 +1039,8 @@ unsigned SourceManager::getColumnNumber(FileID FID, unsigned FilePos,
   // See if we just calculated the line number for this FilePos and can use
   // that to lookup the start of the line instead of searching for it.
   if (LastLineNoFileIDQuery == FID &&
-      LastLineNoContentCache->SourceLineCache != 0) {
+      LastLineNoContentCache->SourceLineCache != 0 &&
+      LastLineNoResult < LastLineNoContentCache->NumLines) {
     unsigned *SourceLineCache = LastLineNoContentCache->SourceLineCache;
     unsigned LineStart = SourceLineCache[LastLineNoResult - 1];
     unsigned LineEnd = SourceLineCache[LastLineNoResult];

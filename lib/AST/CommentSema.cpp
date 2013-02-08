@@ -29,7 +29,8 @@ Sema::Sema(llvm::BumpPtrAllocator &Allocator, const SourceManager &SourceMgr,
            DiagnosticsEngine &Diags, CommandTraits &Traits,
            const Preprocessor *PP) :
     Allocator(Allocator), SourceMgr(SourceMgr), Diags(Diags), Traits(Traits),
-    PP(PP), ThisDeclInfo(NULL), BriefCommand(NULL), ReturnsCommand(NULL) {
+    PP(PP), ThisDeclInfo(NULL), BriefCommand(NULL), ReturnsCommand(NULL),
+    HeaderfileCommand(NULL) {
 }
 
 void Sema::setDecl(const Decl *D) {
@@ -485,6 +486,12 @@ void Sema::checkBlockCommandDuplicate(const BlockCommandComment *Command) {
       return;
     }
     PrevCommand = ReturnsCommand;
+  } else if (Info->IsHeaderfileCommand) {
+    if (!HeaderfileCommand) {
+      HeaderfileCommand = Command;
+      return;
+    }
+    PrevCommand = HeaderfileCommand;
   } else {
     // We don't want to check this command for duplicates.
     return;
@@ -560,11 +567,11 @@ void Sema::resolveParamCommandIndexes(const FullComment *FC) {
     return;
   }
 
-  llvm::SmallVector<ParamCommandComment *, 8> UnresolvedParamCommands;
+  SmallVector<ParamCommandComment *, 8> UnresolvedParamCommands;
 
   // Comment AST nodes that correspond to \c ParamVars for which we have
   // found a \\param command or NULL if no documentation was found so far.
-  llvm::SmallVector<ParamCommandComment *, 8> ParamVarDocs;
+  SmallVector<ParamCommandComment *, 8> ParamVarDocs;
 
   ArrayRef<const ParmVarDecl *> ParamVars = getParamVars();
   ParamVarDocs.resize(ParamVars.size(), NULL);
@@ -597,7 +604,7 @@ void Sema::resolveParamCommandIndexes(const FullComment *FC) {
   }
 
   // Find parameter declarations that have no corresponding \\param.
-  llvm::SmallVector<const ParmVarDecl *, 8> OrphanedParamDecls;
+  SmallVector<const ParmVarDecl *, 8> OrphanedParamDecls;
   for (unsigned i = 0, e = ParamVarDocs.size(); i != e; ++i) {
     if (!ParamVarDocs[i])
       OrphanedParamDecls.push_back(ParamVars[i]);

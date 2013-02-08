@@ -175,8 +175,7 @@ public:
     memcpy(TextPtr, WordText.c_str(), Length + 1);
     StringRef Text = StringRef(TextPtr, Length);
 
-    formTokenWithChars(Tok, Loc, WordBegin,
-                       Pos.BufferPtr - WordBegin, Text);
+    formTokenWithChars(Tok, Loc, WordBegin, Length, Text);
     return true;
   }
 
@@ -318,7 +317,7 @@ BlockCommandComment *Parser::parseBlockCommand() {
     PC = S.actOnParamCommandStart(Tok.getLocation(),
                                   Tok.getEndLocation(),
                                   Tok.getCommandID());
-  } if (Info->IsTParamCommand) {
+  } else if (Info->IsTParamCommand) {
     IsTParam = true;
     TPC = S.actOnTParamCommandStart(Tok.getLocation(),
                                     Tok.getEndLocation(),
@@ -330,8 +329,7 @@ BlockCommandComment *Parser::parseBlockCommand() {
   }
   consumeToken();
 
-  if (Tok.is(tok::command) &&
-      Traits.getCommandInfo(Tok.getCommandID())->IsBlockCommand) {
+  if (isTokBlockCommand()) {
     // Block command ahead.  We can't nest block commands, so pretend that this
     // command has an empty argument.
     ParagraphComment *Paragraph = S.actOnParagraphComment(
@@ -363,10 +361,28 @@ BlockCommandComment *Parser::parseBlockCommand() {
     Retokenizer.putBackLeftoverTokens();
   }
 
-  BlockContentComment *Block = parseParagraphOrBlockCommand();
-  // Since we have checked for a block command, we should have parsed a
-  // paragraph.
-  ParagraphComment *Paragraph = cast<ParagraphComment>(Block);
+  // If there's a block command ahead, we will attach an empty paragraph to
+  // this command.
+  bool EmptyParagraph = false;
+  if (isTokBlockCommand())
+    EmptyParagraph = true;
+  else if (Tok.is(tok::newline)) {
+    Token PrevTok = Tok;
+    consumeToken();
+    EmptyParagraph = isTokBlockCommand();
+    putBack(PrevTok);
+  }
+
+  ParagraphComment *Paragraph;
+  if (EmptyParagraph)
+    Paragraph = S.actOnParagraphComment(ArrayRef<InlineContentComment *>());
+  else {
+    BlockContentComment *Block = parseParagraphOrBlockCommand();
+    // Since we have checked for a block command, we should have parsed a
+    // paragraph.
+    Paragraph = cast<ParagraphComment>(Block);
+  }
+
   if (IsParam) {
     S.actOnParamCommandFinish(PC, Paragraph);
     return PC;

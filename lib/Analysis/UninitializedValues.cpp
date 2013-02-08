@@ -358,6 +358,16 @@ static const DeclRefExpr *getSelfInitExpr(VarDecl *VD) {
 }
 
 void ClassifyRefs::classify(const Expr *E, Class C) {
+  // The result of a ?: could also be an lvalue.
+  E = E->IgnoreParens();
+  if (const ConditionalOperator *CO = dyn_cast<ConditionalOperator>(E)) {
+    const Expr *TrueExpr = CO->getTrueExpr();
+    if (!isa<OpaqueValueExpr>(TrueExpr))
+      classify(TrueExpr, C);
+    classify(CO->getFalseExpr(), C);
+    return;
+  }
+
   FindVarResult Var = findVar(E, DC);
   if (const DeclRefExpr *DRE = Var.getDeclRefExpr())
     Classification[DRE] = std::max(Classification[DRE], C);
@@ -509,8 +519,8 @@ public:
     // 'n' is definitely uninitialized for two edges into block 7 (from blocks 2
     // and 4), so we report that any time either of those edges is taken (in
     // each case when 'b == false'), 'n' is used uninitialized.
-    llvm::SmallVector<const CFGBlock*, 32> Queue;
-    llvm::SmallVector<unsigned, 32> SuccsVisited(cfg.getNumBlockIDs(), 0);
+    SmallVector<const CFGBlock*, 32> Queue;
+    SmallVector<unsigned, 32> SuccsVisited(cfg.getNumBlockIDs(), 0);
     Queue.push_back(block);
     // Specify that we've already visited all successors of the starting block.
     // This has the dual purpose of ensuring we never add it to the queue, and
@@ -828,7 +838,7 @@ void clang::runUninitializedVariablesAnalysis(
   if (!PBH.hadAnyUse)
     return;
 
-  // Run through the blocks one more time, and report uninitialized variabes.
+  // Run through the blocks one more time, and report uninitialized variables.
   for (CFG::const_iterator BI = cfg.begin(), BE = cfg.end(); BI != BE; ++BI) {
     const CFGBlock *block = *BI;
     if (PBH.hadUse[block->getBlockID()]) {

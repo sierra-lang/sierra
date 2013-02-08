@@ -24,6 +24,7 @@
 #include "clang/Lex/Pragma.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/SaveAndRestore.h"
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
@@ -834,11 +835,11 @@ void Preprocessor::HandleLineDirective(Token &Tok) {
   // Enforce C99 6.10.4p3: "The digit sequence shall not specify ... a
   // number greater than 2147483647".  C90 requires that the line # be <= 32767.
   unsigned LineLimit = 32768U;
-  if (LangOpts.C99 || LangOpts.CPlusPlus0x)
+  if (LangOpts.C99 || LangOpts.CPlusPlus11)
     LineLimit = 2147483648U;
   if (LineNo >= LineLimit)
     Diag(DigitTok, diag::ext_pp_line_too_big) << LineLimit;
-  else if (LangOpts.CPlusPlus0x && LineNo >= 32768U)
+  else if (LangOpts.CPlusPlus11 && LineNo >= 32768U)
     Diag(DigitTok, diag::warn_cxx98_compat_pp_line_too_big);
 
   int FilenameID = -1;
@@ -1375,7 +1376,7 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
       if (Callbacks->FileNotFound(Filename, RecoveryPath)) {
         if (const DirectoryEntry *DE = FileMgr.getDirectory(RecoveryPath)) {
           // Add the recovery path to the list of search paths.
-          DirectoryLookup DL(DE, SrcMgr::C_User, true, false);
+          DirectoryLookup DL(DE, SrcMgr::C_User, false);
           HeaderInfo.AddSearchPath(DL, isAngled);
           
           // Try the lookup again, skipping the cache.
@@ -1426,7 +1427,7 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
     // Compute the module access path corresponding to this module.
     // FIXME: Should we have a second loadModule() overload to avoid this
     // extra lookup step?
-    llvm::SmallVector<std::pair<IdentifierInfo *, SourceLocation>, 2> Path;
+    SmallVector<std::pair<IdentifierInfo *, SourceLocation>, 2> Path;
     for (Module *Mod = SuggestedModule; Mod; Mod = Mod->Parent)
       Path.push_back(std::make_pair(getIdentifierInfo(Mod->Name),
                                     FilenameTok.getLocation()));
@@ -1476,7 +1477,7 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
       Diag(HashLoc, diag::warn_auto_module_import)
         << IncludeKind << PathString 
         << FixItHint::CreateReplacement(ReplaceRange,
-             "@__experimental_modules_import " + PathString.str().str() + ";");
+             "@import " + PathString.str().str() + ";");
     }
     
     // Load the module.
@@ -1644,9 +1645,15 @@ bool Preprocessor::ReadMacroDefinitionArgList(MacroInfo *MI, Token &Tok) {
       return true;
     case tok::ellipsis:  // #define X(... -> C99 varargs
       if (!LangOpts.C99)
-        Diag(Tok, LangOpts.CPlusPlus0x ? 
+        Diag(Tok, LangOpts.CPlusPlus11 ? 
              diag::warn_cxx98_compat_variadic_macro :
              diag::ext_variadic_macro);
+
+      // OpenCL v1.2 s6.9.e: variadic macros are not supported.
+      if (LangOpts.OpenCL) {
+        Diag(Tok, diag::err_pp_opencl_variadic_macros);
+        return true;
+      }
 
       // Lex the token after the identifier.
       LexUnexpandedToken(Tok);
@@ -1770,7 +1777,7 @@ void Preprocessor::HandleDefineDirective(Token &DefineTok) {
 
     // Read the first token after the arg list for down below.
     LexUnexpandedToken(Tok);
-  } else if (LangOpts.C99 || LangOpts.CPlusPlus0x) {
+  } else if (LangOpts.C99 || LangOpts.CPlusPlus11) {
     // C99 requires whitespace between the macro definition and the body.  Emit
     // a diagnostic for something like "#define X+".
     Diag(Tok, diag::ext_c99_whitespace_required_after_macro_name);
@@ -1967,15 +1974,16 @@ void Preprocessor::HandleUndefDirective(Token &UndefTok) {
   // Okay, we finally have a valid identifier to undef.
   MacroInfo *MI = getMacroInfo(MacroNameTok.getIdentifierInfo());
 
+  // If the callbacks want to know, tell them about the macro #undef.
+  // Note: no matter if the macro was defined or not.
+  if (Callbacks)
+    Callbacks->MacroUndefined(MacroNameTok, MI);
+
   // If the macro is not defined, this is a noop undef, just return.
   if (MI == 0) return;
 
   if (!MI->isUsed() && MI->isWarnIfUnused())
     Diag(MI->getDefinitionLoc(), diag::pp_macro_not_used);
-
-  // If the callbacks want to know, tell them about the macro #undef.
-  if (Callbacks)
-    Callbacks->MacroUndefined(MacroNameTok, MI);
 
   if (MI->isWarnIfUnused())
     WarnUnusedMacroLocs.erase(MI->getDefinitionLoc());
@@ -2047,9 +2055,9 @@ void Preprocessor::HandleIfdefDirective(Token &Result, bool isIfndef,
 
   if (Callbacks) {
     if (isIfndef)
-      Callbacks->Ifndef(DirectiveTok.getLocation(), MacroNameTok);
+      Callbacks->Ifndef(DirectiveTok.getLocation(), MacroNameTok, MI);
     else
-      Callbacks->Ifdef(DirectiveTok.getLocation(), MacroNameTok);
+      Callbacks->Ifdef(DirectiveTok.getLocation(), MacroNameTok, MI);
   }
 
   // Should we include the stuff contained by this directive?
@@ -2070,6 +2078,7 @@ void Preprocessor::HandleIfdefDirective(Token &Result, bool isIfndef,
 ///
 void Preprocessor::HandleIfDirective(Token &IfToken,
                                      bool ReadAnyTokensBeforeDirective) {
+  SaveAndRestore<bool> PPDir(ParsingIfOrElifDirective, true);
   ++NumIf;
 
   // Parse and evaluate the conditional expression.
@@ -2161,6 +2170,7 @@ void Preprocessor::HandleElseDirective(Token &Result) {
 /// HandleElifDirective - Implements the \#elif directive.
 ///
 void Preprocessor::HandleElifDirective(Token &ElifToken) {
+  SaveAndRestore<bool> PPDir(ParsingIfOrElifDirective, true);
   ++NumElse;
 
   // #elif directive in a non-skipping conditional... start skipping.

@@ -14,8 +14,8 @@
 
 #include "CIndexer.h"
 #include "CIndexDiagnostic.h"
+#include "CLog.h"
 #include "CXCursor.h"
-#include "CXString.h"
 #include "CXString.h"
 #include "CXTranslationUnit.h"
 #include "clang/AST/Decl.h"
@@ -48,7 +48,7 @@
 #endif
 
 using namespace clang;
-using namespace clang::cxstring;
+using namespace clang::cxindex;
 
 extern "C" {
 
@@ -111,7 +111,7 @@ CXString clang_getCompletionChunkText(CXCompletionString completion_string,
                                       unsigned chunk_number) {
   CodeCompletionString *CCStr = (CodeCompletionString *)completion_string;
   if (!CCStr || chunk_number >= CCStr->size())
-    return createCXString((const char*)0);
+    return cxstring::createNull();
 
   switch ((*CCStr)[chunk_number].Kind) {
   case CodeCompletionString::CK_TypedText:
@@ -134,11 +134,11 @@ CXString clang_getCompletionChunkText(CXCompletionString completion_string,
   case CodeCompletionString::CK_Equal:
   case CodeCompletionString::CK_HorizontalSpace:
   case CodeCompletionString::CK_VerticalSpace:
-    return createCXString((*CCStr)[chunk_number].Text, false);
+    return cxstring::createRef((*CCStr)[chunk_number].Text);
       
   case CodeCompletionString::CK_Optional:
     // Note: treated as an empty text block.
-    return createCXString("");
+    return cxstring::createEmpty();
   }
 
   llvm_unreachable("Invalid CodeCompletionString Kind!");
@@ -209,8 +209,8 @@ unsigned clang_getCompletionNumAnnotations(CXCompletionString completion_string)
 CXString clang_getCompletionAnnotation(CXCompletionString completion_string,
                                        unsigned annotation_number) {
   CodeCompletionString *CCStr = (CodeCompletionString *)completion_string;
-  return CCStr ? createCXString(CCStr->getAnnotation(annotation_number))
-               : createCXString((const char *) 0);
+  return CCStr ? cxstring::createRef(CCStr->getAnnotation(annotation_number))
+               : cxstring::createNull();
 }
 
 CXString
@@ -221,9 +221,9 @@ clang_getCompletionParent(CXCompletionString completion_string,
   
   CodeCompletionString *CCStr = (CodeCompletionString *)completion_string;
   if (!CCStr)
-    return createCXString((const char *)0);
+    return cxstring::createNull();
   
-  return createCXString(CCStr->getParentContextName(), /*DupString=*/false);
+  return cxstring::createRef(CCStr->getParentContextName());
 }
 
 CXString
@@ -231,9 +231,9 @@ clang_getCompletionBriefComment(CXCompletionString completion_string) {
   CodeCompletionString *CCStr = (CodeCompletionString *)completion_string;
 
   if (!CCStr)
-    return createCXString((const char *) NULL);
+    return cxstring::createNull();
 
-  return createCXString(CCStr->getBriefComment(), /*DupString=*/false);
+  return cxstring::createRef(CCStr->getBriefComment());
 }
 
 namespace {
@@ -320,7 +320,7 @@ AllocatedCXCodeCompleteResults::AllocatedCXCodeCompleteResults(
     CodeCompletionAllocator(new clang::GlobalCodeCompletionAllocator),
     Contexts(CXCompletionContext_Unknown),
     ContainerKind(CXCursor_InvalidCode),
-    ContainerUSR(createCXString("")),
+    ContainerUSR(cxstring::createEmpty()),
     ContainerIsIncomplete(1)
 { 
   if (getenv("LIBCLANG_OBJTRACKING")) {
@@ -599,8 +599,7 @@ namespace {
         // However, there are cases when AllocatedResults outlives the
         // CXTranslationUnit.  This is a workaround that failure mode.
         if (cxstring::isManagedByPool(cursorUSR)) {
-          CXString heapStr =
-            cxstring::createCXString(clang_getCString(cursorUSR), true);
+          CXString heapStr = cxstring::createDup(clang_getCString(cursorUSR));
           clang_disposeString(cursorUSR);
           cursorUSR = heapStr;
         }
@@ -618,7 +617,7 @@ namespace {
       }
       else {
         AllocatedResults.ContainerKind = CXCursor_InvalidCode;
-        AllocatedResults.ContainerUSR = createCXString("");
+        AllocatedResults.ContainerUSR = cxstring::createEmpty();
         AllocatedResults.ContainerIsIncomplete = 1;
       }
     }
@@ -687,11 +686,11 @@ void clang_codeCompleteAt_Impl(void *UserData) {
 
   bool EnableLogging = getenv("LIBCLANG_CODE_COMPLETION_LOGGING") != 0;
   
-  ASTUnit *AST = static_cast<ASTUnit *>(TU->TUData);
+  ASTUnit *AST = cxtu::getASTUnit(TU);
   if (!AST)
     return;
 
-  CIndexer *CXXIdx = (CIndexer*)TU->CIdx;
+  CIndexer *CXXIdx = TU->CIdx;
   if (CXXIdx->isOptEnabled(CXGlobalOpt_ThreadBackgroundPriorityForEditing))
     setThreadBackgroundPriority();
 
@@ -822,14 +821,25 @@ CXCodeCompleteResults *clang_codeCompleteAt(CXTranslationUnit TU,
                                             struct CXUnsavedFile *unsaved_files,
                                             unsigned num_unsaved_files,
                                             unsigned options) {
+  LOG_FUNC_SECTION {
+    *Log << TU << ' '
+         << complete_filename << ':' << complete_line << ':' << complete_column;
+  }
+
   CodeCompleteAtInfo CCAI = { TU, complete_filename, complete_line,
                               complete_column, unsaved_files, num_unsaved_files,
                               options, 0 };
+
+  if (getenv("LIBCLANG_NOTHREADS")) {
+    clang_codeCompleteAt_Impl(&CCAI);
+    return CCAI.result;
+  }
+
   llvm::CrashRecoveryContext CRC;
 
   if (!RunSafely(CRC, clang_codeCompleteAt_Impl, &CCAI)) {
     fprintf(stderr, "libclang: crash detected in code completion\n");
-    static_cast<ASTUnit *>(TU->TUData)->setUnsafeToFree(true);
+    cxtu::getASTUnit(TU)->setUnsafeToFree(true);
     return 0;
   } else if (getenv("LIBCLANG_RESOURCE_USAGE"))
     PrintLibclangResourceUsage(TU);
@@ -900,9 +910,9 @@ CXString clang_codeCompleteGetContainerUSR(CXCodeCompleteResults *ResultsIn) {
   AllocatedCXCodeCompleteResults *Results =
     static_cast<AllocatedCXCodeCompleteResults *>(ResultsIn);
   if (!Results)
-    return createCXString("");
+    return cxstring::createEmpty();
   
-  return createCXString(clang_getCString(Results->ContainerUSR));
+  return cxstring::createRef(clang_getCString(Results->ContainerUSR));
 }
 
   
@@ -910,9 +920,9 @@ CXString clang_codeCompleteGetObjCSelector(CXCodeCompleteResults *ResultsIn) {
   AllocatedCXCodeCompleteResults *Results =
     static_cast<AllocatedCXCodeCompleteResults *>(ResultsIn);
   if (!Results)
-    return createCXString("");
+    return cxstring::createEmpty();
   
-  return createCXString(Results->Selector);
+  return cxstring::createDup(Results->Selector);
 }
   
 } // end extern "C"

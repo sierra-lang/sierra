@@ -657,7 +657,7 @@ void CXXNameMangler::mangleFloat(const llvm::APFloat &f) {
   assert(numCharacters != 0);
 
   // Allocate a buffer of the right number of characters.
-  llvm::SmallVector<char, 20> buffer;
+  SmallVector<char, 20> buffer;
   buffer.set_size(numCharacters);
 
   // Fill the buffer left-to-right.
@@ -1882,6 +1882,14 @@ void CXXNameMangler::mangleType(const BuiltinType *T) {
   case BuiltinType::ObjCId: Out << "11objc_object"; break;
   case BuiltinType::ObjCClass: Out << "10objc_class"; break;
   case BuiltinType::ObjCSel: Out << "13objc_selector"; break;
+  case BuiltinType::OCLImage1d: Out << "11ocl_image1d"; break;
+  case BuiltinType::OCLImage1dArray: Out << "16ocl_image1darray"; break;
+  case BuiltinType::OCLImage1dBuffer: Out << "17ocl_image1dbuffer"; break;
+  case BuiltinType::OCLImage2d: Out << "11ocl_image2d"; break;
+  case BuiltinType::OCLImage2dArray: Out << "16ocl_image2darray"; break;
+  case BuiltinType::OCLImage3d: Out << "11ocl_image3d"; break;
+  case BuiltinType::OCLSampler: Out << "11ocl_sampler"; break;
+  case BuiltinType::OCLEvent: Out << "9ocl_event"; break;
   }
 }
 

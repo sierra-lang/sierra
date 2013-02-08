@@ -970,7 +970,7 @@ bool Type::isIncompleteType(NamedDecl **Def) const {
 
 bool QualType::isPODType(ASTContext &Context) const {
   // C++11 has a more relaxed definition of POD.
-  if (Context.getLangOpts().CPlusPlus0x)
+  if (Context.getLangOpts().CPlusPlus11)
     return isCXX11PODType(Context);
 
   return isCXX98PODType(Context);
@@ -1543,6 +1543,14 @@ StringRef BuiltinType::getName(const PrintingPolicy &Policy) const {
   case ObjCId:            return "id";
   case ObjCClass:         return "Class";
   case ObjCSel:           return "SEL";
+  case OCLImage1d:        return "image1d_t";
+  case OCLImage1dArray:   return "image1d_array_t";
+  case OCLImage1dBuffer:  return "image1d_buffer_t";
+  case OCLImage2d:        return "image2d_t";
+  case OCLImage2dArray:   return "image2d_array_t";
+  case OCLImage3d:        return "image3d_t";
+  case OCLSampler:        return "sampler_t";
+  case OCLEvent:          return "event_t";
   }
   
   llvm_unreachable("Invalid builtin type.");
@@ -1577,6 +1585,7 @@ StringRef FunctionType::getNameForCallConv(CallingConv CC) {
   case CC_AAPCS: return "aapcs";
   case CC_AAPCS_VFP: return "aapcs-vfp";
   case CC_PnaclCall: return "pnaclcall";
+  case CC_IntelOclBicc: return "intel_ocl_bicc";
   }
 
   llvm_unreachable("Invalid calling convention.");
@@ -1585,7 +1594,7 @@ StringRef FunctionType::getNameForCallConv(CallingConv CC) {
 FunctionProtoType::FunctionProtoType(QualType result, const QualType *args,
                                      unsigned numArgs, QualType canonical,
                                      const ExtProtoInfo &epi)
-  : FunctionType(FunctionProto, result, epi.TypeQuals, epi.RefQualifier,
+  : FunctionType(FunctionProto, result, epi.TypeQuals,
                  canonical,
                  result->isDependentType(),
                  result->isInstantiationDependentType(),
@@ -1595,8 +1604,11 @@ FunctionProtoType::FunctionProtoType(QualType result, const QualType *args,
     NumArgs(numArgs), NumExceptions(epi.NumExceptions),
     ExceptionSpecType(epi.ExceptionSpecType),
     HasAnyConsumedArgs(epi.ConsumedArguments != 0),
-    Variadic(epi.Variadic), HasTrailingReturn(epi.HasTrailingReturn)
+    Variadic(epi.Variadic), HasTrailingReturn(epi.HasTrailingReturn),
+    RefQualifier(epi.RefQualifier)
 {
+  assert(NumArgs == numArgs && "function has too many parameters");
+
   // Fill in the trailing argument array.
   QualType *argSlot = reinterpret_cast<QualType*>(this+1);
   for (unsigned i = 0; i != numArgs; ++i) {

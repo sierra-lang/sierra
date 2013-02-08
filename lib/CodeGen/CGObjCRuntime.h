@@ -209,9 +209,12 @@ public:
   virtual llvm::Constant *GetGetStructFunction() = 0;
   // API for atomic copying of qualified aggregates in setter.
   virtual llvm::Constant *GetSetStructFunction() = 0;
-  // API for atomic copying of qualified aggregates with non-trivial copy
-  // assignment (c++) in setter/getter.
-  virtual llvm::Constant *GetCppAtomicObjectFunction() = 0;
+  /// API for atomic copying of qualified aggregates with non-trivial copy
+  /// assignment (c++) in setter.
+  virtual llvm::Constant *GetCppAtomicObjectSetFunction() = 0;
+  /// API for atomic copying of qualified aggregates with non-trivial copy
+  /// assignment (c++) in getter.
+  virtual llvm::Constant *GetCppAtomicObjectGetFunction() = 0;
   
   /// GetClass - Return a reference to the class for the given
   /// interface decl.
@@ -232,7 +235,8 @@ public:
   virtual void EmitTryStmt(CodeGen::CodeGenFunction &CGF,
                            const ObjCAtTryStmt &S) = 0;
   virtual void EmitThrowStmt(CodeGen::CodeGenFunction &CGF,
-                             const ObjCAtThrowStmt &S) = 0;
+                             const ObjCAtThrowStmt &S,
+                             bool ClearInsertionPoint=true) = 0;
   virtual llvm::Value *EmitObjCWeakRead(CodeGen::CodeGenFunction &CGF,
                                         llvm::Value *AddrWeakObj) = 0;
   virtual void EmitObjCWeakAssign(CodeGen::CodeGenFunction &CGF,

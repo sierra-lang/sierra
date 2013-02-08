@@ -14,11 +14,11 @@
 #include "clang/AST/Type.h"
 #include "CGSierra.h"
 #include "CodeGenFunction.h"
-#include "llvm/Type.h"
-#include "llvm/Constants.h"
-#include "llvm/DerivedTypes.h"
-#include "llvm/Value.h"
-#include "llvm/Intrinsics.h"
+#include "llvm/IR/Type.h"
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Value.h"
+#include "llvm/IR/Intrinsics.h"
 
 using llvm::Value;
 

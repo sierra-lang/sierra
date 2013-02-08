@@ -32,6 +32,7 @@ class DependentDiagnostic;
 class EnumDecl;
 class FunctionDecl;
 class LinkageSpecDecl;
+class Module;
 class NamedDecl;
 class NamespaceDecl;
 class ObjCCategoryDecl;
@@ -592,7 +593,18 @@ public:
     
     return 0;
   }
-  
+
+private:
+  Module *getOwningModuleSlow() const;
+
+public:
+  Module *getOwningModule() const {
+    if (!isFromASTFile())
+      return 0;
+
+    return getOwningModuleSlow();
+  }
+
   unsigned getIdentifierNamespace() const {
     return IdentifierNamespace;
   }
@@ -850,6 +862,8 @@ public:
                          unsigned Indentation = 0);
   // Debuggers don't usually respect default arguments.
   LLVM_ATTRIBUTE_USED void dump() const;
+  // Same as dump(), but forces color printing.
+  LLVM_ATTRIBUTE_USED void dumpColor() const;
   void dump(raw_ostream &Out) const;
   // Debuggers don't usually respect default arguments.
   LLVM_ATTRIBUTE_USED void dumpXML() const;
@@ -890,29 +904,9 @@ public:
   virtual void print(raw_ostream &OS) const;
 };
 
-class DeclContextLookupResult
-  : public std::pair<NamedDecl**,NamedDecl**> {
-public:
-  DeclContextLookupResult(NamedDecl **I, NamedDecl **E)
-    : std::pair<NamedDecl**,NamedDecl**>(I, E) {}
-  DeclContextLookupResult()
-    : std::pair<NamedDecl**,NamedDecl**>() {}
+typedef llvm::MutableArrayRef<NamedDecl*> DeclContextLookupResult;
 
-  using std::pair<NamedDecl**,NamedDecl**>::operator=;
-};
-
-class DeclContextLookupConstResult
-  : public std::pair<NamedDecl*const*, NamedDecl*const*> {
-public:
-  DeclContextLookupConstResult(std::pair<NamedDecl**,NamedDecl**> R)
-    : std::pair<NamedDecl*const*, NamedDecl*const*>(R) {}
-  DeclContextLookupConstResult(NamedDecl * const *I, NamedDecl * const *E)
-    : std::pair<NamedDecl*const*, NamedDecl*const*>(I, E) {}
-  DeclContextLookupConstResult()
-    : std::pair<NamedDecl*const*, NamedDecl*const*>() {}
-
-  using std::pair<NamedDecl*const*,NamedDecl*const*>::operator=;
-};
+typedef ArrayRef<NamedDecl *> DeclContextLookupConstResult;
 
 /// DeclContext - This is used only as base class of specific decl types that
 /// can act as declaration contexts. These decls are (only the top classes
@@ -934,19 +928,26 @@ class DeclContext {
   /// \brief Whether this declaration context also has some external
   /// storage that contains additional declarations that are lexically
   /// part of this context.
-  mutable unsigned ExternalLexicalStorage : 1;
+  mutable bool ExternalLexicalStorage : 1;
 
   /// \brief Whether this declaration context also has some external
   /// storage that contains additional declarations that are visible
   /// in this context.
-  mutable unsigned ExternalVisibleStorage : 1;
+  mutable bool ExternalVisibleStorage : 1;
+
+  /// \brief Whether this declaration context has had external visible
+  /// storage added since the last lookup. In this case, \c LookupPtr's
+  /// invariant may not hold and needs to be fixed before we perform
+  /// another lookup.
+  mutable bool NeedToReconcileExternalVisibleStorage : 1;
 
   /// \brief Pointer to the data structure used to lookup declarations
   /// within this context (or a DependentStoredDeclsMap if this is a
   /// dependent context), and a bool indicating whether we have lazily
   /// omitted any declarations from the map. We maintain the invariant
-  /// that, if the map contains an entry for a DeclarationName, then it
-  /// contains all relevant entries for that name.
+  /// that, if the map contains an entry for a DeclarationName (and we
+  /// haven't lazily omitted anything), then it contains all relevant
+  /// entries for that name.
   mutable llvm::PointerIntPair<StoredDeclsMap*, 1, bool> LookupPtr;
 
 protected:
@@ -969,10 +970,11 @@ protected:
   static std::pair<Decl *, Decl *>
   BuildDeclChain(ArrayRef<Decl*> Decls, bool FieldsAlreadyLoaded);
 
-   DeclContext(Decl::Kind K)
-     : DeclKind(K), ExternalLexicalStorage(false),
-       ExternalVisibleStorage(false), LookupPtr(0, false), FirstDecl(0),
-       LastDecl(0) { }
+  DeclContext(Decl::Kind K)
+      : DeclKind(K), ExternalLexicalStorage(false),
+        ExternalVisibleStorage(false),
+        NeedToReconcileExternalVisibleStorage(false), LookupPtr(0, false),
+        FirstDecl(0), LastDecl(0) {}
 
 public:
   ~DeclContext();
@@ -1159,7 +1161,7 @@ public:
   /// contexts that are semanticaly connected to this declaration context,
   /// in source order, including this context (which may be the only result,
   /// for non-namespace contexts).
-  void collectAllContexts(llvm::SmallVectorImpl<DeclContext *> &Contexts);
+  void collectAllContexts(SmallVectorImpl<DeclContext *> &Contexts);
 
   /// decl_iterator - Iterates through the declarations stored
   /// within this context.
@@ -1422,7 +1424,7 @@ public:
   /// usual relationship between a DeclContext and the external source.
   /// See the ASTImporter for the (few, but important) use cases.
   void localUncachedLookup(DeclarationName Name,
-                           llvm::SmallVectorImpl<NamedDecl *> &Results);
+                           SmallVectorImpl<NamedDecl *> &Results);
 
   /// @brief Makes a declaration visible within this context.
   ///
@@ -1503,6 +1505,8 @@ public:
   /// declarations visible in this context.
   void setHasExternalVisibleStorage(bool ES = true) {
     ExternalVisibleStorage = ES;
+    if (ES)
+      NeedToReconcileExternalVisibleStorage = true;
   }
 
   /// \brief Determine whether the given declaration is stored in the list of
@@ -1518,6 +1522,7 @@ public:
   LLVM_ATTRIBUTE_USED void dumpDeclContext() const;
 
 private:
+  void reconcileExternalVisibleStorage();
   void LoadLexicalDeclsFromExternalStorage() const;
 
   /// @brief Makes a declaration visible within this context, but

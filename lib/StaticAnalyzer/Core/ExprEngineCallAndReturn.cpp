@@ -33,6 +33,9 @@ STATISTIC(NumOfDynamicDispatchPathSplits,
 STATISTIC(NumInlinedCalls,
   "The # of times we inlined a call");
 
+STATISTIC(NumReachedInlineCountMax,
+  "The # of times we reached inline count maximum");
+
 void ExprEngine::processCallEnter(CallEnter CE, ExplodedNode *Pred) {
   // Get the entry block in the CFG of the callee.
   const StackFrameContext *calleeCtx = CE.getCalleeContext();
@@ -64,6 +67,7 @@ void ExprEngine::processCallEnter(CallEnter CE, ExplodedNode *Pred) {
 static std::pair<const Stmt*,
                  const CFGBlock*> getLastStmt(const ExplodedNode *Node) {
   const Stmt *S = 0;
+  const CFGBlock *Blk = 0;
   const StackFrameContext *SF =
           Node->getLocation().getLocationContext()->getCurrentStackFrame();
 
@@ -91,6 +95,8 @@ static std::pair<const Stmt*,
         } while (!CE || CE->getCalleeContext() != CEE->getCalleeContext());
 
         // Continue searching the graph.
+      } else if (const BlockEdge *BE = dyn_cast<BlockEdge>(&PP)) {
+        Blk = BE->getSrc();
       }
     } else if (const CallEnter *CE = dyn_cast<CallEnter>(&PP)) {
       // If we reached the CallEnter for this function, it has no statements.
@@ -102,24 +108,6 @@ static std::pair<const Stmt*,
       return std::pair<const Stmt*, const CFGBlock*>((Stmt*)0, (CFGBlock*)0);
 
     Node = *Node->pred_begin();
-  }
-
-  const CFGBlock *Blk = 0;
-  if (S) {
-    // Now, get the enclosing basic block.
-    while (Node) {
-      const ProgramPoint &PP = Node->getLocation();
-      if (isa<BlockEdge>(PP) &&
-          (PP.getLocationContext()->getCurrentStackFrame() == SF)) {
-        BlockEdge &EPP = cast<BlockEdge>(PP);
-        Blk = EPP.getDst();
-        break;
-      }
-      if (Node->pred_empty())
-        return std::pair<const Stmt*, const CFGBlock*>(S, (CFGBlock*)0);
-
-      Node = *Node->pred_begin();
-    }
   }
 
   return std::pair<const Stmt*, const CFGBlock*>(S, Blk);
@@ -414,7 +402,7 @@ bool ExprEngine::shouldInlineDecl(const Decl *D, ExplodedNode *Pred) {
   if (Engine.FunctionSummaries->hasReachedMaxBlockCount(D))
     return false;
 
-  if (CalleeCFG->getNumBlockIDs() > AMgr.options.InlineMaxFunctionSize)
+  if (CalleeCFG->getNumBlockIDs() > AMgr.options.getMaxInlinableSize())
     return false;
 
   // Do not inline variadic calls (for now).
@@ -430,12 +418,12 @@ bool ExprEngine::shouldInlineDecl(const Decl *D, ExplodedNode *Pred) {
   if (getContext().getLangOpts().CPlusPlus) {
     if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
       // Conditionally allow the inlining of template functions.
-      if (!getAnalysisManager().options.mayInlineTemplateFunctions())
+      if (!AMgr.options.mayInlineTemplateFunctions())
         if (FD->getTemplatedKind() != FunctionDecl::TK_NonTemplate)
           return false;
 
       // Conditionally allow the inlining of C++ standard library functions.
-      if (!getAnalysisManager().options.mayInlineCXXStandardLibrary())
+      if (!AMgr.options.mayInlineCXXStandardLibrary())
         if (getContext().getSourceManager().isInSystemHeader(FD->getLocation()))
           if (IsInStdNamespace(FD))
             return false;
@@ -446,6 +434,14 @@ bool ExprEngine::shouldInlineDecl(const Decl *D, ExplodedNode *Pred) {
   // run.  If so, bail out.
   if (!CalleeADC->getAnalysis<RelaxedLiveVariables>())
     return false;
+
+  if (Engine.FunctionSummaries->getNumTimesInlined(D) >
+        AMgr.options.getMaxTimesInlineLarge() &&
+      CalleeCFG->getNumBlockIDs() > 13) {
+    NumReachedInlineCountMax++;
+    return false;
+  }
+  Engine.FunctionSummaries->bumpNumTimesInlined(D);
 
   return true;
 }
@@ -562,8 +558,9 @@ bool ExprEngine::inlineCall(const CallEvent &Call, const Decl *D,
   case CE_ObjCMessage:
     if (!Opts.mayInlineObjCMethod())
       return false;
-    if (!(getAnalysisManager().options.IPAMode == DynamicDispatch ||
-          getAnalysisManager().options.IPAMode == DynamicDispatchBifurcate))
+    AnalyzerOptions &Options = getAnalysisManager().options;
+    if (!(Options.getIPAMode() == IPAK_DynamicDispatch ||
+          Options.getIPAMode() == IPAK_DynamicDispatchBifurcate))
       return false;
     break;
   }
@@ -612,11 +609,11 @@ bool ExprEngine::inlineCall(const CallEvent &Call, const Decl *D,
 
 static ProgramStateRef getInlineFailedState(ProgramStateRef State,
                                             const Stmt *CallE) {
-  void *ReplayState = State->get<ReplayWithoutInlining>();
+  const void *ReplayState = State->get<ReplayWithoutInlining>();
   if (!ReplayState)
     return 0;
 
-  assert(ReplayState == (const void*)CallE && "Backtracked to the wrong call.");
+  assert(ReplayState == CallE && "Backtracked to the wrong call.");
   (void)CallE;
 
   return State->remove<ReplayWithoutInlining>();
@@ -717,13 +714,27 @@ void ExprEngine::conservativeEvalCall(const CallEvent &Call, NodeBuilder &Bldr,
   Bldr.generateNode(Call.getProgramPoint(), State, Pred);
 }
 
+static bool isEssentialToInline(const CallEvent &Call) {
+  const Decl *D = Call.getDecl();
+  if (D) {
+    AnalysisDeclContext *AD =
+      Call.getLocationContext()->getAnalysisDeclContext()->
+      getManager()->getContext(D);
+
+    // The auto-synthesized bodies are essential to inline as they are
+    // usually small and commonly used.
+    return AD->isBodyAutosynthesized();
+  }
+  return false;
+}
+
 void ExprEngine::defaultEvalCall(NodeBuilder &Bldr, ExplodedNode *Pred,
                                  const CallEvent &CallTemplate) {
   // Make sure we have the most recent state attached to the call.
   ProgramStateRef State = Pred->getState();
   CallEventRef<> Call = CallTemplate.cloneWithState(State);
 
-  if (!getAnalysisManager().shouldInlineCall()) {
+  if (HowToInline == Inline_None && !isEssentialToInline(CallTemplate)) {
     conservativeEvalCall(*Call, Bldr, Pred, State);
     return;
   }
@@ -741,14 +752,16 @@ void ExprEngine::defaultEvalCall(NodeBuilder &Bldr, ExplodedNode *Pred,
     const Decl *D = RD.getDecl();
     if (D) {
       if (RD.mayHaveOtherDefinitions()) {
+        AnalyzerOptions &Options = getAnalysisManager().options;
+
         // Explore with and without inlining the call.
-        if (getAnalysisManager().options.IPAMode == DynamicDispatchBifurcate) {
+        if (Options.getIPAMode() == IPAK_DynamicDispatchBifurcate) {
           BifurcateCall(RD.getDispatchRegion(), *Call, D, Bldr, Pred);
           return;
         }
 
         // Don't inline if we're not in any dynamic dispatch mode.
-        if (getAnalysisManager().options.IPAMode != DynamicDispatch) {
+        if (Options.getIPAMode() != IPAK_DynamicDispatch) {
           conservativeEvalCall(*Call, Bldr, Pred, State);
           return;
         }

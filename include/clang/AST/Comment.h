@@ -171,8 +171,9 @@ public:
   const char *getCommentKindName() const;
 
   LLVM_ATTRIBUTE_USED void dump() const;
+  LLVM_ATTRIBUTE_USED void dumpColor() const;
   LLVM_ATTRIBUTE_USED void dump(const ASTContext &Context) const;
-  void dump(llvm::raw_ostream &OS, const CommandTraits *Traits,
+  void dump(raw_ostream &OS, const CommandTraits *Traits,
             const SourceManager *SM) const;
 
   SourceRange getSourceRange() const LLVM_READONLY { return Range; }
@@ -282,14 +283,14 @@ public:
 
 protected:
   /// Command arguments.
-  llvm::ArrayRef<Argument> Args;
+  ArrayRef<Argument> Args;
 
 public:
   InlineCommandComment(SourceLocation LocBegin,
                        SourceLocation LocEnd,
                        unsigned CommandID,
                        RenderKind RK,
-                       llvm::ArrayRef<Argument> Args) :
+                       ArrayRef<Argument> Args) :
       InlineContentComment(InlineCommandCommentKind, LocBegin, LocEnd),
       Args(Args) {
     InlineCommandCommentBits.RenderKind = RK;
@@ -504,10 +505,10 @@ public:
 
 /// A single paragraph that contains inline content.
 class ParagraphComment : public BlockContentComment {
-  llvm::ArrayRef<InlineContentComment *> Content;
+  ArrayRef<InlineContentComment *> Content;
 
 public:
-  ParagraphComment(llvm::ArrayRef<InlineContentComment *> Content) :
+  ParagraphComment(ArrayRef<InlineContentComment *> Content) :
       BlockContentComment(ParagraphCommentKind,
                           SourceLocation(),
                           SourceLocation()),
@@ -565,7 +566,7 @@ public:
 
 protected:
   /// Word-like arguments.
-  llvm::ArrayRef<Argument> Args;
+  ArrayRef<Argument> Args;
 
   /// Paragraph argument.
   ParagraphComment *Paragraph;
@@ -633,7 +634,7 @@ public:
     return Args[Idx].Range;
   }
 
-  void setArgs(llvm::ArrayRef<Argument> A) {
+  void setArgs(ArrayRef<Argument> A) {
     Args = A;
     if (Args.size() > 0) {
       SourceLocation NewLocEnd = Args.back().Range.getEnd();
@@ -746,7 +747,7 @@ private:
   /// For C:  Position = { 0 }
   /// For TT: Position = { 1 }
   /// For T:  Position = { 1, 0 }
-  llvm::ArrayRef<unsigned> Position;
+  ArrayRef<unsigned> Position;
 
 public:
   TParamCommandComment(SourceLocation LocBegin,
@@ -826,7 +827,7 @@ class VerbatimBlockComment : public BlockCommandComment {
 protected:
   StringRef CloseName;
   SourceLocation CloseNameLocBegin;
-  llvm::ArrayRef<VerbatimBlockLineComment *> Lines;
+  ArrayRef<VerbatimBlockLineComment *> Lines;
 
 public:
   VerbatimBlockComment(SourceLocation LocBegin,
@@ -853,7 +854,7 @@ public:
     CloseNameLocBegin = LocBegin;
   }
 
-  void setLines(llvm::ArrayRef<VerbatimBlockLineComment *> L) {
+  void setLines(ArrayRef<VerbatimBlockLineComment *> L) {
     Lines = L;
   }
 
@@ -1021,11 +1022,11 @@ struct DeclInfo {
 
 /// A full comment attached to a declaration, contains block content.
 class FullComment : public Comment {
-  llvm::ArrayRef<BlockContentComment *> Blocks;
+  ArrayRef<BlockContentComment *> Blocks;
   DeclInfo *ThisDeclInfo;
 
 public:
-  FullComment(llvm::ArrayRef<BlockContentComment *> Blocks, DeclInfo *D) :
+  FullComment(ArrayRef<BlockContentComment *> Blocks, DeclInfo *D) :
       Comment(FullCommentKind, SourceLocation(), SourceLocation()),
       Blocks(Blocks), ThisDeclInfo(D) {
     if (Blocks.empty())
@@ -1062,7 +1063,7 @@ public:
     return ThisDeclInfo;
   }
   
-  llvm::ArrayRef<BlockContentComment *> getBlocks() const { return Blocks; }
+  ArrayRef<BlockContentComment *> getBlocks() const { return Blocks; }
   
 };
 } // end namespace comments

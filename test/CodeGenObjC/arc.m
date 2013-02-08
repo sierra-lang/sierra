@@ -1,6 +1,37 @@
 // RUN: %clang_cc1 -triple x86_64-apple-darwin10 -emit-llvm -fblocks -fobjc-arc -fobjc-runtime-has-weak -O2 -disable-llvm-optzns -o - %s | FileCheck %s
 // RUN: %clang_cc1 -triple x86_64-apple-darwin10 -emit-llvm -fblocks -fobjc-arc -fobjc-runtime-has-weak -o - %s | FileCheck -check-prefix=CHECK-GLOBALS %s
 
+// rdar://13129783. Check both native/non-native arc platforms. Here we check
+// that they treat nonlazybind differently.
+// RUN: %clang_cc1 -fobjc-runtime=macosx-10.6.0 -triple x86_64-apple-darwin10 -emit-llvm -fblocks -fobjc-arc -fobjc-runtime-has-weak -o - %s | FileCheck -check-prefix=ARC-ALIEN %s
+// RUN: %clang_cc1 -fobjc-runtime=macosx-10.7.0 -triple x86_64-apple-darwin11 -emit-llvm -fblocks -fobjc-arc -fobjc-runtime-has-weak -o - %s | FileCheck -check-prefix=ARC-NATIVE %s
+
+// ARC-ALIEN: declare extern_weak i8* @objc_retain(i8*)
+// ARC-ALIEN: declare extern_weak void @objc_storeStrong(i8**, i8*)
+// ARC-ALIEN: declare extern_weak i8* @objc_autoreleaseReturnValue(i8*)
+// ARC-ALIEN: declare i8* @objc_msgSend(i8*, i8*, ...) nonlazybind
+// ARC-ALIEN: declare extern_weak void @objc_release(i8*)
+// ARC-ALIEN: declare extern_weak i8* @objc_retainAutoreleasedReturnValue(i8*)
+// ARC-ALIEN: declare extern_weak i8* @objc_initWeak(i8**, i8*)
+// ARC-ALIEN: declare extern_weak i8* @objc_storeWeak(i8**, i8*)
+// ARC-ALIEN: declare extern_weak i8* @objc_loadWeakRetained(i8**)
+// ARC-ALIEN: declare extern_weak void @objc_destroyWeak(i8**)
+// ARC-ALIEN: declare extern_weak i8* @objc_autorelease(i8*)
+// ARC-ALIEN: declare extern_weak i8* @objc_retainAutorelease(i8*)
+
+// ARC-NATIVE: declare i8* @objc_retain(i8*) nonlazybind
+// ARC-NATIVE: declare void @objc_storeStrong(i8**, i8*)
+// ARC-NATIVE: declare i8* @objc_autoreleaseReturnValue(i8*)
+// ARC-NATIVE: declare i8* @objc_msgSend(i8*, i8*, ...) nonlazybind
+// ARC-NATIVE: declare void @objc_release(i8*) nonlazybind
+// ARC-NATIVE: declare i8* @objc_retainAutoreleasedReturnValue(i8*)
+// ARC-NATIVE: declare i8* @objc_initWeak(i8**, i8*)
+// ARC-NATIVE: declare i8* @objc_storeWeak(i8**, i8*)
+// ARC-NATIVE: declare i8* @objc_loadWeakRetained(i8**)
+// ARC-NATIVE: declare void @objc_destroyWeak(i8**)
+// ARC-NATIVE: declare i8* @objc_autorelease(i8*)
+// ARC-NATIVE: declare i8* @objc_retainAutorelease(i8*)
+
 // CHECK: define void @test0
 void test0(id x) {
   // CHECK:      [[X:%.*]] = alloca i8*
@@ -9,9 +40,6 @@ void test0(id x) {
   // CHECK-NEXT: [[TMP:%.*]] = load i8** [[X]]
   // CHECK-NEXT: call void @objc_release(i8* [[TMP]])
   // CHECK-NEXT: ret void
-// rdar://12040837
-  // CHECK: declare extern_weak i8* @objc_retain(i8*) nonlazybind
-  // CHECK: declare extern_weak void @objc_release(i8*) nonlazybind
 }
 
 // CHECK: define i8* @test1(i8*
@@ -29,7 +57,7 @@ id test1(id x) {
   // CHECK-NEXT: call void @objc_release(i8* [[T0]])
   // CHECK-NEXT: [[T1:%.*]] = load i8** [[X]]
   // CHECK-NEXT: call void @objc_release(i8* [[T1]])
-  // CHECK-NEXT: [[T1:%.*]] = call i8* @objc_autoreleaseReturnValue(i8* [[RET]])
+  // CHECK-NEXT: [[T1:%.*]] = tail call i8* @objc_autoreleaseReturnValue(i8* [[RET]])
   // CHECK-NEXT: ret i8* [[T1]]
   id y;
   return y;
@@ -156,7 +184,7 @@ id test4() {
   // Retain/release elided.
   // CHECK-NEXT: bitcast
   // CHECK-NEXT: [[INIT:%.*]] = bitcast
-  // CHECK-NEXT: [[RET:%.*]] = call i8* @objc_autoreleaseReturnValue(i8* [[INIT]])
+  // CHECK-NEXT: [[RET:%.*]] = tail call i8* @objc_autoreleaseReturnValue(i8* [[INIT]])
 
   // CHECK-NEXT: ret i8* [[RET]]
 
@@ -1191,7 +1219,7 @@ id test52(void) {
 // CHECK-NEXT: store i32 5, i32* [[X]],
 // CHECK-NEXT: [[T0:%.*]] = load i32* [[X]],
 // CHECK-NEXT: [[T1:%.*]] = call i8* @test52_helper(i32 [[T0]])
-// CHECK-NEXT: [[T2:%.*]] = call i8* @objc_autoreleaseReturnValue(i8* [[T1]])
+// CHECK-NEXT: [[T2:%.*]] = tail call i8* @objc_autoreleaseReturnValue(i8* [[T1]])
 // CHECK-NEXT: ret i8* [[T2]]
 }
 
@@ -1292,7 +1320,7 @@ void test56_test(void) {
 // CHECK-NEXT: [[T3:%.*]] = getelementptr inbounds i8* [[T2]], i64 [[T1]]
 // CHECK-NEXT: [[T4:%.*]] = bitcast i8* [[T3]] to i8**
 // CHECK-NEXT: [[T5:%.*]] = call i8* @objc_loadWeakRetained(i8** [[T4]])
-// CHECK-NEXT: [[T6:%.*]] = call i8* @objc_autoreleaseReturnValue(i8* [[T5]])
+// CHECK-NEXT: [[T6:%.*]] = tail call i8* @objc_autoreleaseReturnValue(i8* [[T5]])
 // CHECK-NEXT: ret i8* [[T6]]
 
 // CHECK: define internal i8* @"\01-[Test57 unsafe]"(

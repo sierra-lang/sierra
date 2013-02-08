@@ -1858,6 +1858,15 @@ void BuildLockset::checkAccess(const Expr *Exp, AccessKind AK) {
     return;
   }
 
+  if (Analyzer->Handler.issueBetaWarnings()) {
+    if (const MemberExpr *ME = dyn_cast<MemberExpr>(Exp)) {
+      if (ME->isArrow())
+        checkPtAccess(ME->getBase(), AK);
+      else
+        checkAccess(ME->getBase(), AK);
+    }
+  }
+
   const ValueDecl *D = getValueDecl(Exp);
   if (!D || !D->hasAttrs())
     return;
@@ -2217,6 +2226,21 @@ void ThreadSafetyAnalyzer::intersectAndWarn(FactSet &FSet1,
 }
 
 
+// Return true if block B never continues to its successors.
+inline bool neverReturns(const CFGBlock* B) {
+  if (B->hasNoReturnElement())
+    return true;
+  if (B->empty())
+    return false;
+
+  CFGElement Last = B->back();
+  if (CFGStmt* S = dyn_cast<CFGStmt>(&Last)) {
+    if (isa<CXXThrowExpr>(S->getStmt()))
+      return true;
+  }
+  return false;
+}
+
 
 /// \brief Check a function's CFG for thread-safety violations.
 ///
@@ -2334,7 +2358,7 @@ void ThreadSafetyAnalyzer::runAnalysis(AnalysisDeclContext &AC) {
     // union because the real error is probably that we forgot to unlock M on
     // all code paths.
     bool LocksetInitialized = false;
-    llvm::SmallVector<CFGBlock*, 8> SpecialBlocks;
+    SmallVector<CFGBlock *, 8> SpecialBlocks;
     for (CFGBlock::const_pred_iterator PI = CurrBlock->pred_begin(),
          PE  = CurrBlock->pred_end(); PI != PE; ++PI) {
 
@@ -2346,7 +2370,7 @@ void ThreadSafetyAnalyzer::runAnalysis(AnalysisDeclContext &AC) {
       CFGBlockInfo *PrevBlockInfo = &BlockInfo[PrevBlockID];
 
       // Ignore edges from blocks that can't return.
-      if ((*PI)->hasNoReturnElement() || !PrevBlockInfo->Reachable)
+      if (neverReturns(*PI) || !PrevBlockInfo->Reachable)
         continue;
 
       // Okay, we can reach this block from the entry.
@@ -2362,7 +2386,6 @@ void ThreadSafetyAnalyzer::runAnalysis(AnalysisDeclContext &AC) {
           continue;
         }
       }
-
 
       FactSet PrevLockset;
       getEdgeLockset(PrevLockset, PrevBlockInfo->ExitSet, *PI, CurrBlock);

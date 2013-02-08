@@ -10,9 +10,9 @@
 CLANG_LEVEL = ../..
 TESTNAME = Format
 include $(CLANG_LEVEL)/../../Makefile.config
-LINK_COMPONENTS := $(TARGETS_TO_BUILD) asmparser support mc
+LINK_COMPONENTS := $(TARGETS_TO_BUILD) asmparser bitreader support mc
 USEDLIBS = clangFormat.a clangTooling.a clangFrontend.a clangSerialization.a \
-           clangDriver.a clangParse.a clangRewriteCore.a
+           clangDriver.a clangParse.a clangRewriteCore.a \
            clangRewriteFrontend.a clangSema.a clangAnalysis.a clangEdit.a \
            clangAST.a clangASTMatchers.a clangLex.a clangBasic.a
 

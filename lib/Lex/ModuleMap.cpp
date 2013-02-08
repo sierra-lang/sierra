@@ -28,6 +28,9 @@
 #include "llvm/Support/PathV2.h"
 #include "llvm/Support/raw_ostream.h"
 #include <stdlib.h>
+#if defined(LLVM_ON_UNIX)
+#include <limits.h>
+#endif
 using namespace clang;
 
 Module::ExportDecl 
@@ -157,8 +160,13 @@ Module *ModuleMap::findModuleForHeader(const FileEntry *File) {
   }
   
   const DirectoryEntry *Dir = File->getDir();
-  llvm::SmallVector<const DirectoryEntry *, 2> SkippedDirs;
-  StringRef DirName = Dir->getName();
+  SmallVector<const DirectoryEntry *, 2> SkippedDirs;
+
+  // Note: as an egregious but useful hack we use the real path here, because
+  // frameworks moving from top-level frameworks to embedded frameworks tend
+  // to be symlinked from the top-level location to the embedded location,
+  // and we need to resolve lookups as if we had found the embedded location.
+  StringRef DirName = SourceMgr->getFileManager().getCanonicalName(Dir);
 
   // Keep walking up the directory hierarchy, looking for a directory with
   // an umbrella header.
@@ -247,7 +255,7 @@ bool ModuleMap::isHeaderInUnavailableModule(const FileEntry *Header) {
     return !Known->second.isAvailable();
   
   const DirectoryEntry *Dir = Header->getDir();
-  llvm::SmallVector<const DirectoryEntry *, 2> SkippedDirs;
+  SmallVector<const DirectoryEntry *, 2> SkippedDirs;
   StringRef DirName = Dir->getName();
 
   // Keep walking up the directory hierarchy, looking for a directory with
@@ -370,6 +378,23 @@ bool ModuleMap::canInferFrameworkModule(const DirectoryEntry *ParentDir,
   return canInfer;
 }
 
+/// \brief For a framework module, infer the framework against which we
+/// should link.
+static void inferFrameworkLink(Module *Mod, const DirectoryEntry *FrameworkDir,
+                               FileManager &FileMgr) {
+  assert(Mod->IsFramework && "Can only infer linking for framework modules");
+  assert(!Mod->isSubFramework() &&
+         "Can only infer linking for top-level frameworks");
+
+  SmallString<128> LibName;
+  LibName += FrameworkDir->getName();
+  llvm::sys::path::append(LibName, Mod->Name);
+  if (FileMgr.getFile(LibName)) {
+    Mod->LinkLibraries.push_back(Module::LinkLibrary(Mod->Name,
+                                                     /*IsFramework=*/true));
+  }
+}
+
 Module *
 ModuleMap::inferFrameworkModule(StringRef ModuleName,
                                 const DirectoryEntry *FrameworkDir,
@@ -384,10 +409,19 @@ ModuleMap::inferFrameworkModule(StringRef ModuleName,
   // If the framework has a parent path from which we're allowed to infer
   // a framework module, do so.
   if (!Parent) {
+    // Determine whether we're allowed to infer a module map.
+
+    // Note: as an egregious but useful hack we use the real path here, because
+    // we might be looking at an embedded framework that symlinks out to a
+    // top-level framework, and we need to infer as if we were naming the
+    // top-level framework.
+    StringRef FrameworkDirName
+      = SourceMgr->getFileManager().getCanonicalName(FrameworkDir);
+
     bool canInfer = false;
-    if (llvm::sys::path::has_parent_path(FrameworkDir->getName())) {
+    if (llvm::sys::path::has_parent_path(FrameworkDirName)) {
       // Figure out the parent path.
-      StringRef Parent = llvm::sys::path::parent_path(FrameworkDir->getName());
+      StringRef Parent = llvm::sys::path::parent_path(FrameworkDirName);
       if (const DirectoryEntry *ParentDir = FileMgr.getDirectory(Parent)) {
         // Check whether we have already looked into the parent directory
         // for a module map.
@@ -411,7 +445,7 @@ ModuleMap::inferFrameworkModule(StringRef ModuleName,
         if (inferred->second.InferModules) {
           // We're allowed to infer for this directory, but make sure it's okay
           // to infer this particular module.
-          StringRef Name = llvm::sys::path::filename(FrameworkDir->getName());
+          StringRef Name = llvm::sys::path::stem(FrameworkDirName);
           canInfer = std::find(inferred->second.ExcludedModules.begin(),
                                inferred->second.ExcludedModules.end(),
                                Name) == inferred->second.ExcludedModules.end();
@@ -480,29 +514,23 @@ ModuleMap::inferFrameworkModule(StringRef ModuleName,
       // check whether it is actually a subdirectory of the parent directory.
       // This will not be the case if the 'subframework' is actually a symlink
       // out to a top-level framework.
-#ifdef LLVM_ON_UNIX
-      char RealSubframeworkDirName[PATH_MAX];
-      if (realpath(Dir->path().c_str(), RealSubframeworkDirName)) {
-        StringRef SubframeworkDirName = RealSubframeworkDirName;
+      StringRef SubframeworkDirName = FileMgr.getCanonicalName(SubframeworkDir);
+      bool FoundParent = false;
+      do {
+        // Get the parent directory name.
+        SubframeworkDirName
+          = llvm::sys::path::parent_path(SubframeworkDirName);
+        if (SubframeworkDirName.empty())
+          break;
 
-        bool FoundParent = false;
-        do {
-          // Get the parent directory name.
-          SubframeworkDirName
-            = llvm::sys::path::parent_path(SubframeworkDirName);
-          if (SubframeworkDirName.empty())
-            break;
+        if (FileMgr.getDirectory(SubframeworkDirName) == FrameworkDir) {
+          FoundParent = true;
+          break;
+        }
+      } while (true);
 
-          if (FileMgr.getDirectory(SubframeworkDirName) == FrameworkDir) {
-            FoundParent = true;
-            break;
-          }
-        } while (true);
-
-        if (!FoundParent)
-          continue;
-      }
-#endif
+      if (!FoundParent)
+        continue;
 
       // FIXME: Do we want to warn about subframeworks without umbrella headers?
       SmallString<32> NameBuf;
@@ -510,6 +538,12 @@ ModuleMap::inferFrameworkModule(StringRef ModuleName,
                              llvm::sys::path::stem(Dir->path()), NameBuf),
                            SubframeworkDir, IsSystem, Result);
     }
+  }
+
+  // If the module is a top-level framework, automatically link against the
+  // framework.
+  if (!Result->isSubFramework()) {
+    inferFrameworkLink(Result, FrameworkDir, FileMgr);
   }
 
   return Result;
@@ -620,6 +654,7 @@ namespace clang {
       ExplicitKeyword,
       ExportKeyword,
       FrameworkKeyword,
+      LinkKeyword,
       ModuleKeyword,
       Period,
       UmbrellaKeyword,
@@ -700,14 +735,14 @@ namespace clang {
     /// (or the end of the file).
     void skipUntil(MMToken::TokenKind K);
 
-    typedef llvm::SmallVector<std::pair<std::string, SourceLocation>, 2>
-      ModuleId;
+    typedef SmallVector<std::pair<std::string, SourceLocation>, 2> ModuleId;
     bool parseModuleId(ModuleId &Id);
     void parseModuleDecl();
     void parseRequiresDecl();
     void parseHeaderDecl(SourceLocation UmbrellaLoc, SourceLocation ExcludeLoc);
     void parseUmbrellaDirDecl(SourceLocation UmbrellaLoc);
     void parseExportDecl();
+    void parseLinkDecl();
     void parseInferredModuleDecl(bool Framework, bool Explicit);
     bool parseOptionalAttributes(Attributes &Attrs);
 
@@ -750,6 +785,7 @@ retry:
                  .Case("explicit", MMToken::ExplicitKeyword)
                  .Case("export", MMToken::ExportKeyword)
                  .Case("framework", MMToken::FrameworkKeyword)
+                 .Case("link", MMToken::LinkKeyword)
                  .Case("module", MMToken::ModuleKeyword)
                  .Case("requires", MMToken::RequiresKeyword)
                  .Case("umbrella", MMToken::UmbrellaKeyword)
@@ -920,6 +956,7 @@ namespace {
 ///     header-declaration
 ///     submodule-declaration
 ///     export-declaration
+///     link-declaration
 ///
 ///   submodule-declaration:
 ///     module-declaration
@@ -1099,7 +1136,11 @@ void ModuleMapParser::parseModuleDecl() {
     case MMToken::HeaderKeyword:
       parseHeaderDecl(SourceLocation(), SourceLocation());
       break;
-        
+
+    case MMToken::LinkKeyword:
+      parseLinkDecl();
+      break;
+
     default:
       Diags.Report(Tok.getLocation(), diag::err_mmap_expected_member);
       consumeToken();
@@ -1113,6 +1154,13 @@ void ModuleMapParser::parseModuleDecl() {
     Diags.Report(Tok.getLocation(), diag::err_mmap_expected_rbrace);
     Diags.Report(LBraceLoc, diag::note_mmap_lbrace_match);
     HadError = true;
+  }
+
+  // If the active module is a top-level framework, and there are no link
+  // libraries, automatically link against the framework.
+  if (ActiveModule->IsFramework && !ActiveModule->isSubFramework() &&
+      ActiveModule->LinkLibraries.empty()) {
+    inferFrameworkLink(ActiveModule, Directory, SourceMgr.getFileManager());
   }
 
   // We're done parsing this module. Pop back to the previous module.
@@ -1159,9 +1207,9 @@ void ModuleMapParser::parseRequiresDecl() {
 /// \brief Append to \p Paths the set of paths needed to get to the 
 /// subframework in which the given module lives.
 static void appendSubframeworkPaths(Module *Mod,
-                                    llvm::SmallVectorImpl<char> &Path) {
+                                    SmallVectorImpl<char> &Path) {
   // Collect the framework names from the given module to the top-level module.
-  llvm::SmallVector<StringRef, 2> Paths;
+  SmallVector<StringRef, 2> Paths;
   for (; Mod; Mod = Mod->Parent) {
     if (Mod->IsFramework)
       Paths.push_back(Mod->Name);
@@ -1416,7 +1464,36 @@ void ModuleMapParser::parseExportDecl() {
   ActiveModule->UnresolvedExports.push_back(Unresolved);
 }
 
-/// \brief Parse an inferried module declaration (wildcard modules).
+/// \brief Parse a link declaration.
+///
+///   module-declaration:
+///     'link' 'framework'[opt] string-literal
+void ModuleMapParser::parseLinkDecl() {
+  assert(Tok.is(MMToken::LinkKeyword));
+  SourceLocation LinkLoc = consumeToken();
+
+  // Parse the optional 'framework' keyword.
+  bool IsFramework = false;
+  if (Tok.is(MMToken::FrameworkKeyword)) {
+    consumeToken();
+    IsFramework = true;
+  }
+
+  // Parse the library name
+  if (!Tok.is(MMToken::StringLiteral)) {
+    Diags.Report(Tok.getLocation(), diag::err_mmap_expected_library_name)
+      << IsFramework << SourceRange(LinkLoc);
+    HadError = true;
+    return;
+  }
+
+  std::string LibraryName = Tok.getString();
+  consumeToken();
+  ActiveModule->LinkLibraries.push_back(Module::LinkLibrary(LibraryName,
+                                                            IsFramework));
+}
+
+/// \brief Parse an inferred module declaration (wildcard modules).
 ///
 ///   module-declaration:
 ///     'explicit'[opt] 'framework'[opt] 'module' * attributes[opt]
@@ -1655,13 +1732,14 @@ bool ModuleMapParser::parseModuleMapFile() {
     case MMToken::FrameworkKeyword:
       parseModuleDecl();
       break;
-      
+
     case MMToken::Comma:
     case MMToken::ExcludeKeyword:
     case MMToken::ExportKeyword:
     case MMToken::HeaderKeyword:
     case MMToken::Identifier:
     case MMToken::LBrace:
+    case MMToken::LinkKeyword:
     case MMToken::LSquare:
     case MMToken::Period:
     case MMToken::RBrace:
@@ -1679,11 +1757,16 @@ bool ModuleMapParser::parseModuleMapFile() {
 }
 
 bool ModuleMap::parseModuleMapFile(const FileEntry *File) {
+  llvm::DenseMap<const FileEntry *, bool>::iterator Known
+    = ParsedModuleMap.find(File);
+  if (Known != ParsedModuleMap.end())
+    return Known->second;
+
   assert(Target != 0 && "Missing target information");
   FileID ID = SourceMgr->createFileID(File, SourceLocation(), SrcMgr::C_User);
   const llvm::MemoryBuffer *Buffer = SourceMgr->getBuffer(ID);
   if (!Buffer)
-    return true;
+    return ParsedModuleMap[File] = true;
   
   // Parse this module map file.
   Lexer L(ID, SourceMgr->getBuffer(ID), *SourceMgr, MMapLangOpts);
@@ -1692,6 +1775,6 @@ bool ModuleMap::parseModuleMapFile(const FileEntry *File) {
                          BuiltinIncludeDir);
   bool Result = Parser.parseModuleMapFile();
   Diags->getClient()->EndSourceFile();
-  
+  ParsedModuleMap[File] = Result;
   return Result;
 }

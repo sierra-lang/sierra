@@ -396,7 +396,7 @@ class TemplateDiff {
   QualType ToType;
 
   /// Str - Storage for the output stream.
-  llvm::SmallString<128> Str;
+  SmallString<128> Str;
 
   /// OS - The stream used to construct the output strings.
   llvm::raw_svector_ostream OS;
@@ -447,11 +447,12 @@ class TemplateDiff {
       DiffNode(unsigned ParentNode = 0)
         : NextNode(0), ChildNode(0), ParentNode(ParentNode),
           FromType(), ToType(), FromExpr(0), ToExpr(0), FromTD(0), ToTD(0),
+          IsValidFromInt(false), IsValidToInt(false),
           FromDefault(false), ToDefault(false), Same(false) { }
     };
 
     /// FlatTree - A flattened tree used to store the DiffNodes.
-    llvm::SmallVector<DiffNode, 16> FlatTree;
+    SmallVector<DiffNode, 16> FlatTree;
 
     /// CurrentNode - The index of the current node being used.
     unsigned CurrentNode;
@@ -847,7 +848,7 @@ class TemplateDiff {
               dyn_cast<NonTypeTemplateParmDecl>(ParamND)) {
         Expr *FromExpr, *ToExpr;
         llvm::APSInt FromInt, ToInt;
-        unsigned ParamWidth = 0;
+        unsigned ParamWidth = 128; // Safe default
         if (DefaultNTTPD->getType()->isIntegralOrEnumerationType())
           ParamWidth = Context.getIntWidth(DefaultNTTPD->getType());
         bool HasFromInt = !FromIter.isEnd() &&
@@ -893,8 +894,9 @@ class TemplateDiff {
         GetTemplateDecl(FromIter, DefaultTTPD, FromDecl);
         GetTemplateDecl(ToIter, DefaultTTPD, ToDecl);
         Tree.SetNode(FromDecl, ToDecl);
-        Tree.SetSame(FromDecl && ToDecl &&
-                     FromDecl->getIdentifier() == ToDecl->getIdentifier());
+        Tree.SetSame(
+            FromDecl && ToDecl &&
+            FromDecl->getCanonicalDecl() == ToDecl->getCanonicalDecl());
       }
 
       if (!FromIter.isEnd()) ++FromIter;
@@ -919,8 +921,8 @@ class TemplateDiff {
   /// even if the template arguments are not.
   static bool hasSameBaseTemplate(const TemplateSpecializationType *FromTST,
                                   const TemplateSpecializationType *ToTST) {
-    return FromTST->getTemplateName().getAsTemplateDecl()->getIdentifier() ==
-           ToTST->getTemplateName().getAsTemplateDecl()->getIdentifier();
+    return FromTST->getTemplateName().getAsTemplateDecl()->getCanonicalDecl() ==
+           ToTST->getTemplateName().getAsTemplateDecl()->getCanonicalDecl();
   }
 
   /// hasSameTemplate - Returns true if both types are specialized from the
@@ -1125,7 +1127,12 @@ class TemplateDiff {
     TemplateDecl *FromTD, *ToTD;
     Tree.GetNode(FromTD, ToTD);
 
-    assert(Tree.HasChildren() && "Template difference not found in diff tree.");
+    if (!Tree.HasChildren()) {
+      // If we're dealing with a template specialization with zero
+      // arguments, there are no children; special-case this.
+      OS << FromTD->getNameAsString() << "<>";
+      return;
+    }
 
     Qualifiers FromQual, ToQual;
     Tree.GetNode(FromQual, ToQual);
@@ -1272,21 +1279,29 @@ class TemplateDiff {
   void PrintTemplateTemplate(TemplateDecl *FromTD, TemplateDecl *ToTD,
                              bool FromDefault, bool ToDefault, bool Same) {
     assert((FromTD || ToTD) && "Only one template argument may be missing.");
+
+    std::string FromName = FromTD ? FromTD->getName() : "(no argument)";
+    std::string ToName = ToTD ? ToTD->getName() : "(no argument)";
+    if (FromTD && ToTD && FromName == ToName) {
+      FromName = FromTD->getQualifiedNameAsString();
+      ToName = ToTD->getQualifiedNameAsString();
+    }
+
     if (Same) {
       OS << "template " << FromTD->getNameAsString();
     } else if (!PrintTree) {
       OS << (FromDefault ? "(default) template " : "template ");
       Bold();
-      OS << (FromTD ? FromTD->getNameAsString() : "(no argument)");
+      OS << FromName;
       Unbold();
     } else {
       OS << (FromDefault ? "[(default) template " : "[template ");
       Bold();
-      OS << (FromTD ? FromTD->getNameAsString() : "(no argument)");
+      OS << FromName;
       Unbold();
       OS << " != " << (ToDefault ? "(default) template " : "template ");
       Bold();
-      OS << (ToTD ? ToTD->getNameAsString() : "(no argument)");
+      OS << ToName;
       Unbold();
       OS << ']';
     }

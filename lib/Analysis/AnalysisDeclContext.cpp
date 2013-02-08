@@ -86,11 +86,14 @@ static BodyFarm &getBodyFarm(ASTContext &C) {
   return *BF;
 }
 
-Stmt *AnalysisDeclContext::getBody() const {
+Stmt *AnalysisDeclContext::getBody(bool &IsAutosynthesized) const {
+  IsAutosynthesized = false;
   if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
     Stmt *Body = FD->getBody();
-    if (!Body && Manager && Manager->synthesizeBodies())
+    if (!Body && Manager && Manager->synthesizeBodies()) {
+      IsAutosynthesized = true;
       return getBodyFarm(getASTContext()).getBody(FD);
+    }
     return Body;
   }
   else if (const ObjCMethodDecl *MD = dyn_cast<ObjCMethodDecl>(D))
@@ -102,6 +105,17 @@ Stmt *AnalysisDeclContext::getBody() const {
     return FunTmpl->getTemplatedDecl()->getBody();
 
   llvm_unreachable("unknown code decl");
+}
+
+Stmt *AnalysisDeclContext::getBody() const {
+  bool Tmp;
+  return getBody(Tmp);
+}
+
+bool AnalysisDeclContext::isBodyAutosynthesized() const {
+  bool Tmp;
+  getBody(Tmp);
+  return Tmp;
 }
 
 const ImplicitParamDecl *AnalysisDeclContext::getSelfDecl() const {
@@ -402,9 +416,6 @@ public:
       if (!VD->hasLocalStorage()) {
         if (Visited.insert(VD))
           BEVals.push_back(VD, BC);
-      } else if (DR->refersToEnclosingLocal()) {
-        if (Visited.insert(VD) && IsTrackedDecl(VD))
-          BEVals.push_back(VD, BC);
       }
     }
   }
@@ -439,7 +450,13 @@ static DeclVec* LazyInitializeReferencedDecls(const BlockDecl *BD,
   DeclVec *BV = (DeclVec*) A.Allocate<DeclVec>();
   new (BV) DeclVec(BC, 10);
 
-  // Find the referenced variables.
+  // Go through the capture list.
+  for (BlockDecl::capture_const_iterator CI = BD->capture_begin(),
+       CE = BD->capture_end(); CI != CE; ++CI) {
+    BV->push_back(CI->getVariable(), BC);
+  }
+
+  // Find the referenced global/static variables.
   FindBlockDeclRefExprsVals F(*BV, BC);
   F.Visit(BD->getBody());
 

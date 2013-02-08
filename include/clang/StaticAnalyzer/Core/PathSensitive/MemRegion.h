@@ -642,22 +642,14 @@ public:
     explicit referenced_vars_iterator(const MemRegion * const *r,
                                       const MemRegion * const *originalR)
       : R(r), OriginalR(originalR) {}
-    
-    operator const MemRegion * const *() const {
-      return R;
-    }
-  
-    const MemRegion *getCapturedRegion() const {
-      return *R;
-    }
-    const MemRegion *getOriginalRegion() const {
-      return *OriginalR;
-    }
 
-    const VarRegion* operator*() const {
+    const VarRegion *getCapturedRegion() const {
       return cast<VarRegion>(*R);
     }
-    
+    const VarRegion *getOriginalRegion() const {
+      return cast<VarRegion>(*OriginalR);
+    }
+
     bool operator==(const referenced_vars_iterator &I) const {
       return I.R == R;
     }
@@ -670,6 +662,10 @@ public:
       return *this;
     }
   };
+
+  /// Return the original region for a captured region, if
+  /// one exists.
+  const VarRegion *getOriginalRegion(const VarRegion *VR) const;
       
   referenced_vars_iterator referenced_vars_begin() const;
   referenced_vars_iterator referenced_vars_end() const;  
@@ -686,6 +682,8 @@ public:
   }
 private:
   void LazyInitializeReferencedVars();
+  std::pair<const VarRegion *, const VarRegion *>
+  getCaptureRegions(const VarDecl *VD);
 };
 
 /// SymbolicRegion - A special, "non-concrete" region. Unlike other region

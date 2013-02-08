@@ -21,8 +21,8 @@
 #include "clang/AST/StmtObjC.h"
 #include "clang/Basic/Diagnostic.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/DataLayout.h"
-#include "llvm/InlineAsm.h"
+#include "llvm/IR/DataLayout.h"
+#include "llvm/IR/InlineAsm.h"
 using namespace clang;
 using namespace CodeGen;
 
@@ -772,7 +772,7 @@ static void emitCPPObjectAtomicGetterCall(CodeGenFunction &CGF,
   args.add(RValue::get(AtomicHelperFn), CGF.getContext().VoidPtrTy);
   
   llvm::Value *copyCppAtomicObjectFn = 
-  CGF.CGM.getObjCRuntime().GetCppAtomicObjectFunction();
+    CGF.CGM.getObjCRuntime().GetCppAtomicObjectGetFunction();
   CGF.EmitCall(CGF.getTypes().arrangeFreeFunctionCall(CGF.getContext().VoidTy,
                                                       args,
                                                       FunctionType::ExtInfo(),
@@ -1007,7 +1007,7 @@ static void emitCPPObjectAtomicSetterCall(CodeGenFunction &CGF,
   args.add(RValue::get(AtomicHelperFn), CGF.getContext().VoidPtrTy);
   
   llvm::Value *copyCppAtomicObjectFn = 
-    CGF.CGM.getObjCRuntime().GetCppAtomicObjectFunction();
+    CGF.CGM.getObjCRuntime().GetCppAtomicObjectSetFunction();
   CGF.EmitCall(CGF.getTypes().arrangeFreeFunctionCall(CGF.getContext().VoidTy,
                                                       args,
                                                       FunctionType::ExtInfo(),
@@ -1705,15 +1705,17 @@ static llvm::Constant *createARCRuntimeFunction(CodeGenModule &CGM,
                                                 StringRef fnName) {
   llvm::Constant *fn = CGM.CreateRuntimeFunction(type, fnName);
 
-  // If the target runtime doesn't naturally support ARC, emit weak
-  // references to the runtime support library.  We don't really
-  // permit this to fail, but we need a particular relocation style.
   if (llvm::Function *f = dyn_cast<llvm::Function>(fn)) {
-    if (!CGM.getLangOpts().ObjCRuntime.hasNativeARC())
+    // If the target runtime doesn't naturally support ARC, emit weak
+    // references to the runtime support library.  We don't really
+    // permit this to fail, but we need a particular relocation style.
+    if (!CGM.getLangOpts().ObjCRuntime.hasNativeARC()) {
       f->setLinkage(llvm::Function::ExternalWeakLinkage);
-    // set nonlazybind attribute for these APIs for performance.
-    if (fnName == "objc_retain" || fnName  == "objc_release")
-      f->addFnAttr(llvm::Attributes::NonLazyBind);
+    } else if (fnName == "objc_retain" || fnName  == "objc_release") {
+      // If we have Native ARC, set nonlazybind attribute for these APIs for
+      // performance.
+      f->addFnAttr(llvm::Attribute::NonLazyBind);
+    }
   }
 
   return fn;
@@ -1725,7 +1727,8 @@ static llvm::Constant *createARCRuntimeFunction(CodeGenModule &CGM,
 static llvm::Value *emitARCValueOperation(CodeGenFunction &CGF,
                                           llvm::Value *value,
                                           llvm::Constant *&fn,
-                                          StringRef fnName) {
+                                          StringRef fnName,
+                                          bool isTailCall = false) {
   if (isa<llvm::ConstantPointerNull>(value)) return value;
 
   if (!fn) {
@@ -1742,6 +1745,8 @@ static llvm::Value *emitARCValueOperation(CodeGenFunction &CGF,
   // Call the function.
   llvm::CallInst *call = CGF.Builder.CreateCall(fn, value);
   call->setDoesNotThrow();
+  if (isTailCall)
+    call->setTailCall();
 
   // Cast the result back to the original type.
   return CGF.Builder.CreateBitCast(call, origType);
@@ -2054,7 +2059,8 @@ llvm::Value *
 CodeGenFunction::EmitARCAutoreleaseReturnValue(llvm::Value *value) {
   return emitARCValueOperation(*this, value,
                             CGM.getARCEntrypoints().objc_autoreleaseReturnValue,
-                               "objc_autoreleaseReturnValue");
+                               "objc_autoreleaseReturnValue",
+                               /*isTailCall*/ true);
 }
 
 /// Do a fused retain/autorelease of the given object.
@@ -2063,7 +2069,8 @@ llvm::Value *
 CodeGenFunction::EmitARCRetainAutoreleaseReturnValue(llvm::Value *value) {
   return emitARCValueOperation(*this, value,
                      CGM.getARCEntrypoints().objc_retainAutoreleaseReturnValue,
-                               "objc_retainAutoreleaseReturnValue");
+                               "objc_retainAutoreleaseReturnValue",
+                               /*isTailCall*/ true);
 }
 
 /// Do a fused retain/autorelease of the given object.
@@ -2440,7 +2447,7 @@ static bool shouldEmitSeparateBlockRetain(const Expr *e) {
 /// This massively duplicates emitPseudoObjectRValue.
 static TryEmitResult tryEmitARCRetainPseudoObject(CodeGenFunction &CGF,
                                                   const PseudoObjectExpr *E) {
-  llvm::SmallVector<CodeGenFunction::OpaqueValueMappingData, 4> opaques;
+  SmallVector<CodeGenFunction::OpaqueValueMappingData, 4> opaques;
 
   // Find the result expression.
   const Expr *resultExpr = E->getResultExpr();
@@ -2794,11 +2801,6 @@ void CodeGenFunction::EmitExtendGCLifetime(llvm::Value *object) {
   Builder.CreateCall(extender, object)->setDoesNotThrow();
 }
 
-static bool hasAtomicCopyHelperAPI(const ObjCRuntime &runtime) {
-  // For now, only NeXT has these APIs.
-  return runtime.isNeXTFamily();
-}
-
 /// GenerateObjCAtomicSetterCopyHelperFunction - Given a c++ object type with
 /// non-trivial copy assignment function, produce following helper function.
 /// static void copyHelper(Ty *dest, const Ty *source) { *dest = *source; }
@@ -2806,9 +2808,8 @@ static bool hasAtomicCopyHelperAPI(const ObjCRuntime &runtime) {
 llvm::Constant *
 CodeGenFunction::GenerateObjCAtomicSetterCopyHelperFunction(
                                         const ObjCPropertyImplDecl *PID) {
-  // FIXME. This api is for NeXt runtime only for now.
   if (!getLangOpts().CPlusPlus ||
-      !hasAtomicCopyHelperAPI(getLangOpts().ObjCRuntime))
+      !getLangOpts().ObjCRuntime.hasAtomicCopyHelper())
     return 0;
   QualType Ty = PID->getPropertyIvarDecl()->getType();
   if (!Ty->isRecordType())
@@ -2890,9 +2891,8 @@ CodeGenFunction::GenerateObjCAtomicSetterCopyHelperFunction(
 llvm::Constant *
 CodeGenFunction::GenerateObjCAtomicGetterCopyHelperFunction(
                                             const ObjCPropertyImplDecl *PID) {
-  // FIXME. This api is for NeXt runtime only for now.
   if (!getLangOpts().CPlusPlus ||
-      !hasAtomicCopyHelperAPI(getLangOpts().ObjCRuntime))
+      !getLangOpts().ObjCRuntime.hasAtomicCopyHelper())
     return 0;
   const ObjCPropertyDecl *PD = PID->getPropertyDecl();
   QualType Ty = PD->getType();

@@ -218,7 +218,7 @@ void Parser::ConsumeExtraSemi(ExtraSemiKind Kind, unsigned TST) {
   // C++11 allows extra semicolons at namespace scope, but not in any of the
   // other contexts.
   if (Kind == OutsideFunction && getLangOpts().CPlusPlus) {
-    if (getLangOpts().CPlusPlus0x)
+    if (getLangOpts().CPlusPlus11)
       Diag(StartLoc, diag::warn_cxx98_compat_top_level_semi)
           << FixItHint::CreateRemoval(SourceRange(StartLoc, EndLoc));
     else
@@ -554,26 +554,11 @@ bool Parser::ParseTopLevelDecl(DeclGroupPtrTy &Result) {
   }
 
   ParsedAttributesWithRange attrs(AttrFactory);
-  MaybeParseCXX0XAttributes(attrs);
+  MaybeParseCXX11Attributes(attrs);
   MaybeParseMicrosoftAttributes(attrs);
 
   Result = ParseExternalDeclaration(attrs);
   return false;
-}
-
-/// ParseTranslationUnit:
-///       translation-unit: [C99 6.9]
-///         external-declaration
-///         translation-unit external-declaration
-void Parser::ParseTranslationUnit() {
-  Initialize();
-
-  DeclGroupPtrTy Res;
-  while (!ParseTopLevelDecl(Res))
-    /*parse them all*/;
-
-  ExitScope();
-  assert(getCurScope() == 0 && "Scope imbalance!");
 }
 
 /// ParseExternalDeclaration:
@@ -741,7 +726,7 @@ Parser::ParseExternalDeclaration(ParsedAttributesWithRange &attrs,
       // Extern templates
       SourceLocation ExternLoc = ConsumeToken();
       SourceLocation TemplateLoc = ConsumeToken();
-      Diag(ExternLoc, getLangOpts().CPlusPlus0x ?
+      Diag(ExternLoc, getLangOpts().CPlusPlus11 ?
              diag::warn_cxx98_compat_extern_template :
              diag::ext_extern_template) << SourceRange(ExternLoc, TemplateLoc);
       SourceLocation DeclEnd;
@@ -760,11 +745,7 @@ Parser::ParseExternalDeclaration(ParsedAttributesWithRange &attrs,
   default:
   dont_know:
     // We can't tell whether this is a function-definition or declaration yet.
-    if (DS) {
-      return ParseDeclarationOrFunctionDefinition(attrs, DS);
-    } else {
-      return ParseDeclarationOrFunctionDefinition(attrs);
-    }
+    return ParseDeclarationOrFunctionDefinition(attrs, DS);
   }
 
   // This routine returns a DeclGroup, if the thing we parsed only contains a
@@ -963,7 +944,8 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
   if (Tok.isNot(tok::equal)) {
     AttributeList *DtorAttrs = D.getAttributes();
     while (DtorAttrs) {
-      if (!IsThreadSafetyAttribute(DtorAttrs->getName()->getName())) {
+      if (!IsThreadSafetyAttribute(DtorAttrs->getName()->getName()) &&
+          !DtorAttrs->isCXX11Attribute()) {
         Diag(DtorAttrs->getLoc(), diag::warn_attribute_on_function_definition)
           << DtorAttrs->getName()->getName();
       }
@@ -1053,7 +1035,7 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
     bool Delete = false;
     SourceLocation KWLoc;
     if (Tok.is(tok::kw_delete)) {
-      Diag(Tok, getLangOpts().CPlusPlus0x ?
+      Diag(Tok, getLangOpts().CPlusPlus11 ?
            diag::warn_cxx98_compat_deleted_function :
            diag::ext_deleted_function);
 
@@ -1061,7 +1043,7 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
       Actions.SetDeclDeleted(Res, KWLoc);
       Delete = true;
     } else if (Tok.is(tok::kw_default)) {
-      Diag(Tok, getLangOpts().CPlusPlus0x ?
+      Diag(Tok, getLangOpts().CPlusPlus11 ?
            diag::warn_cxx98_compat_defaulted_function :
            diag::ext_defaulted_function);
 
@@ -1115,7 +1097,8 @@ void Parser::ParseKNRParamDeclarations(Declarator &D) {
 
   // Enter function-declaration scope, limiting any declarators to the
   // function prototype scope, including parameter declarators.
-  ParseScope PrototypeScope(this, Scope::FunctionPrototypeScope|Scope::DeclScope);
+  ParseScope PrototypeScope(this, Scope::FunctionPrototypeScope |
+                            Scope::FunctionDeclarationScope | Scope::DeclScope);
 
   // Read all the argument declarations.
   while (isDeclarationSpecifier()) {
@@ -1835,7 +1818,7 @@ void Parser::ParseMicrosoftIfExistsExternalDeclaration() {
   // Parse the declarations.
   while (Tok.isNot(tok::r_brace) && Tok.isNot(tok::eof)) {
     ParsedAttributesWithRange attrs(AttrFactory);
-    MaybeParseCXX0XAttributes(attrs);
+    MaybeParseCXX11Attributes(attrs);
     MaybeParseMicrosoftAttributes(attrs);
     DeclGroupPtrTy Result = ParseExternalDeclaration(attrs);
     if (Result && !getCurScope()->getParent())
@@ -1845,11 +1828,11 @@ void Parser::ParseMicrosoftIfExistsExternalDeclaration() {
 }
 
 Parser::DeclGroupPtrTy Parser::ParseModuleImport(SourceLocation AtLoc) {
-  assert(Tok.isObjCAtKeyword(tok::objc___experimental_modules_import) && 
+  assert(Tok.isObjCAtKeyword(tok::objc_import) && 
          "Improper start to module import");
   SourceLocation ImportLoc = ConsumeToken();
   
-  llvm::SmallVector<std::pair<IdentifierInfo *, SourceLocation>, 2> Path;
+  SmallVector<std::pair<IdentifierInfo *, SourceLocation>, 2> Path;
   
   // Parse the module path.
   do {
