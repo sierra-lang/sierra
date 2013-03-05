@@ -7945,6 +7945,7 @@ static QualType CheckIncrementDecrementOperand(Sema &S, Expr *Op,
                                           IsInc, IsPrefix);
   } else if (S.getLangOpts().AltiVec && ResType->isVectorType()) {
     // OK! ( C/C++ Language Extensions for CBEA(Version 2.6) 10.3 )
+  } else if (ResType->isSierraVectorType()) {
   } else {
     S.Diag(OpLoc, diag::err_typecheck_illegal_increment_decrement)
       << ResType << int(IsInc) << Op->getSourceRange();
