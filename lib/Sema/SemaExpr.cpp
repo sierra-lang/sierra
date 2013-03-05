@@ -10481,6 +10481,7 @@ static QualType CheckIncrementDecrementOperand(Sema &S, Expr *Op,
   } else if(S.getLangOpts().OpenCL && ResType->isVectorType() &&
             ResType->getAs<VectorType>()->getElementType()->isIntegerType()) {
     // OpenCL V1.2 6.3 says dec/inc ops operate on integer vector types.
+  } else if (ResType->isSierraVectorType()) {
   } else {
     S.Diag(OpLoc, diag::err_typecheck_illegal_increment_decrement)
       << ResType << int(IsInc) << Op->getSourceRange();
