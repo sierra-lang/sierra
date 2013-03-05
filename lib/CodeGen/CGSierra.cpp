@@ -272,8 +272,6 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
   if (ConditionScope.requiresCleanups())
     ExitBlock = CGF.createBasicBlock("vectorized-while.exit");
 
-  phi->addIncoming( OldMask, OldBlock);
-  phi->addIncoming(LoopMask, CGF.getJumpDestInCurrentScope().getBlock());
   CGF.setCurrentMask(LoopMask);
 
   llvm::Value* ScalarCond = Builder.CreateICmpNE(
@@ -292,6 +290,9 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
     CGF.EmitBlock(LoopBody);
     CGF.EmitStmt(S.getBody());
   }
+
+  phi->addIncoming(OldMask, OldBlock);
+  phi->addIncoming(LoopMask, Builder.GetInsertBlock());
 
   //BreakContinueStack.pop_back();
 
