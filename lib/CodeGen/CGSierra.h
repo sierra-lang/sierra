@@ -26,6 +26,7 @@ namespace clang {
 
 class IfStmt;
 class WhileStmt;
+class DoStmt;
 
 namespace CodeGen {
 
@@ -42,6 +43,7 @@ llvm::Value *EmitMask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8);
 
 void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S);
 void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S);
+void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S);
 
 }  // end namespace CodeGen
 }  // end namespace clang
