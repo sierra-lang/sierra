@@ -780,6 +780,11 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
 
 void CodeGenFunction::EmitDoStmt(const DoStmt &S,
                                  ArrayRef<const Attr *> DoAttrs) {
+  // What happens, if no condition exists?
+  // See EmitWhileStmt
+  if (S.getCond()->getType()->isSierraVectorType())
+    return EmitSierraDoStmt(*this, S);
+
   JumpDest LoopExit = getJumpDestInCurrentScope("do.end");
   JumpDest LoopCond = getJumpDestInCurrentScope("do.cond");
 
