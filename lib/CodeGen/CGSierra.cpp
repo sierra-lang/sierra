@@ -312,7 +312,8 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
 }
 
 
-void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S) {
+void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S)
+{
   CGBuilderTy &Builder = CGF.Builder;
   llvm::LLVMContext &Context = Builder.getContext();
   llvm::BasicBlock* OldBlock = Builder.GetInsertBlock();
@@ -320,7 +321,8 @@ void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S) {
   unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
   assert(NumElems > 1);
   bool noCurrentMask = false;
-  if ( !CGF.getCurrentMask() ) {
+  if ( !CGF.getCurrentMask() )
+  {
       noCurrentMask = true;
       CGF.setCurrentMask( CreateAllOnesVector( Context, NumElems ) );
   }
@@ -402,6 +404,24 @@ void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S) {
 
   // Emit the blocks after the loop
   CGF.EmitBlock( LoopExit.getBlock(), true );
+}
+
+void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
+{
+  CGBuilderTy &Builder = CGF.Builder;
+  llvm::LLVMContext &Context = Builder.getContext();
+  llvm::BasicBlock* OldBlock = Builder.GetInsertBlock();
+
+  unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
+  assert(NumElems > 1);
+  bool noCurrentMask = false;
+  if ( !CGF.getCurrentMask() )
+  {
+      noCurrentMask = true;
+      CGF.setCurrentMask( CreateAllOnesVector( Context, NumElems ) );
+  }
+  llvm::Value *OldMask = CGF.getCurrentMask();
+
 }
 
 //------------------------------------------------------------------------------
