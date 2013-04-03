@@ -367,6 +367,11 @@ void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S) {
   llvm::Value *LoopMask = Builder.CreateAnd( phi, Cond );
   llvm::Value *Cond8 = EmitMask1ToMask8( Builder, LoopMask );
   llvm::Value *CondI = Builder.CreateBitCast( Cond8, llvm::IntegerType::get( Context, NumElems * 8 ) );
+  phi->addIncoming( OldMask, OldBlock );
+
+  // Current insert block is the last block of the condition part.
+  phi->addIncoming( LoopMask, Builder.GetInsertBlock() );
+
   if( ConditionScope.requiresCleanups() )
     ExitBlock = CGF.createBasicBlock("vectorized-do.exit");
 
@@ -384,9 +389,6 @@ void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S) {
   }
 
 
-  phi->addIncoming( OldMask, OldBlock );
-  // XXX: Can't we use ExitBlock instead of Builder.GetInsertBlock() ?
-  phi->addIncoming( LoopMask, Builder.GetInsertBlock() );
 
 
 /*
