@@ -443,31 +443,27 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   // Create a cleanups scope for the condition variables.
   CodeGenFunction::RunCleanupsScope ConditionScope( CGF );
 
-  // XXX: Is this check necessary?
-  if ( S.getCond() )
+  // If the for statement has a condition scope, emit the local variable
+  // declaration.
+  llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
+  if ( S.getConditionVariable() )
+    CGF.EmitAutoVarDecl( *S.getConditionVariable() );
+
+  // If there are any cleanups between here and the loop-exit scope,
+  // create a block to stage a loop exit along.
+  if ( ForScope.requiresCleanups() )
+    ExitBlock = createBasicBlock( "vectorized-for.cond.cleanup" );
+
+  // As long as the condition is true, iterate the loop.
+  llvm::BasicBlock *LoopBody = createBasicBlock( "vectorized-for.body" );
+
+  if ( ExitBlock != LoopExit.getBlock() )
   {
-    // If the for statement has a condition scope, emit the local variable
-    // declaration.
-    llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
-    if ( S.getConditionVariable() )
-      CGF.EmitAutoVarDecl( *S.getConditionVariable() );
-
-    // If there are any cleanups between here and the loop-exit scope,
-    // create a block to stage a loop exit along.
-    if ( ForScope.requiresCleanups() )
-      ExitBlock = createBasicBlock( "vectorized-for.cond.cleanup" );
-
-    // As long as the condition is true, iterate the loop.
-    llvm::BasicBlock *LoopBody = createBasicBlock( "vectorized-for.body" );
-
-    if ( ExitBlock != LoopExit.getBlock() )
-    {
-      CGF.EmitBlock( ExitBlock );
-      CGF.EmitBranchThroughCleanup( LoopExit );
-    }
-
-    CGF.EmitBlock( ForBody );
+    CGF.EmitBlock( ExitBlock );
+    CGF.EmitBranchThroughCleanup( LoopExit );
   }
+
+  CGF.EmitBlock( ForBody );
 }
 
 //------------------------------------------------------------------------------
