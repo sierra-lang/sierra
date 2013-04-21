@@ -423,9 +423,9 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   CodeGenFunction::RunCleanupsScope ForScope( CGF );
 
   // Create a jump destination for break
-  CodeGenFunction::JumpDest *LoopExit = CGF.getJumpDestInCurrentScope( "vectorized-for.end" );
+  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope( "vectorized-for.end" );
   // Create a jump destination for continue
-  CodeGenFunction::JumpDest *LoopCond = CGF.getJumpDestInCurrentScope( "vectorized-for.cond" );
+  CodeGenFunction::JumpDest LoopCond = CGF.getJumpDestInCurrentScope( "vectorized-for.cond" );
 
   // Evaluate the first part before the loop. This is the initializing statement of the for-statement.
   // This statement can be appended to the current basic block.
@@ -452,10 +452,10 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   // If there are any cleanups between here and the loop-exit scope,
   // create a block to stage a loop exit along.
   if ( ForScope.requiresCleanups() )
-    ExitBlock = createBasicBlock( "vectorized-for.cond.cleanup" );
+    ExitBlock = CGF.createBasicBlock( "vectorized-for.cond.cleanup" );
 
   // As long as the condition is true, iterate the loop.
-  llvm::BasicBlock *LoopBody = createBasicBlock( "vectorized-for.body" );
+  llvm::BasicBlock *LoopBody = CGF.createBasicBlock( "vectorized-for.body" );
 
   if ( ExitBlock != LoopExit.getBlock() )
   {
@@ -463,7 +463,7 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
     CGF.EmitBranchThroughCleanup( LoopExit );
   }
 
-  CGF.EmitBlock( ForBody );
+  CGF.EmitBlock( LoopBody );
 }
 
 //------------------------------------------------------------------------------
