@@ -420,42 +420,69 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   }
   llvm::Value *OldMask = CGF.getCurrentMask();
 
+  // Q: Is this for the variables, that are declared inside the statement?
   CodeGenFunction::RunCleanupsScope ForScope( CGF );
 
-  // Create a jump destination for break
+  // Break target
   CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope( "vectorized-for.end" );
-  // Create a jump destination for continue
+  // Continue target
   CodeGenFunction::JumpDest LoopCond = CGF.getJumpDestInCurrentScope( "vectorized-for.cond" );
+  // Body Block, containing the Loop Body
+  llvm::BasicBlock *LoopBody = CGF.createBasicBlock( "vectorized-for.body" );
+  // Condition Block
+  llvm::BasicBlock *CondBlock = LoopCond.getBlock();
+  // Exit Block (after the For Statement)
+  llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
+  
+  // Create a new reference to the block that is executed immediately
+  // before the Contition Block. This is necessary, because the For Stmt
+  // might not have a Init Block.
+  llvm::BasicBlock *Init = OldBlock;
 
   // Evaluate the first part before the loop. This is the initializing statement of the for-statement.
   // This statement can be appended to the current basic block.
   if ( S.getInit() )
+  {
     CGF.EmitStmt( S.getInit() );
+    // Update the Init Block
+    Init = Builder.GetInsertBlock();
+  }
 
   // Create the block for the condition
-  llvm::BasicBlock *CondBlock = LoopCond.getBlock();
-  CGF.EmitBlock( CondBlock );
-
-  // Insert the Phi Node
-  llvm::VectorType* MaskTy = llvm::VectorType::get(llvm::IntegerType::getInt1Ty(Context), NumElems);
-  llvm::PHINode* phi = Builder.CreatePHI(MaskTy, 2, "loop-mask");
-
   // Create a cleanups scope for the condition variables.
   CodeGenFunction::RunCleanupsScope ConditionScope( CGF );
 
+  // Emit the Condition Block
+  CGF.EmitBlock( CondBlock );
+
   // If the for statement has a condition scope, emit the local variable
   // declaration.
-  llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
   if ( S.getConditionVariable() )
     CGF.EmitAutoVarDecl( *S.getConditionVariable() );
 
+  // Get the type for the phi node
+  llvm::VectorType* MaskTy = llvm::VectorType::get(llvm::IntegerType::getInt1Ty(Context), NumElems);
+
+  // Create a new phi node. The arguments are specified later.                                        
+  // The phi node will take either the initial loop mask,                                             
+  // or the one that is created after evaluating the condition.                                       
+  llvm::PHINode* phi = Builder.CreatePHI(MaskTy, 2, "loop-mask");
+
+  // Create the new loop mask.
+  llvm::Value *Cond = CGF.EmitScalarExpr( S.getCond() );
+  llvm::Value *LoopMask = Builder.CreateAnd( phi, Cond );
+  llvm::Value *Cond8 = EmitMask1ToMask8( Builder, LoopMask );
+  llvm::Value *CondI = Builder.CreateBitCast( Cond8, llvm::IntegerType::get( Context, NumElems * 8 ) );
+  phi->addIncoming( OldMask, Init );
+
   // If there are any cleanups between here and the loop-exit scope,
   // create a block to stage a loop exit along.
-  if ( ForScope.requiresCleanups() )
+  if ( ConditionScope.requiresCleanups() )
     ExitBlock = CGF.createBasicBlock( "vectorized-for.cond.cleanup" );
 
+  CGF.setCurrentMask( LoopMask );
+
   // As long as the condition is true, iterate the loop.
-  llvm::BasicBlock *LoopBody = CGF.createBasicBlock( "vectorized-for.body" );
 
   if ( ExitBlock != LoopExit.getBlock() )
   {
