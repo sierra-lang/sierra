@@ -426,31 +426,23 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   // Break target
   CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope( "vectorized-for.end" );
   // Continue target
-  CodeGenFunction::JumpDest LoopCond = CGF.getJumpDestInCurrentScope( "vectorized-for.cond" );
+  // Use the Condition Block as the default continue target.
+  // If the statement has an increment block, that block will become the new Continue target.
+  CodeGenFunction::JumpDest Continue = CGF.getJumpDestInCurrentScope( "vectorized-for.cond" );
   // Body Block, containing the Loop Body
   llvm::BasicBlock *LoopBody = CGF.createBasicBlock( "vectorized-for.body" );
   // Condition Block
-  llvm::BasicBlock *CondBlock = LoopCond.getBlock();
+  llvm::BasicBlock *CondBlock = Continue.getBlock();
   // Exit Block (after the For Statement)
   llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
   
-  // Create a new reference to the block that is executed immediately
-  // before the Contition Block. This is necessary, because the For Stmt
-  // might not have a Init Block.
-  llvm::BasicBlock *Init = OldBlock;
-
-  // Evaluate the first part before the loop. This is the initializing statement of the for-statement.
-  // This statement can be appended to the current basic block.
-  if ( S.getInit() )
-  {
-    CGF.EmitStmt( S.getInit() );
-    // Update the Init Block
-    Init = Builder.GetInsertBlock();
-  }
-
-  // Create the block for the condition
   // Create a cleanups scope for the condition variables.
   CodeGenFunction::RunCleanupsScope ConditionScope( CGF );
+
+  // Evaluate the first part before the loop. This is the initializing statement of the for-statement.
+  // This statement can be appended to the current basic block (OldBlock) .
+  if ( S.getInit() )
+    CGF.EmitStmt( S.getInit() );
 
   // Emit the Condition Block
   CGF.EmitBlock( CondBlock );
@@ -473,7 +465,7 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   llvm::Value *LoopMask = Builder.CreateAnd( phi, Cond );
   llvm::Value *Cond8 = EmitMask1ToMask8( Builder, LoopMask );
   llvm::Value *CondI = Builder.CreateBitCast( Cond8, llvm::IntegerType::get( Context, NumElems * 8 ) );
-  phi->addIncoming( OldMask, Init );
+  phi->addIncoming( OldMask, OldBlock );
 
   // If there are any cleanups between here and the loop-exit scope,
   // create a block to stage a loop exit along.
@@ -482,15 +474,50 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
 
   CGF.setCurrentMask( LoopMask );
 
-  // As long as the condition is true, iterate the loop.
+  llvm::Value *ScalarCond = Builder.CreateICmpNE( CondI,
+    llvm::ConstantInt::get ( llvm::IntegerType::get( Context, NumElems * 8 ), 0 ) );
+  Builder.CreateCondBr( ScalarCond, LoopBody, ExitBlock );
 
+  // Create the body block
+  CGF.EmitBlock( LoopBody );
+
+  // Create a cleanups scope for the loop body
+  CodeGenFunction::RunCleanupsScope BodyScope( CGF );
+
+  // Emit the loop body
+  CGF.EmitStmt( S.getBody() );
+
+  // If an increment block exists, make it the new continue target.
+  if ( S.getInc() )
+  {
+    // Make the increment block the new continue target
+    Continue = CGF.getJumpDestInCurrentScope( "vectorized-for.inc" );
+    // Create the increment block
+    CGF.EmitBlock( Continue.getBlock() );
+    CGF.EmitStmt( S.getInc() );
+  }
+
+  // Add incoming edge from the current basic block with the loop mask
+  // The current basic block is either the Body Block or the Increment Block
+  phi->addIncoming( LoopMask, Builder.GetInsertBlock() );
+
+  ConditionScope.ForceCleanup();
+  CGF.EmitBranch( CondBlock );
+
+  // Emit the exit block
   if ( ExitBlock != LoopExit.getBlock() )
   {
     CGF.EmitBlock( ExitBlock );
     CGF.EmitBranchThroughCleanup( LoopExit );
   }
 
-  CGF.EmitBlock( LoopBody );
+  if ( noCurrentMask )
+    CGF.setCurrentMask( 0 );
+  else
+    CGF.setCurrentMask( OldMask );
+
+  // Emit the blocks after the loop
+  CGF.EmitBlock( LoopExit.getBlock(), true );
 }
 
 //------------------------------------------------------------------------------
