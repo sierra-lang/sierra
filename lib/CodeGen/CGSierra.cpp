@@ -481,11 +481,13 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   // Create the body block
   CGF.EmitBlock( LoopBody );
 
-  // Create a cleanups scope for the loop body
-  CodeGenFunction::RunCleanupsScope BodyScope( CGF );
-
-  // Emit the loop body
-  CGF.EmitStmt( S.getBody() );
+  {
+    // Create a cleanups scope for the loop body
+    CodeGenFunction::RunCleanupsScope BodyScope( CGF );
+                                                        
+    // Emit the loop body
+    CGF.EmitStmt( S.getBody() );
+  }
 
   // If an increment block exists, make it the new continue target.
   if ( S.getInc() )
