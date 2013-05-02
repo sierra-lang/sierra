@@ -312,7 +312,7 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
 }
 
 
-void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S)
+void EmitSierraDoStmt( CodeGenFunction &CGF, const DoStmt &S )
 {
   CGBuilderTy &Builder = CGF.Builder;
   llvm::LLVMContext &Context = Builder.getContext();
@@ -520,6 +520,15 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
 
   // Emit the blocks after the loop
   CGF.EmitBlock( LoopExit.getBlock(), true );
+}
+
+void EmitBranchOnSierraExpr( CodeGenFunction &CGF,
+                             const Expr *Cond,
+                             bool prefer_true_block,
+                             llvm::BasicBlock *TrueBlock,
+                             llvm::BasicBlock *FalseBlock )
+{
+
 }
 
 //------------------------------------------------------------------------------
