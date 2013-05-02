@@ -528,7 +528,43 @@ void EmitBranchOnSierraExpr( CodeGenFunction &CGF,
                              llvm::BasicBlock *TrueBlock,
                              llvm::BasicBlock *FalseBlock )
 {
+  CGBuilderTy &Builder = CGF.Builder;
 
+  // Check whether the operator is a binary operator
+  if ( const BinaryOperator *CondBOp = dyn_cast<BinaryOperator>( Cond ) )
+  {
+    // Check whether the binary operator is AND (&&)
+    if ( CondBOp->getOpcode() == BO_LAnd )
+    {
+
+    } // end AND
+    // Check whether the binary operator is OR (||)
+    if ( CondBOp->getOpcode() == BO_LOr )
+    {
+
+    } // end OR // end OR
+  }
+  // Check whether the operator is a unary operator
+  if ( const UnaryOperator *CondUOp = dyn_cast<UnaryOperator>( Cond ) )
+  {
+    // br(!x, t, f) -> br(x, f, t)
+    if ( CondUOp->getOpcode() == UO_LNot )
+      return EmitBranchOnSierraExpr( CGF, CondUOp->getSubExpr(), true,
+                                     FalseBlock, TrueBlock );
+  }
+  if ( const ConditionalOperator *CondOp = dyn_cast<ConditionalOperator>( Cond ) )
+  {
+
+  }
+
+  // Emit the code with the fully general case.
+  llvm::Value *CondV = CGF.EvaluateExprAsBool(Cond);
+  Builder.CreateCondBr(CondV, TrueBlock, FalseBlock);
+}
+
+llvm::Value* EvaluateSierraExprAsBool( const Expr *E )
+{
+  return NULL;
 }
 
 //------------------------------------------------------------------------------
