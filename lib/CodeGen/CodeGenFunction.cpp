@@ -26,6 +26,7 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Operator.h"
+#include "CGSierra.h"
 using namespace clang;
 using namespace CodeGen;
 
@@ -690,6 +691,9 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                            llvm::BasicBlock *TrueBlock,
                                            llvm::BasicBlock *FalseBlock) {
   Cond = Cond->IgnoreParens();
+
+  if ( Cond->getType()->isSierraVectorType() )
+    return EmitBranchOnSierraExpr( *this, Cond, true, TrueBlock, FalseBlock );
 
   if (const BinaryOperator *CondBOp = dyn_cast<BinaryOperator>(Cond)) {
     // Handle X && Y in a condition.
