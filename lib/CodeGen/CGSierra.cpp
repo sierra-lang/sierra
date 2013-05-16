@@ -182,7 +182,7 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
   llvm::Value* ThenMask = Builder.CreateAnd(OldMask, Cond);
   llvm::Value* ElseMask;
   if (S.getElse())
-    ElseMask = Builder.CreateNot(ThenMask);
+    ElseMask = Builder.CreateAnd(OldMask, Builder.CreateNot(Cond));
 
   CGF.EmitBlock(ThenBlock); 
   {
