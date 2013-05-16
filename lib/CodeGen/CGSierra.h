@@ -53,8 +53,6 @@ void EmitBranchOnSierraExpr( CodeGenFunction &CGF,
                              llvm::BasicBlock *TrueBlock,
                              llvm::BasicBlock *FalseBlock );
 
-llvm::Value* EvaluateSierraExprAsBool( const Expr *E );
-
 }  // end namespace CodeGen
 }  // end namespace clang
 

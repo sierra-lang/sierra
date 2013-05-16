@@ -87,15 +87,23 @@ llvm::AllocaInst *CodeGenFunction::CreateMemTemp(QualType Ty,
 /// expression and compare the result against zero, returning an Int1Ty value.
 llvm::Value *CodeGenFunction::EvaluateExprAsBool(const Expr *E) {
 
-  if ( E->getType()->isSierraVectorType() )
-    return EvaluateSierraExprAsBool( E );
-
   if (const MemberPointerType *MPT = E->getType()->getAs<MemberPointerType>()) {
     llvm::Value *MemPtr = EmitScalarExpr(E);
     return CGM.getCXXABI().EmitMemberPointerIsNotNull(*this, MemPtr, MPT);
   }
-
+  
   QualType BoolTy = getContext().BoolTy;
+
+  if ( E->getType()->isSierraVectorType() )
+  {
+    QualType SierraTy = ASTContext::getSierraVectorType( BoolTy, 
+                                        E->getType()->getSierraVectorLength() );
+    return CodeGen::EmitSierraConversion( *this,
+                                          EmitScalarExpr( E ),
+                                          E->getType(), 
+                                          SierraTy );
+  }
+
   if (!E->getType()->isAnyComplexType())
     return EmitScalarConversion(EmitScalarExpr(E), E->getType(), BoolTy);
 
