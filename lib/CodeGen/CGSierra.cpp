@@ -312,15 +312,17 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
 }
 
 
-void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S) {
+void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S)
+{
   CGBuilderTy &Builder = CGF.Builder;
   llvm::LLVMContext &Context = Builder.getContext();
   llvm::BasicBlock* OldBlock = Builder.GetInsertBlock();
 
   unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
-  assert(NumElems > 1);
+  assert( NumElems > 1 );
   bool noCurrentMask = false;
-  if ( !CGF.getCurrentMask() ) {
+  if ( !CGF.getCurrentMask() )
+  {
       noCurrentMask = true;
       CGF.setCurrentMask( CreateAllOnesVector( Context, NumElems ) );
   }
@@ -359,15 +361,16 @@ void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S) {
   CGF.EmitStmt( S.getBody() );
 
   // Create the block for the condition.
-  CGF.EmitBlock(LoopCond.getBlock());
+  CGF.EmitBlock( LoopCond.getBlock() );
   CodeGenFunction::RunCleanupsScope ConditionScope( CGF );
 
+  phi->addIncoming( OldMask, OldBlock );
+  
   // Create the new loop mask.
   llvm::Value *Cond = CGF.EmitScalarExpr( S.getCond() );
   llvm::Value *LoopMask = Builder.CreateAnd( phi, Cond );
   llvm::Value *Cond8 = EmitMask1ToMask8( Builder, LoopMask );
   llvm::Value *CondI = Builder.CreateBitCast( Cond8, llvm::IntegerType::get( Context, NumElems * 8 ) );
-  phi->addIncoming( OldMask, OldBlock );
 
   // Current insert block is the last block of the condition part.
   phi->addIncoming( LoopMask, Builder.GetInsertBlock() );
@@ -388,12 +391,127 @@ void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S) {
     CGF.EmitBranchThroughCleanup( LoopExit );
   }
 
-
-
-
 /*
   BreakContinueStack.pop_back();
 */
+
+  if ( noCurrentMask )
+    CGF.setCurrentMask( 0 );
+  else
+    CGF.setCurrentMask( OldMask );
+
+  // Emit the blocks after the loop
+  CGF.EmitBlock( LoopExit.getBlock(), true );
+}
+
+void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
+{
+  CGBuilderTy &Builder = CGF.Builder;
+  llvm::LLVMContext &Context = Builder.getContext();
+  llvm::BasicBlock* OldBlock = Builder.GetInsertBlock();
+
+  unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
+  assert( NumElems > 1 );
+  bool noCurrentMask = false;
+  if ( !CGF.getCurrentMask() )
+  {
+      noCurrentMask = true;
+      CGF.setCurrentMask( CreateAllOnesVector( Context, NumElems ) );
+  }
+  llvm::Value *OldMask = CGF.getCurrentMask();
+
+  // Q: Is this for the variables, that are declared inside the statement?
+  CodeGenFunction::RunCleanupsScope ForScope( CGF );
+
+  // Break target
+  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope( "vectorized-for.end" );
+  // Continue target
+  // Use the Condition Block as the default continue target.
+  // If the statement has an increment block, that block will become the new Continue target.
+  CodeGenFunction::JumpDest Continue = CGF.getJumpDestInCurrentScope( "vectorized-for.cond" );
+  // Body Block, containing the Loop Body
+  llvm::BasicBlock *LoopBody = CGF.createBasicBlock( "vectorized-for.body" );
+  // Condition Block
+  llvm::BasicBlock *CondBlock = Continue.getBlock();
+  // Exit Block (after the For Statement)
+  llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
+  
+  // Create a cleanups scope for the condition variables.
+  CodeGenFunction::RunCleanupsScope ConditionScope( CGF );
+
+  // Evaluate the first part before the loop. This is the initializing statement of the for-statement.
+  // This statement can be appended to the current basic block (OldBlock) .
+  if ( S.getInit() )
+    CGF.EmitStmt( S.getInit() );
+
+  // Emit the Condition Block
+  CGF.EmitBlock( CondBlock );
+
+  // If the for statement has a condition scope, emit the local variable
+  // declaration.
+  if ( S.getConditionVariable() )
+    CGF.EmitAutoVarDecl( *S.getConditionVariable() );
+
+  // Get the type for the phi node
+  llvm::VectorType* MaskTy = llvm::VectorType::get(llvm::IntegerType::getInt1Ty(Context), NumElems);
+
+  // Create a new phi node. The arguments are specified later.                                        
+  // The phi node will take either the initial loop mask,                                             
+  // or the one that is created after evaluating the condition.                                       
+  llvm::PHINode* phi = Builder.CreatePHI(MaskTy, 2, "loop-mask");
+
+  // Create the new loop mask.
+  llvm::Value *Cond = CGF.EmitScalarExpr( S.getCond() );
+  llvm::Value *LoopMask = Builder.CreateAnd( phi, Cond );
+  llvm::Value *Cond8 = EmitMask1ToMask8( Builder, LoopMask );
+  llvm::Value *CondI = Builder.CreateBitCast( Cond8, llvm::IntegerType::get( Context, NumElems * 8 ) );
+  phi->addIncoming( OldMask, OldBlock );
+
+  // If there are any cleanups between here and the loop-exit scope,
+  // create a block to stage a loop exit along.
+  if ( ConditionScope.requiresCleanups() )
+    ExitBlock = CGF.createBasicBlock( "vectorized-for.cond.cleanup" );
+
+  CGF.setCurrentMask( LoopMask );
+
+  llvm::Value *ScalarCond = Builder.CreateICmpNE( CondI,
+    llvm::ConstantInt::get ( llvm::IntegerType::get( Context, NumElems * 8 ), 0 ) );
+  Builder.CreateCondBr( ScalarCond, LoopBody, ExitBlock );
+
+  // Create the body block
+  CGF.EmitBlock( LoopBody );
+
+  {
+    // Create a cleanups scope for the loop body
+    CodeGenFunction::RunCleanupsScope BodyScope( CGF );
+                                                        
+    // Emit the loop body
+    CGF.EmitStmt( S.getBody() );
+  }
+
+  // If an increment block exists, make it the new continue target.
+  if ( S.getInc() )
+  {
+    // Make the increment block the new continue target
+    Continue = CGF.getJumpDestInCurrentScope( "vectorized-for.inc" );
+    // Create the increment block
+    CGF.EmitBlock( Continue.getBlock() );
+    CGF.EmitStmt( S.getInc() );
+  }
+
+  // Add incoming edge from the current basic block with the loop mask
+  // The current basic block is either the Body Block or the Increment Block
+  phi->addIncoming( LoopMask, Builder.GetInsertBlock() );
+
+  ConditionScope.ForceCleanup();
+  CGF.EmitBranch( CondBlock );
+
+  // Emit the exit block
+  if ( ExitBlock != LoopExit.getBlock() )
+  {
+    CGF.EmitBlock( ExitBlock );
+    CGF.EmitBranchThroughCleanup( LoopExit );
+  }
 
   if ( noCurrentMask )
     CGF.setCurrentMask( 0 );

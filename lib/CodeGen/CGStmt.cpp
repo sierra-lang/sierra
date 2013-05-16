@@ -585,6 +585,9 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S) {
 }
 
 void CodeGenFunction::EmitForStmt(const ForStmt &S) {
+  if ( S.getCond() && S.getCond()->getType()->isSierraVectorType() ) 
+    return EmitSierraForStmt( *this, S );
+
   JumpDest LoopExit = getJumpDestInCurrentScope("for.end");
 
   RunCleanupsScope ForScope(*this);
