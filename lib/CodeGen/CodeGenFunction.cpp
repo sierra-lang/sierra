@@ -1295,6 +1295,9 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                            uint64_t TrueCount) {
   Cond = Cond->IgnoreParens();
 
+  // TODO: add a check whether the condition is the fully general case, because
+  // if the condition is the fully general case, we will skip all cases in the
+  // EmitBranchOnSierraExpr, just like here, and do exactely the same
   if ( Cond->getType()->isSierraVectorType() )
     return EmitBranchOnSierraExpr( *this, Cond, true, TrueBlock, FalseBlock );
 

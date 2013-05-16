@@ -114,9 +114,6 @@ Address CodeGenFunction::CreateMemTemp(QualType Ty, CharUnits Align,
 llvm::Value *CodeGenFunction::EvaluateExprAsBool(const Expr *E) {
   PGO.setCurrentStmt(E);
 
-  if ( E->getType()->isSierraVectorType() )
-    return EvaluateSierraExprAsBool( E );
-
   if (const MemberPointerType *MPT = E->getType()->getAs<MemberPointerType>()) {
     llvm::Value *MemPtr = EmitScalarExpr(E);
     return CGM.getCXXABI().EmitMemberPointerIsNotNull(*this, MemPtr, MPT);
@@ -124,6 +121,17 @@ llvm::Value *CodeGenFunction::EvaluateExprAsBool(const Expr *E) {
 
   QualType BoolTy = getContext().BoolTy;
   SourceLocation Loc = E->getExprLoc();
+
+  if ( E->getType()->isSierraVectorType() )
+  {
+    QualType SierraTy = ASTContext::getSierraVectorType( BoolTy, 
+                                        E->getType()->getSierraVectorLength() );
+    return CodeGen::EmitSierraConversion( *this,
+                                          EmitScalarExpr( E ),
+                                          E->getType(), 
+                                          SierraTy );
+  }
+
   if (!E->getType()->isAnyComplexType())
     return EmitScalarConversion(EmitScalarExpr(E), E->getType(), BoolTy, Loc);
 
