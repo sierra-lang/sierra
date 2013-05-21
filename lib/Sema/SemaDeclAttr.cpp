@@ -6120,9 +6120,6 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   case AttributeList::AT_AbiTag:
     handleAbiTagAttr(S, D, Attr);
     break;
-  case AttributeList::AT_SelectAny:
-    handleSelectAnyAttr(S, D, Attr);
-    break;
 
   // Thread safety attributes:
   case AttributeList::AT_AssertExclusiveLock:
