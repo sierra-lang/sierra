@@ -96,7 +96,7 @@ llvm::Value *CodeGenFunction::EvaluateExprAsBool(const Expr *E) {
 
   if ( E->getType()->isSierraVectorType() )
   {
-    QualType SierraTy = ASTContext::getSierraVectorType( BoolTy, 
+    QualType SierraTy = getContext().getSierraVectorType( BoolTy, 
                                         E->getType()->getSierraVectorLength() );
     return CodeGen::EmitSierraConversion( *this,
                                           EmitScalarExpr( E ),

@@ -528,6 +528,9 @@ void EmitBranchOnSierraExpr( CodeGenFunction &CGF,
                              llvm::BasicBlock *TrueBlock,
                              llvm::BasicBlock *FalseBlock )
 {
+  if ( ! Cond->getType()->isSierraVectorType() )
+    return CGF.EmitBranchOnBoolExpr( Cond, TrueBlock, FalseBlock );
+
   CGBuilderTy &Builder = CGF.Builder;
 
   // Check whether the operator is a binary operator
@@ -542,7 +545,24 @@ void EmitBranchOnSierraExpr( CodeGenFunction &CGF,
     // Check whether the binary operator is OR (||)
     if ( CondBOp->getOpcode() == BO_LOr )
     {
+      llvm::BasicBlock* LHSFalse = CGF.createBasicBlock( "lor.lhs.false" );
 
+      CodeGenFunction::ConditionalEvaluation eval( CGF );
+      EmitBranchOnSierraExpr( CGF, CondBOp->getLHS(), true, TrueBlock,
+                                  LHSFalse );
+      CGF.EmitBlock( LHSFalse );
+
+      Builder.SetInsertPoint( LHSFalse );
+
+      eval.begin( CGF );
+      EmitBranchOnSierraExpr( CGF, CondBOp->getRHS(), true, TrueBlock,
+                                  FalseBlock );
+      eval.end( CGF );
+
+      Builder.SetInsertPoint( TrueBlock );
+      CGF.EmitBranch( FalseBlock );
+
+      return;
     } // end OR
   }
 
@@ -561,8 +581,8 @@ void EmitBranchOnSierraExpr( CodeGenFunction &CGF,
   } // end Conditional
 
   // Emit the code with the fully general case.
-  llvm::Value *CondV = EvaluateExprAsBool(Cond);
-  Builder.CreateCondBr(CondV, TrueBlock, FalseBlock);
+  llvm::Value *CondV = CGF.EvaluateExprAsBool( Cond );
+  Builder.CreateCondBr( CondV, TrueBlock, FalseBlock );
 }
 
 //------------------------------------------------------------------------------
