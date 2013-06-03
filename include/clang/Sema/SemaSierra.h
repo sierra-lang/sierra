@@ -29,6 +29,9 @@ QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize,
 QualType CheckSierraVectorOperands(Sema &S, ExprResult &LHS, ExprResult &RHS, 
                                    SourceLocation Loc, bool IsCompAssign);
 
+QualType CheckSierraVectorLogicalOperands(Sema &S, ExprResult &LHS, ExprResult &RHS,
+                                          SourceLocation Loc);
+
 void HandleSierraVectorAttr(Sema &S, QualType& CurType, const AttributeList &Attr);
 
 bool HandleSierraSpmdAttr(Sema &S, const FunctionType *FunT, 

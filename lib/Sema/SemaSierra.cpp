@@ -265,6 +265,46 @@ QualType CheckSierraVectorOperands(Sema &S, ExprResult &LHS, ExprResult &RHS,
 
 //------------------------------------------------------------------------------
 
+QualType CheckSierraVectorLogicalOperands(Sema &S, ExprResult &LHS, ExprResult &RHS,
+                                          SourceLocation Loc) {
+  if (!S.Context.getLangOpts().CPlusPlus) {
+    assert(false && "TODO");
+#if 0
+    LHS = UsualUnaryConversions(LHS.take());
+    if (LHS.isInvalid())
+      return QualType();
+
+    RHS = UsualUnaryConversions(RHS.take());
+    if (RHS.isInvalid())
+      return QualType();
+
+    if (!LHS.get()->getType()->isScalarType() ||
+        !RHS.get()->getType()->isScalarType())
+      return InvalidOperands(Loc, LHS, RHS);
+
+    return Context.IntTy;
+#endif
+  }
+
+  ExprResult LHSRes = S.PerformContextuallyConvertToBool(LHS.get(), 0);
+  if (LHSRes.isInvalid())
+    return S.InvalidOperands(Loc, LHS, RHS);
+  LHS = LHSRes;
+
+  ExprResult RHSRes = S.PerformContextuallyConvertToBool(RHS.get(), 0);
+  if (RHSRes.isInvalid())
+    return S.InvalidOperands(Loc, LHS, RHS);
+  RHS = RHSRes;
+
+  // C++ [expr.log.and]p2
+  // C++ [expr.log.or]p2
+  // The result is a bool.
+  //return Context.BoolTy;
+  return S.Context.getSierraVectorType(S.Context.BoolTy, LHSRes.get()->getType()->getSierraVectorLength());
+}
+
+//------------------------------------------------------------------------------
+
 /// getSierraVectorType - Return the unique reference to an extended vector type of
 /// the specified element type and size. VectorType must be a built-in type.
 QualType ASTContext::getSierraVectorType(QualType vecType, unsigned NumElts) const {
