@@ -30,8 +30,8 @@ What's New in Clang 4.0.0?
 
 Some of the major new features and improvements to Clang are listed
 here. Generic improvements to Clang as a whole or to its underlying
-infrastructure are described first, followed by language-specific
-sections with improvements to Clang's support for those languages.
+infrastructure are described first, followed by language-specific sections with
+improvements to Clang's support for those languages.
 
 Major New Features
 ------------------
@@ -181,12 +181,11 @@ Several new checks were added:
 Additional Information
 ======================
 
-A wide variety of additional information is available on the `Clang web
-page <http://clang.llvm.org/>`_. The web page contains versions of the
-API documentation which are up-to-date with the Subversion version of
-the source code. You can access versions of these documents specific to
-this release by going into the "``clang/docs/``" directory in the Clang
-tree.
+A wide variety of additional information is available on the `Clang web page
+<http://clang.llvm.org/>`_. The web page contains versions of the API
+documentation which are up-to-date with the Subversion version of the source
+code. You can access versions of these documents specific to this release by
+going into the "``clang/docs/``" directory in the Clang tree.
 
 If you have any questions or comments about Clang, please feel free to
 contact us via the `mailing
