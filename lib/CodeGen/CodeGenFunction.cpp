@@ -686,10 +686,16 @@ ConstantFoldsToSimpleInteger(const Expr *Cond, llvm::APSInt &ResultInt) {
 /// EmitBranchOnBoolExpr - Emit a branch on a boolean condition (e.g. for an if
 /// statement) to the specified blocks.  Based on the condition, this might try
 /// to simplify the codegen of the conditional based on the branch.
-///
 void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                            llvm::BasicBlock *TrueBlock,
                                            llvm::BasicBlock *FalseBlock) {
+  EmitBranchOnBoolExpr(Cond, false, NULL, TrueBlock, FalseBlock);
+}
+
+void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
+                                             llvm::Value *mask,
+                                             llvm::BasicBlock *TrueBlock,
+                                             llvm::BasicBlock *FalseBlock) {
   Cond = Cond->IgnoreParens();
 
   // TODO: add a check whether the condition is the fully general case, because
@@ -701,6 +707,13 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
   if (const BinaryOperator *CondBOp = dyn_cast<BinaryOperator>(Cond)) {
     // Handle X && Y in a condition.
     if (CondBOp->getOpcode() == BO_LAnd) {
+      // If the expression is of Sierra Vector Type
+      if ( Cond->getType()->isSierraVectorType() )
+      {
+
+        return;
+      } // End Sierra Vector Type
+
       // If we have "1 && X", simplify the code.  "0 && X" would have constant
       // folded if the case was simple enough.
       bool ConstantBool = false;
@@ -800,6 +813,7 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
   llvm::Value *CondV = EvaluateExprAsBool(Cond);
   Builder.CreateCondBr(CondV, TrueBlock, FalseBlock);
 }
+
 
 /// ErrorUnsupported - Print out an error that codegen doesn't support the
 /// specified stmt yet.

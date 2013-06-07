@@ -2584,6 +2584,13 @@ public:
   void EmitBranchOnBoolExpr(const Expr *Cond, llvm::BasicBlock *TrueBlock,
                             llvm::BasicBlock *FalseBlock);
 
+  // Extends the previous EmitBranchOnBoolExpr function by two arguments to
+  // allow short-circuit evaluation for Sierra Vector Expressions
+  void EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
+                                             llvm::Value *mask,
+                                             llvm::BasicBlock *TrueBlock,
+                                             llvm::BasicBlock *FalseBlock);
+
   /// \brief Emit a description of a type in a format suitable for passing to
   /// a runtime sanitizer handler.
   llvm::Constant *EmitCheckTypeDescriptor(QualType T);
