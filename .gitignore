@@ -18,6 +18,7 @@
 # vim swap files
 .*.sw?
 .sw?
+.exrc
 
 #==============================================================================#
 # Explicit files to ignore (only matches one).
