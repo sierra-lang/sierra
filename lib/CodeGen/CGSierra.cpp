@@ -552,7 +552,7 @@ void EmitBranchOnSierraExpr( CodeGenFunction &CGF,
                                   LHSFalse );
       CGF.EmitBlock( LHSFalse );
 
-      Builder.SetInsertPoint( LHSFalse );
+      //Builder.SetInsertPoint( LHSFalse );
 
       eval.begin( CGF );
       EmitBranchOnSierraExpr( CGF, CondBOp->getRHS(), true, TrueBlock,
