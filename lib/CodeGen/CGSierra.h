@@ -47,12 +47,6 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S);
 void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S);
 void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S);
 
-void EmitBranchOnSierraExpr( CodeGenFunction &CGF,
-                             const Expr *Cond,
-                             bool prefer_true_block,
-                             llvm::BasicBlock *TrueBlock,
-                             llvm::BasicBlock *FalseBlock );
-
 }  // end namespace CodeGen
 }  // end namespace clang
 
