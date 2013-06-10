@@ -682,16 +682,35 @@ ConstantFoldsToSimpleInteger(const Expr *Cond, llvm::APSInt &ResultInt) {
 }
 
 
+/// EmitBranchOnBoolExpr - This function is only for backwards compatibility.
+void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
+                                           llvm::BasicBlock *TrueBlock,
+                                           llvm::BasicBlock *FalseBlock) {
+  /*
+   * TODO need to call EmitBranchOnBoolExpr with initial loop mask and allTrue
+   * flag.
+   *
+   * We need to find out the type of the outmost operator and use the necessary
+   * mask.
+   * For LAND ( && ) we use an all ones vector, since LAND will flip bits from
+   * TRUE to FALSE, but not vice versa. Therefore, we need to start with a
+   * vector that is all TRUE.
+   *
+   * For LOR ( || ) we use an all zeros vector, since LOR will flip bits from
+   * FALSE to TRUE, but not vice versa. Therefore, we need to start with a
+   * vector that is all FALSE.
+   *
+   * The allTrue flag denotes which are the special cases and how to react.
+   * We have two special cases, namely all bits of the mask are TRUE and the
+   * binary operator is LOR, or all bits of the mask are FALSE and the binary
+   * operator is LAND. (see above)
+   */
+  EmitBranchOnBoolExpr(Cond, false, NULL, TrueBlock, FalseBlock);
+}
 
 /// EmitBranchOnBoolExpr - Emit a branch on a boolean condition (e.g. for an if
 /// statement) to the specified blocks.  Based on the condition, this might try
 /// to simplify the codegen of the conditional based on the branch.
-void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
-                                           llvm::BasicBlock *TrueBlock,
-                                           llvm::BasicBlock *FalseBlock) {
-  EmitBranchOnBoolExpr(Cond, false, NULL, TrueBlock, FalseBlock);
-}
-
 void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
                                              llvm::Value *mask,
                                              llvm::BasicBlock *TrueBlock,
@@ -763,9 +782,17 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
       eval.end(*this);
 
       return;
-    }
+    } // End BO_Land
 
     if (CondBOp->getOpcode() == BO_LOr) {
+      /*
+       * Check whether the type of the condition is a Sierra Vector Type
+       */
+      if ( Cond->getType()->isSierraVectorType() )
+      {
+        // TODO implement
+      } // End Sierra Vector Type
+
       // If we have "0 || X", simplify the code.  "1 || X" would have constant
       // folded if the case was simple enough.
       bool ConstantBool = false;
@@ -798,7 +825,7 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
 
       return;
     }
-  }
+  } // End BO_Lor
 
   if (const UnaryOperator *CondUOp = dyn_cast<UnaryOperator>(Cond)) {
     // br(!x, t, f) -> br(x, f, t)
