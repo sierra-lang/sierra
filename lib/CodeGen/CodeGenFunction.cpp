@@ -1305,7 +1305,9 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
 
     // Handle X && Y in a condition.
     if (CondBOp->getOpcode() == BO_LAnd) {
-      // If the expression is of Sierra Vector Type
+      /*
+       * Check whether the type of the condition is a Sierra Vector Type
+       */
       if ( Cond->getType()->isSierraVectorType() )
       {
         llvm::BasicBlock *LHSTrue = createBasicBlock( "land.lhs.true" );
