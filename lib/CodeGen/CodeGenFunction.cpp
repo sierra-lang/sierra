@@ -698,20 +698,36 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
                                              llvm::BasicBlock *FalseBlock) {
   Cond = Cond->IgnoreParens();
 
-  // TODO: add a check whether the condition is the fully general case, because
-  // if the condition is the fully general case, we will skip all cases in the
-  // EmitBranchOnSierraExpr, just like here, and do exactely the same
-  if ( Cond->getType()->isSierraVectorType() )
-    return EmitBranchOnSierraExpr( *this, Cond, true, TrueBlock, FalseBlock );
-
   if (const BinaryOperator *CondBOp = dyn_cast<BinaryOperator>(Cond)) {
     // Handle X && Y in a condition.
     if (CondBOp->getOpcode() == BO_LAnd) {
       // If the expression is of Sierra Vector Type
       if ( Cond->getType()->isSierraVectorType() )
       {
+        llvm::BasicBlock *LHSTrue = createBasicBlock( "land.lhs.true" );
 
-        return;
+        /*
+         * Check whether the mask is completely false.
+         * In this case we can directly branch to the false block
+         */
+        unsigned NumElems = Cond->getType()->getSierraVectorLength();
+        llvm::Value *ScalarMask = Builder.CreateICmpEQ( mask,
+          llvm::ConstantInt::get (
+            llvm::IntegerType::get( Builder.getContext(), NumElems * 8 ), 0 ) );  
+
+        Builder.CreateCondBr( ScalarMask, FalseBlock, LHSTrue );
+
+        /*
+         * If the mask is some true, we will branch into LHSTrue.
+         * We need to update the mask in this case.
+         */
+        llvm::Value *LHSValue = EmitScalarExpr( CondBOp );
+        Builder.SetInsertPoint( LHSTrue );
+        return EmitBranchOnBoolExpr( CondBOp->getRHS(),
+                                     true,  // review this
+                                     Builder.CreateAnd( mask, LHSValue ),
+                                     TrueBlock,
+                                     FalseBlock );
       } // End Sierra Vector Type
 
       // If we have "1 && X", simplify the code.  "0 && X" would have constant

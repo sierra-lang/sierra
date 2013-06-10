@@ -522,69 +522,6 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   CGF.EmitBlock( LoopExit.getBlock(), true );
 }
 
-void EmitBranchOnSierraExpr( CodeGenFunction &CGF,
-                             const Expr *Cond,
-                             bool prefer_true_block,
-                             llvm::BasicBlock *TrueBlock,
-                             llvm::BasicBlock *FalseBlock )
-{
-  if ( ! Cond->getType()->isSierraVectorType() )
-    return CGF.EmitBranchOnBoolExpr( Cond, TrueBlock, FalseBlock );
-
-  CGBuilderTy &Builder = CGF.Builder;
-
-  // Check whether the operator is a binary operator
-  if ( const BinaryOperator *CondBOp = dyn_cast<BinaryOperator>( Cond ) )
-  {
-    // Check whether the binary operator is AND (&&)
-    if ( CondBOp->getOpcode() == BO_LAnd )
-    {
-
-    } // end AND
-
-    // Check whether the binary operator is OR (||)
-    if ( CondBOp->getOpcode() == BO_LOr )
-    {
-      llvm::BasicBlock* LHSFalse = CGF.createBasicBlock( "lor.lhs.false" );
-
-      CodeGenFunction::ConditionalEvaluation eval( CGF );
-      EmitBranchOnSierraExpr( CGF, CondBOp->getLHS(), true, TrueBlock,
-                                  LHSFalse );
-      CGF.EmitBlock( LHSFalse );
-
-      //Builder.SetInsertPoint( LHSFalse );
-
-      eval.begin( CGF );
-      EmitBranchOnSierraExpr( CGF, CondBOp->getRHS(), true, TrueBlock,
-                                  FalseBlock );
-      eval.end( CGF );
-
-      Builder.SetInsertPoint( TrueBlock );
-      CGF.EmitBranch( FalseBlock );
-
-      return;
-    } // end OR
-  }
-
-  // Check whether the operator is a unary operator
-  if ( const UnaryOperator *CondUOp = dyn_cast<UnaryOperator>( Cond ) )
-  {
-    // br(!x, t, f) -> br(x, f, t)
-    if ( CondUOp->getOpcode() == UO_LNot )
-      return EmitBranchOnSierraExpr( CGF, CondUOp->getSubExpr(), true,
-                                     FalseBlock, TrueBlock );
-  }
-
-  if ( const ConditionalOperator *CondOp = dyn_cast<ConditionalOperator>( Cond ) )
-  {
-
-  } // end Conditional
-
-  // Emit the code with the fully general case.
-  llvm::Value *CondV = CGF.EvaluateExprAsBool( Cond );
-  Builder.CreateCondBr( CondV, TrueBlock, FalseBlock );
-}
-
 //------------------------------------------------------------------------------
 
 }  // end namespace CodeGen
