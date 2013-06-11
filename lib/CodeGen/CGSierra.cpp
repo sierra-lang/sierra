@@ -145,7 +145,8 @@ static llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context, unsigned
 
 #endif
 
-static llvm::Constant *CreateAllOnesVector(llvm::LLVMContext &Context, unsigned NumElems) {
+llvm::Constant *CreateAllOnesVector(llvm::LLVMContext &Context,
+                                           unsigned NumElems) {
   llvm::Constant** ones = new llvm::Constant*[NumElems];
   for (unsigned i = 0; i < NumElems; ++i)
     ones[i] = llvm::ConstantInt::getTrue(Context);
@@ -153,6 +154,18 @@ static llvm::Constant *CreateAllOnesVector(llvm::LLVMContext &Context, unsigned 
   llvm::ArrayRef<llvm::Constant*> values(ones, NumElems);
   llvm::Constant *result = llvm::ConstantVector::get(values);
   delete[] ones;
+  return result;
+}
+
+llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context,
+                                            unsigned NumElems) {
+  llvm::Constant** zeros = new llvm::Constant*[NumElems];
+  for (unsigned i = 0; i < NumElems; ++i)
+    zeros[i] = llvm::ConstantInt::getFalse(Context);
+
+  llvm::ArrayRef<llvm::Constant*> values(zeros, NumElems);
+  llvm::Constant *result = llvm::ConstantVector::get(values);
+  delete[] zeros;
   return result;
 }
 
