@@ -705,6 +705,31 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
    * binary operator is LOR, or all bits of the mask are FALSE and the binary
    * operator is LAND. (see above)
    */
+
+  // Check if the condition is a Sierra Vector Type
+  if ( Cond->getType()->isSierraVectorType() )
+  {
+    unsigned NumElems = Cond->getType()->getSierraVectorLength();
+    if ( const BinaryOperator *CondBOp = dyn_cast<BinaryOperator>( Cond ) )
+    {
+      // LAnd ( && )
+      if ( CondBOp->getOpcode() == BO_LAnd )
+      {
+        return EmitBranchOnBoolExpr(Cond, false,
+CreateAllOnesVector( Builder.getContext(),
+                                                         NumElems ),
+                                    TrueBlock, FalseBlock);
+      }
+      // LOr ( || )
+      if ( CondBOp->getOpcode() == BO_LOr )
+      {
+        return EmitBranchOnBoolExpr(Cond, true,
+                                    CreateAllZerosVector( Builder.getContext(),
+                                                          NumElems ),
+                                    TrueBlock, FalseBlock);
+      }
+    }
+  }
   EmitBranchOnBoolExpr(Cond, false, NULL, TrueBlock, FalseBlock);
 }
 
@@ -742,13 +767,19 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
          * If the mask is some true, we will branch into LHSTrue.
          * We need to update the mask in this case.
          */
-        llvm::Value *LHSValue = EmitScalarExpr( CondBOp );
+        ConditionalEvaluation eval( *this );
+        llvm::Value *LHSValue = EmitScalarExpr( CondBOp->getLHS() );
         Builder.SetInsertPoint( LHSTrue );
-        return EmitBranchOnBoolExpr( CondBOp->getRHS(),
-                                     true,  // review this
-                                     Builder.CreateAnd( mask, LHSValue ),
-                                     TrueBlock,
-                                     FalseBlock );
+
+        eval.begin( *this );
+        EmitBranchOnBoolExpr( CondBOp->getRHS(),
+                              true,  // review this
+                              Builder.CreateAnd( mask, LHSValue ),
+                              TrueBlock,
+                              FalseBlock );
+        eval.end( *this );
+
+        return;
       } // End Sierra Vector Type
 
       // If we have "1 && X", simplify the code.  "0 && X" would have constant

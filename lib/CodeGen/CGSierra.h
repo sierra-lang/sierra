@@ -33,6 +33,9 @@ namespace CodeGen {
 
 class CodeGenFunction;
 
+llvm::Constant *CreateAllOnesVector(llvm::LLVMContext &Context, unsigned NumElems);
+llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context, unsigned NumElems);
+
 llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, llvm::Value *Src, QualType SrcType, QualType DstType);
 
 llvm::StoreInst *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask, 
