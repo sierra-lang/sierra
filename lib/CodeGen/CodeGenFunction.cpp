@@ -716,7 +716,7 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       if ( CondBOp->getOpcode() == BO_LAnd )
       {
         return EmitBranchOnBoolExpr(Cond, false,
-CreateAllOnesVector( Builder.getContext(),
+                                    CreateAllOnesVector( Builder.getContext(),
                                                          NumElems ),
                                     TrueBlock, FalseBlock);
       }
@@ -753,12 +753,17 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
         llvm::BasicBlock *LHSTrue = createBasicBlock( "land.lhs.true" );
 
         /*
+         * Compute the new mask.
+         */
+        mask = Builder.CreateAnd( mask, EmitScalarExpr( CondBOp->getLHS() ) );
+
+        /*
          * Check whether the mask is completely false.
          * In this case we can directly branch to the false block
          */
         unsigned NumElems = Cond->getType()->getSierraVectorLength();
         llvm::Value *ScalarMask = Builder.CreateICmpEQ( mask,
-          llvm::ConstantInt::get (
+          llvm::ConstantInt::get(
             llvm::IntegerType::get( Builder.getContext(), NumElems * 8 ), 0 ) );  
 
         Builder.CreateCondBr( ScalarMask, FalseBlock, LHSTrue );
@@ -773,8 +778,8 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
 
         eval.begin( *this );
         EmitBranchOnBoolExpr( CondBOp->getRHS(),
-                              true,  // review this
-                              Builder.CreateAnd( mask, LHSValue ),
+                              false,  // review this
+                              mask,
                               TrueBlock,
                               FalseBlock );
         eval.end( *this );
@@ -821,7 +826,41 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
        */
       if ( Cond->getType()->isSierraVectorType() )
       {
-        // TODO implement
+        llvm::BasicBlock *LHSFalse = createBasicBlock( "lor.lhs.true" );
+
+        /*
+         * Compute the new mask.
+         */
+        mask = Builder.CreateOr( mask, EmitScalarExpr( CondBOp->getLHS() ) );
+
+        /*
+         * Check whether the mask is completely true.
+         * In this case we can directly branch to the true block
+         */
+        unsigned NumElems = Cond->getType()->getSierraVectorLength();
+        llvm::Value *ScalarMask = Builder.CreateICmpEQ( mask,
+          llvm::ConstantInt::get(
+            llvm::IntegerType::get( Builder.getContext(), NumElems * 8 ), 1 ) );  
+
+        Builder.CreateCondBr( ScalarMask, TrueBlock, LHSFalse );
+
+        /*
+         * If the mask is some false, we will branch into LHSFalse.
+         * We need to update the mask in this case.
+         */
+        ConditionalEvaluation eval( *this );
+        llvm::Value *LHSValue = EmitScalarExpr( CondBOp->getLHS() );
+        Builder.SetInsertPoint( LHSTrue );
+
+        eval.begin( *this );
+        EmitBranchOnBoolExpr( CondBOp->getRHS(),
+                              true,  // review this
+                              mask,
+                              TrueBlock,
+                              FalseBlock );
+        eval.end( *this );
+
+        return;
       } // End Sierra Vector Type
 
       // If we have "0 || X", simplify the code.  "1 || X" would have constant
