@@ -773,10 +773,8 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
 
         /*
          * If the mask is some true, we will branch into LHSTrue.
-         * We need to update the mask in this case.
          */
         ConditionalEvaluation eval( *this );
-        llvm::Value *LHSValue = EmitScalarExpr( CondBOp->getLHS() );
         Builder.SetInsertPoint( LHSTrue );
 
         eval.begin( *this );
@@ -843,20 +841,18 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
          * We say that a mask m0 satisfies a mask m1 iff
          *    m0 ^ m1 <=> m1
          */
-        unsigned NumElems = Cond->getType()->getSierraVectorLength();
         llvm::Value *currentMask = getCurrentMask();
-        llvm::Value *ScalarMask = Builder.CreateICmpEQ( mask,
-          Builder.CreateAnd( mask, currentMask ) );
+        llvm::Value *ScalarMask = Builder.CreateICmpEQ(
+          Builder.CreateAnd( mask, currentMask ),
+          currentMask );
 
         Builder.CreateCondBr( ScalarMask, TrueBlock, LHSFalse );
 
         /*
          * If the mask is some false, we will branch into LHSFalse.
-         * We need to update the mask in this case.
          */
         ConditionalEvaluation eval( *this );
-        llvm::Value *LHSValue = EmitScalarExpr( CondBOp->getLHS() );
-        Builder.SetInsertPoint( LHSTrue );
+        Builder.SetInsertPoint( LHSFalse );
 
         eval.begin( *this );
         EmitBranchOnBoolExpr( CondBOp->getRHS(),
