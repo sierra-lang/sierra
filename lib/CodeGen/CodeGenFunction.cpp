@@ -687,9 +687,6 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                            llvm::BasicBlock *TrueBlock,
                                            llvm::BasicBlock *FalseBlock) {
   /*
-   * TODO need to call EmitBranchOnBoolExpr with initial loop mask and allTrue
-   * flag.
-   *
    * We need to find out the type of the outmost operator and use the necessary
    * mask.
    * For LAND ( && ) we use an all ones vector, since LAND will flip bits from
@@ -730,7 +727,8 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       }
     }
   }
-  EmitBranchOnBoolExpr(Cond, false, NULL, TrueBlock, FalseBlock);
+
+  return EmitBranchOnBoolExpr(Cond, false, NULL, TrueBlock, FalseBlock);
 }
 
 /// EmitBranchOnBoolExpr - Emit a branch on a boolean condition (e.g. for an if
@@ -758,11 +756,16 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
         mask = Builder.CreateAnd( mask, EmitScalarExpr( CondBOp->getLHS() ) );
 
         /*
-         * Check whether the mask is completely false.
+         * Check whether the mask falsifies the current mask.
          * In this case we can directly branch to the false block
+         *
+         * We say a mask m0 falsifies m1 iff
+         *    m0 ^ m1 <=> FALSE
          */
         unsigned NumElems = Cond->getType()->getSierraVectorLength();
-        llvm::Value *ScalarMask = Builder.CreateICmpEQ( mask,
+        llvm::Value *currentMask = getCurrentMask();
+        llvm::Value *ScalarMask = Builder.CreateICmpEQ(
+          Builder.CreateAnd( mask, currentMask ),
           llvm::ConstantInt::get(
             llvm::IntegerType::get( Builder.getContext(), NumElems * 8 ), 0 ) );  
 
@@ -834,13 +837,16 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
         mask = Builder.CreateOr( mask, EmitScalarExpr( CondBOp->getLHS() ) );
 
         /*
-         * Check whether the mask is completely true.
-         * In this case we can directly branch to the true block
+         * Check whether the mask satisfies the current mask.
+         * In this case we can directly branch to the true block.
+         *
+         * We say that a mask m0 satisfies a mask m1 iff
+         *    m0 ^ m1 <=> m1
          */
         unsigned NumElems = Cond->getType()->getSierraVectorLength();
+        llvm::Value *currentMask = getCurrentMask();
         llvm::Value *ScalarMask = Builder.CreateICmpEQ( mask,
-          llvm::ConstantInt::get(
-            llvm::IntegerType::get( Builder.getContext(), NumElems * 8 ), 1 ) );  
+          Builder.CreateAnd( mask, currentMask ) );
 
         Builder.CreateCondBr( ScalarMask, TrueBlock, LHSFalse );
 
