@@ -1330,6 +1330,8 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     }
   }
 
+  // TODO What happens if we start with a normal boolean expression, and a sub
+  // expression is of type Sierra vector?
   return EmitBranchOnBoolExpr(Cond, false, NULL, TrueBlock, FalseBlock);
 }
 
