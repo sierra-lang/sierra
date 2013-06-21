@@ -682,7 +682,9 @@ ConstantFoldsToSimpleInteger(const Expr *Cond, llvm::APSInt &ResultInt) {
 }
 
 
-/// EmitBranchOnBoolExpr - This function is only for backwards compatibility.
+/// EmitBranchOnBoolExpr - Emit a branch on a boolean condition (e.g. for an if
+/// statement) to the specified blocks.  Based on the condition, this might try
+/// to simplify the codegen of the conditional based on the branch.
 void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                            llvm::BasicBlock *TrueBlock,
                                            llvm::BasicBlock *FalseBlock) {
@@ -725,14 +727,13 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
         return;
       }
     }
-  } // End case Sierra Vector
+  } // End Sierra Vector Type
 
   EmitBranchOnBoolExpr( Cond, false, NULL, TrueBlock, FalseBlock );
 }
 
-/// EmitBranchOnBoolExpr - Emit a branch on a boolean condition (e.g. for an if
-/// statement) to the specified blocks.  Based on the condition, this might try
-/// to simplify the codegen of the conditional based on the branch.
+/// EmitBranchOnBoolExpr - This method extends the regular EmitBranchOnBoolExpr
+/// with support for Sierra Vectors
 llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                    bool allTrue,
                                                    llvm::Value *mask,
@@ -754,19 +755,22 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
         ConditionalEvaluation eval( *this );
 
         // Invoke recursive call on the left hand side.
-        eval.begin( *this );
         llvm::Value *LHSValue = EmitBranchOnBoolExpr( CondBOp->getLHS(),
                                                       allTrue,
                                                       mask,
                                                       LHSTrue,
                                                       FalseBlock );
-        eval.end( *this );
 
-        // Set the insert point to the next block
-        Builder.SetInsertPoint( LHSTrue );
+        // Emit the block for the case of left hand side some true
+        llvm::BasicBlock *curBB = Builder.GetInsertBlock();
+        EmitBlock( LHSTrue );
+        curBB->getTerminator()->eraseFromParent();
 
         // Compute the new value of the mask used for the right hand side.
         LHSValue = Builder.CreateAnd( mask, LHSValue );
+
+        // Save the current insert point
+        llvm::BasicBlock::iterator curIP = Builder.GetInsertPoint();
 
         // Invoke recursive call on the right hand side.
         eval.begin( *this );
@@ -777,6 +781,8 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                       FalseBlock );
         eval.end( *this );
 
+        Builder.SetInsertPoint( curIP );
+
         return Builder.CreateAnd( LHSValue, RHSValue );
       } // End Sierra Vector Type
 
@@ -786,8 +792,8 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       if (ConstantFoldsToSimpleInteger(CondBOp->getLHS(), ConstantBool) &&
           ConstantBool) {
         // br(1 && X) -> br(X).
-        EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock);
-        return NULL;
+        return EmitBranchOnBoolExpr(CondBOp->getRHS(), allTrue, mask, TrueBlock,
+                                    FalseBlock);
       }
 
       // If we have "X && 1", simplify the code to use an uncond branch.
@@ -795,8 +801,8 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       if (ConstantFoldsToSimpleInteger(CondBOp->getRHS(), ConstantBool) &&
           ConstantBool) {
         // br(X && 1) -> br(X).
-        EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, FalseBlock);
-        return NULL;
+        return EmitBranchOnBoolExpr(CondBOp->getLHS(), allTrue, mask, TrueBlock,
+                                    FalseBlock);
       }
 
       // Emit the LHS as a conditional.  If the LHS conditional is false, we
@@ -804,15 +810,23 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       llvm::BasicBlock *LHSTrue = createBasicBlock("land.lhs.true");
 
       ConditionalEvaluation eval(*this);
-      EmitBranchOnBoolExpr(CondBOp->getLHS(), LHSTrue, FalseBlock);
+      llvm::Value *LHSValue = EmitBranchOnBoolExpr(CondBOp->getLHS(),
+                                                   allTrue,
+                                                   mask,
+                                                   LHSTrue,
+                                                   FalseBlock);
       EmitBlock(LHSTrue);
 
       // Any temporaries created here are conditional.
       eval.begin(*this);
-      EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock);
+      llvm::Value *RHSValue = EmitBranchOnBoolExpr(CondBOp->getRHS(),
+                                                   allTrue,
+                                                   mask,
+                                                   TrueBlock,
+                                                   FalseBlock);
       eval.end(*this);
 
-      return NULL;
+      return Builder.CreateAnd( LHSValue, RHSValue );
     } // End BO_Land
 
     if (CondBOp->getOpcode() == BO_LOr) {
@@ -827,16 +841,22 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
         ConditionalEvaluation eval( *this );
 
         // Invoke recursive call on the left hand side.
-        eval.begin( *this );
         llvm::Value *LHSValue = EmitBranchOnBoolExpr( CondBOp->getLHS(),
                                                       true,
                                                       mask,
                                                       TrueBlock,
                                                       LHSFalse );
-        eval.end( *this );
+
+        // Emit the block for the case of left hand side some false
+        llvm::BasicBlock *curBB = Builder.GetInsertBlock();
+        EmitBlock( LHSFalse );
+        curBB->getTerminator()->eraseFromParent();
 
         // Compute the new value of the mask used for the right hand side.
         LHSValue = Builder.CreateAnd( mask, Builder.CreateNot( LHSValue ) );
+
+        // Save the current insert point
+        llvm::BasicBlock::iterator curIP = Builder.GetInsertPoint();
 
         // Invoke recursive call on the right hand side.
         eval.begin( *this );
@@ -847,6 +867,8 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                       FalseBlock );
         eval.end( *this );
 
+        Builder.SetInsertPoint( curIP );
+
         return Builder.CreateOr( LHSValue, RHSValue );
       } // End Sierra Vector Type
 
@@ -856,8 +878,8 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       if (ConstantFoldsToSimpleInteger(CondBOp->getLHS(), ConstantBool) &&
           !ConstantBool) {
         // br(0 || X) -> br(X).
-        EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock);
-        return NULL;
+        return EmitBranchOnBoolExpr(CondBOp->getRHS(), allTrue, mask, TrueBlock,
+                                    FalseBlock);
       }
 
       // If we have "X || 0", simplify the code to use an uncond branch.
@@ -865,8 +887,8 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       if (ConstantFoldsToSimpleInteger(CondBOp->getRHS(), ConstantBool) &&
           !ConstantBool) {
         // br(X || 0) -> br(X).
-        EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, FalseBlock);
-        return NULL;
+        return EmitBranchOnBoolExpr(CondBOp->getLHS(), allTrue, mask, TrueBlock,
+                                    FalseBlock);
       }
 
       // Emit the LHS as a conditional.  If the LHS conditional is true, we
@@ -874,15 +896,23 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       llvm::BasicBlock *LHSFalse = createBasicBlock("lor.lhs.false");
 
       ConditionalEvaluation eval(*this);
-      EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, LHSFalse);
+      llvm::Value *LHSValue = EmitBranchOnBoolExpr(CondBOp->getLHS(),
+                                                   allTrue,
+                                                   mask,
+                                                   TrueBlock,
+                                                   LHSFalse);
       EmitBlock(LHSFalse);
 
       // Any temporaries created here are conditional.
       eval.begin(*this);
-      EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock);
+      llvm::Value *RHSValue = EmitBranchOnBoolExpr(CondBOp->getRHS(),
+                                                   allTrue,
+                                                   mask,
+                                                   TrueBlock,
+                                                   FalseBlock);
       eval.end(*this);
 
-      return NULL;
+      return Builder.CreateOr( LHSValue, RHSValue );
     } // End BO_Lor
   } // End Binary
 
@@ -890,16 +920,11 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     // br(!x, t, f) -> br(x, f, t)
     if (CondUOp->getOpcode() == UO_LNot)
     {
-      if ( CondUOp->getType()->isSierraVectorType() )
-      {
-        return EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
-                                     ! allTrue,
-                                     mask, // review this
-                                     FalseBlock,
-                                     TrueBlock );
-      }
-      EmitBranchOnBoolExpr(CondUOp->getSubExpr(), FalseBlock, TrueBlock);
-      return NULL;
+      return Builder.CreateNot( EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
+                                                      ! allTrue, // review this
+                                                      mask, // review this
+                                                      FalseBlock,
+                                                      TrueBlock ) );
     }
   }
 
@@ -932,26 +957,62 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
    */
   if ( Cond->getType()->isSierraVectorType() )
   {
+    llvm::LLVMContext &Context = Builder.getContext();
+    int NumElems = Cond->getType()->getSierraVectorLength();
+
     // Save old mask.
     llvm::Value *OldMask = getCurrentMask();
-     
+
     // Set the new current mask.
     setCurrentMask( mask );
-     
-    // Evaluate the condition in the context of the new current mask.
-    llvm::Value *CondV = Builder.CreateAnd( getCurrentMask(), // review this
-                                            EmitScalarExpr( Cond ) );
-     
-    // Restore old current mask.
+
+    // Evaluate the condition
+    llvm::Value *CondV = EmitScalarExpr( Cond );
+
+    // TODO Do we need to apply the mask to CondV here?
+
+    /*
+     * Emit the code for the allTrue / allFalse cases.
+     */
+    llvm::Value *ScalarCond;
+    if ( allTrue )
+    {
+      /*
+       * Xor the mask with the condition value. If they are the same it will
+       * result in a vector of all zeros.
+       */
+      llvm::Value *CondMasked = Builder.CreateXor( CondV, mask );
+      llvm::Value *Cond8 = EmitMask1ToMask8( Builder, CondMasked );
+      llvm::Value *CondI = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(
+          Context, NumElems*8));
+      // Check whether the vector is all zero
+      ScalarCond = Builder.CreateICmpEQ(
+        CondI, llvm::ConstantInt::get(llvm::IntegerType::get( Context,
+                                                              NumElems*8), 0));
+    }
+    else
+    {
+      llvm::Value *Cond8 = EmitMask1ToMask8( Builder, CondV );
+      llvm::Value *CondI = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(
+          Context, NumElems*8));
+      // Check whether the vector is some true
+      ScalarCond = Builder.CreateICmpNE(
+        CondI, llvm::ConstantInt::get(llvm::IntegerType::get( Context,
+                                                              NumElems*8), 0));
+    }
+
+    // Create the branch
+    Builder.CreateCondBr( ScalarCond, TrueBlock, FalseBlock );
+
+    // Restore the old mask
     setCurrentMask( OldMask );
 
-    Builder.CreateCondBr(CondV, TrueBlock, FalseBlock);
     return CondV;
   }
 
-  llvm::Value *CondV = EmitScalarExpr( Cond );
-  Builder.CreateCondBr(CondV, TrueBlock, FalseBlock);
-  return NULL;
+  llvm::Value *ScalarCond = EmitScalarExpr( Cond );
+  Builder.CreateCondBr(ScalarCond, TrueBlock, FalseBlock);
+  return ScalarCond;
 }
 
 
