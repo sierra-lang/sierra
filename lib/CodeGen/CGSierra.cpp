@@ -191,11 +191,15 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
 
   llvm::Value* OldMask = CGF.getCurrentMask();
 
+  Builder.GetInsertBlock()->getParent()->dump();
+
   llvm::Value *ThenMask = CGF.EmitBranchOnBoolExpr( S.getCond(),
                                                     false,
                                                     OldMask,
                                                     ThenBlock,
                                                     ElseBlock );
+
+  Builder.GetInsertBlock()->getParent()->dump();
 
   CGF.EmitBlock(ThenBlock); 
   {
@@ -217,6 +221,8 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
     Builder.CreateCondBr( ScalarCond, ContBlock, ElseBlock );
   }
 
+  Builder.GetInsertBlock()->getParent()->dump();
+
   // Emit the 'else' code if present.
   if (const Stmt *Else = S.getElse()) {
     CGF.EmitBlock(ElseBlock);
@@ -229,6 +235,8 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
       CGF.setCurrentMask(OldMask);
     }
   }
+
+  Builder.GetInsertBlock()->getParent()->dump();
 
   if (noCurrentMask)
     CGF.setCurrentMask(0);
