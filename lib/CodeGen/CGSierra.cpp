@@ -190,12 +190,12 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
     ElseBlock = CGF.createBasicBlock("vectorized-if.else");
 
   llvm::Value* OldMask = CGF.getCurrentMask();
-  llvm::Value* Cond = //EmitMask8ToMask1(Builder, 
-                                       CGF.EmitScalarExpr(S.getCond());
-  llvm::Value* ThenMask = Builder.CreateAnd(OldMask, Cond);
-  llvm::Value* ElseMask;
-  if (S.getElse())
-    ElseMask = Builder.CreateAnd(OldMask, Builder.CreateNot(Cond));
+
+  llvm::Value *ThenMask = CGF.EmitBranchOnBoolExpr( S.getCond(),
+                                                    false,
+                                                    OldMask,
+                                                    ThenBlock,
+                                                    ElseBlock );
 
   CGF.EmitBlock(ThenBlock); 
   {
@@ -203,22 +203,31 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
     CodeGenFunction::RunCleanupsScope ThenScope(CGF);
     CGF.EmitStmt(S.getThen());
     CGF.setCurrentMask(OldMask);
+
+    /*
+     * Check whether the ThenMask is the current mask
+     */
+    llvm::Value *CondXor = Builder.CreateXor( ThenMask, CGF.getCurrentMask() );
+    llvm::Value *Cond8 = EmitMask1ToMask8( Builder, CondXor );
+    llvm::Value *CondI = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(
+        Context, NumElems*8));
+    llvm::Value *ScalarCond = Builder.CreateICmpEQ(
+      CondI, llvm::ConstantInt::get(llvm::IntegerType::get( Context,
+                                                            NumElems*8), 0));
+    Builder.CreateCondBr( ScalarCond, ContBlock, ElseBlock );
   }
-  if (S.getElse())
-    CGF.EmitBranch(ElseBlock);
-  else
-    CGF.EmitBranch(ContBlock);
 
   // Emit the 'else' code if present.
   if (const Stmt *Else = S.getElse()) {
-    CGF.setCurrentMask(ElseMask);
     CGF.EmitBlock(ElseBlock);
     {
+      llvm::Value *ElseMask = Builder.CreateAnd( CGF.getCurrentMask(),
+                                                 Builder.CreateNot( ThenMask ) );
+      CGF.setCurrentMask(ElseMask);
       CodeGenFunction::RunCleanupsScope ElseScope(CGF);
       CGF.EmitStmt(Else);
       CGF.setCurrentMask(OldMask);
     }
-    CGF.EmitBranch(ContBlock);
   }
 
   if (noCurrentMask)
@@ -226,8 +235,7 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
   else
     CGF.setCurrentMask(OldMask);
 
-  // Emit the continuation block for code after the if.
-  CGF.EmitBlock(ContBlock, true);
+  CGF.EmitBlock( ContBlock );
 }
 
 //------------------------------------------------------------------------------
