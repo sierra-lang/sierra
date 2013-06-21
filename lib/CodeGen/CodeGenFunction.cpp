@@ -762,9 +762,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                       FalseBlock );
 
         // Emit the block for the case of left hand side some true
-        llvm::BasicBlock *curBB = Builder.GetInsertBlock();
         EmitBlock( LHSTrue );
-        curBB->getTerminator()->eraseFromParent();
 
         // Compute the new value of the mask used for the right hand side.
         LHSValue = Builder.CreateAnd( mask, LHSValue );
@@ -781,7 +779,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                       FalseBlock );
         eval.end( *this );
 
-        Builder.SetInsertPoint( curIP );
+        Builder.SetInsertPoint( --curIP );
 
         return Builder.CreateAnd( LHSValue, RHSValue );
       } // End Sierra Vector Type
@@ -848,9 +846,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                       LHSFalse );
 
         // Emit the block for the case of left hand side some false
-        llvm::BasicBlock *curBB = Builder.GetInsertBlock();
         EmitBlock( LHSFalse );
-        curBB->getTerminator()->eraseFromParent();
 
         // Compute the new value of the mask used for the right hand side.
         LHSValue = Builder.CreateAnd( mask, Builder.CreateNot( LHSValue ) );
@@ -867,7 +863,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                       FalseBlock );
         eval.end( *this );
 
-        Builder.SetInsertPoint( curIP );
+        Builder.SetInsertPoint( --curIP );
 
         return Builder.CreateOr( LHSValue, RHSValue );
       } // End Sierra Vector Type
