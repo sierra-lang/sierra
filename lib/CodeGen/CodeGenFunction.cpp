@@ -1557,8 +1557,8 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
 
       llvm::Value *Value
         = Builder.CreateNot(EmitBranchOnBoolExpr(CondUOp->getSubExpr(),
-                                                 !allTrue, // review this
-                                                 mask, // review this
+                                                 !allTrue,
+                                                 mask,
                                                  FalseBlock,
                                                  TrueBlock,
                                                  FalseCount));
@@ -1571,6 +1571,8 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
   }
 
   if (const ConditionalOperator *CondOp = dyn_cast<ConditionalOperator>(Cond)) {
+    // TODO Sierra Vector Type
+
     // br(c ? x : y, t, f) -> br(c, br(x, t, f), br(y, t, f))
     llvm::BasicBlock *LHSBlock = createBasicBlock("cond.true");
     llvm::BasicBlock *RHSBlock = createBasicBlock("cond.false");
