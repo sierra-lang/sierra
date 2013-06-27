@@ -779,6 +779,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                       FalseBlock );
         eval.end( *this );
 
+        // Restore the insert point
         Builder.SetInsertPoint( --curIP );
 
         return Builder.CreateAnd( LHSValue, RHSValue );
@@ -814,6 +815,9 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                    LHSTrue,
                                                    FalseBlock);
       EmitBlock(LHSTrue);
+      
+      // Save the current insert point
+      llvm::BasicBlock::iterator curIP = Builder.GetInsertPoint();
 
       // Any temporaries created here are conditional.
       eval.begin(*this);
@@ -823,6 +827,9 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                    TrueBlock,
                                                    FalseBlock);
       eval.end(*this);
+
+      // Restore the insert point
+      Builder.SetInsertPoint( --curIP );
 
       return Builder.CreateAnd( LHSValue, RHSValue );
     } // End BO_Land
@@ -863,6 +870,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                       FalseBlock );
         eval.end( *this );
 
+        // Restore the insert point
         Builder.SetInsertPoint( --curIP );
 
         return Builder.CreateOr( LHSValue, RHSValue );
@@ -899,6 +907,9 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                    LHSFalse);
       EmitBlock(LHSFalse);
 
+      // Save the current insert point
+      llvm::BasicBlock::iterator curIP = Builder.GetInsertPoint();
+
       // Any temporaries created here are conditional.
       eval.begin(*this);
       llvm::Value *RHSValue = EmitBranchOnBoolExpr(CondBOp->getRHS(),
@@ -908,6 +919,9 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                    FalseBlock);
       eval.end(*this);
 
+      // Restore the insert point
+      Builder.SetInsertPoint( --curIP );
+
       return Builder.CreateOr( LHSValue, RHSValue );
     } // End BO_Lor
   } // End Binary
@@ -916,11 +930,20 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     // br(!x, t, f) -> br(x, f, t)
     if (CondUOp->getOpcode() == UO_LNot)
     {
-      return Builder.CreateNot( EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
-                                                      ! allTrue, // review this
-                                                      mask, // review this
-                                                      FalseBlock,
-                                                      TrueBlock ) );
+      // Save the current insert point
+      llvm::BasicBlock::iterator curIP = Builder.GetInsertPoint();
+
+      llvm::Value *Value =  Builder.CreateNot( EmitBranchOnBoolExpr(
+          CondUOp->getSubExpr(),
+          ! allTrue, // review this
+          mask, // review this
+          FalseBlock,
+          TrueBlock ) );
+
+      // Restore the insert point
+      Builder.SetInsertPoint( --curIP );
+
+      return Builder.CreateNot( Value );
     }
   }
 
