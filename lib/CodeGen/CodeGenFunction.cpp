@@ -1383,6 +1383,7 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
                                                       FalseBlock );
         eval.end( *this );
 
+        // Restore the insert point
         Builder.SetInsertPoint( --curIP );
 
         return Builder.CreateAnd( LHSValue, RHSValue );
@@ -1418,11 +1419,14 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
       ConditionalEvaluation eval(*this);
       llvm::Value *LHSValue, *RHSValue;
       LHSValue = RHSValue = nullptr;
+      llvm::BasicBlock::iterator curIP = nullptr;
       {
         ApplyDebugLocation DL(*this, Cond);
         LHSValue = EmitBranchOnBoolExpr(CondBOp->getLHS(), allTrue, mask,
                                         LHSTrue, FalseBlock, RHSCount);
         EmitBlock(LHSTrue);
+        // Save the current insert point
+        curIP = Builder.GetInsertPoint();
       }
 
       incrementProfileCounter(CondBOp);
@@ -1433,6 +1437,9 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
       RHSValue = EmitBranchOnBoolExpr(CondBOp->getRHS(), allTrue, mask,
                                       TrueBlock, FalseBlock, TrueCount);
       eval.end(*this);
+
+      // Restore the insert point
+      Builder.SetInsertPoint( --curIP );
 
       return Builder.CreateAnd( LHSValue, RHSValue );
     } // End BO_Land
@@ -1473,6 +1480,7 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
                                                       FalseBlock );
         eval.end( *this );
 
+        // Restore the insert point
         Builder.SetInsertPoint( --curIP );
 
         return Builder.CreateOr( LHSValue, RHSValue );
@@ -1521,12 +1529,18 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
       incrementProfileCounter(CondBOp);
       setCurrentProfileCount(getProfileCount(CondBOp->getRHS()));
 
+      // Save the current insert point
+      llvm::BasicBlock::iterator curIP = Builder.GetInsertPoint();
+
       // Any temporaries created here are conditional.
       eval.begin(*this);
       RHSValue = EmitBranchOnBoolExpr(CondBOp->getRHS(), allTrue, mask,
                                       TrueBlock, FalseBlock, RHSCount);
 
       eval.end(*this);
+
+      // Restore the insert point
+      Builder.SetInsertPoint( --curIP );
 
       return Builder.CreateOr( LHSValue, RHSValue );
     } // End BO_Lor
@@ -1537,12 +1551,22 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
     if (CondUOp->getOpcode() == UO_LNot) {
       // Negate the count.
       uint64_t FalseCount = getCurrentProfileCount() - TrueCount;
-      return BUilder.CreateNot(EmitBranchOnBoolExpr(CondUOp->getSubExpr(),
-                                                    !allTrue, // review this
-                                                    mask, // review this
-                                                    FalseBlock,
-                                                    TrueBlock,
-                                                    FalseCount));
+
+      // Save the current insert point
+      llvm::BasicBlock::iterator curIP = Builder.GetInsertPoint();
+
+      llvm::Value *Value
+        = Builder.CreateNot(EmitBranchOnBoolExpr(CondUOp->getSubExpr(),
+                                                 !allTrue, // review this
+                                                 mask, // review this
+                                                 FalseBlock,
+                                                 TrueBlock,
+                                                 FalseCount));
+
+      // Restore the insert point
+      Builder.SetInsertPoint( --curIP );
+
+      return Builder.CreateNot( Value );
     }
   }
 
