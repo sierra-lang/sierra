@@ -1004,9 +1004,9 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     setCurrentMask( OldMask );
 
     return CondV;
-  }
+  } // End Sierra Vector Type
 
-  llvm::Value *ScalarCond = EmitScalarExpr( Cond );
+  llvm::Value *ScalarCond = EvaluateExprAsBool( Cond );
   Builder.CreateCondBr(ScalarCond, TrueBlock, FalseBlock);
   return ScalarCond;
 }
