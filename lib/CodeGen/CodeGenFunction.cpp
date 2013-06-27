@@ -750,7 +750,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       if ( Cond->getType()->isSierraVectorType() )
       {
         // Create a new basic block for the case of some true.
-        llvm::BasicBlock *LHSTrue = createBasicBlock( "lor.lhs.true" );
+        llvm::BasicBlock *LHSTrue = createBasicBlock( "sierra-land.lhs.true" );
 
         ConditionalEvaluation eval( *this );
 
@@ -834,7 +834,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       if ( Cond->getType()->isSierraVectorType() )
       {
         // Create a new basic block for the case of some false.
-        llvm::BasicBlock *LHSFalse = createBasicBlock( "lor.lhs.false" );
+        llvm::BasicBlock *LHSFalse = createBasicBlock( "sierra-lor.lhs.false" );
 
         ConditionalEvaluation eval( *this );
 
