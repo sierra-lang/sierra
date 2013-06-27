@@ -1674,7 +1674,7 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond, bool allTrue,
     setCurrentMask( OldMask );
 
     return CondV;
-  }
+  } // End Sierra Vector Type
 
   llvm::Value *CondV;
   {
