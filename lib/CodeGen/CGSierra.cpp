@@ -191,18 +191,25 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
 
   llvm::Value* OldMask = CGF.getCurrentMask();
 
-  Builder.GetInsertBlock()->getParent()->dump();
+  llvm::PHINode *ThenMask, *ElseMask;
 
-  llvm::Value *ThenMask = CGF.EmitBranchOnBoolExpr( S.getCond(),
-                                                    false,
-                                                    OldMask,
-                                                    ThenBlock,
-                                                    ElseBlock );
+  CGF.EmitBranchOnBoolExpr( S.getCond(),
+                            ThenBlock,
+                            ElseBlock,
+                            false,
+                            &ThenMask,
+                            &ElseMask );
 
   Builder.GetInsertBlock()->getParent()->dump();
 
   CGF.EmitBlock(ThenBlock); 
   {
+    Builder.Insert( ThenMask );
+
+    if ( S.getElse() )
+      ElseMask->addIncoming( ThenMask, ThenBlock );
+
+    // TODO emit code for the phi node ThenMask
     CGF.setCurrentMask(ThenMask);
     CodeGenFunction::RunCleanupsScope ThenScope(CGF);
     CGF.EmitStmt(S.getThen());
@@ -218,7 +225,14 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
     llvm::Value *ScalarCond = Builder.CreateICmpEQ(
       CondI, llvm::ConstantInt::get(llvm::IntegerType::get( Context,
                                                             NumElems*8), 0));
-    Builder.CreateCondBr( ScalarCond, ContBlock, ElseBlock );
+
+    if ( S.getElse() )
+      /*
+       * Emit the branch from the Then block to the Else block
+       */
+      Builder.CreateCondBr( ScalarCond, ContBlock, ElseBlock );
+    else
+      Builder.CreateBr( ContBlock );
   }
 
   Builder.GetInsertBlock()->getParent()->dump();
@@ -227,9 +241,10 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
   if (const Stmt *Else = S.getElse()) {
     CGF.EmitBlock(ElseBlock);
     {
-      llvm::Value *ElseMask = Builder.CreateAnd( CGF.getCurrentMask(),
-                                                 Builder.CreateNot( ThenMask ) );
-      CGF.setCurrentMask(ElseMask);
+      Builder.Insert( ElseMask );
+      CGF.setCurrentMask( Builder.CreateAnd( CGF.getCurrentMask(),
+                                             Builder.CreateNot( ElseMask ) ) );
+
       CodeGenFunction::RunCleanupsScope ElseScope(CGF);
       CGF.EmitStmt(Else);
       CGF.setCurrentMask(OldMask);
@@ -244,6 +259,8 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
     CGF.setCurrentMask(OldMask);
 
   CGF.EmitBlock( ContBlock );
+
+  Builder.GetInsertBlock()->getParent()->dump();
 }
 
 //------------------------------------------------------------------------------
