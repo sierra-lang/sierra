@@ -2581,16 +2581,22 @@ public:
   /// EmitBranchOnBoolExpr - Emit a branch on a boolean condition (e.g. for an
   /// if statement) to the specified blocks.  Based on the condition, this might
   /// try to simplify the codegen of the conditional based on the branch.
-  void EmitBranchOnBoolExpr(const Expr *Cond, llvm::BasicBlock *TrueBlock,
-                            llvm::BasicBlock *FalseBlock);
+  void EmitBranchOnBoolExpr(const Expr *Cond,
+                            llvm::BasicBlock *TrueBlock,
+                            llvm::BasicBlock *FalseBlock,
+														bool falseFirst = true,
+														llvm::PHINode **TruePhi = NULL,
+														llvm::PHINode **FalsePhi = NULL);
 
   // Extends the previous EmitBranchOnBoolExpr function by two arguments to
   // allow short-circuit evaluation for Sierra Vector Expressions
   llvm::Value* EmitBranchOnBoolExpr(const Expr *Cond,
-                                    bool allTrue,
+                                    bool falseFirst,
                                     llvm::Value *mask,
                                     llvm::BasicBlock *TrueBlock,
-                                    llvm::BasicBlock *FalseBlock);
+                                    llvm::BasicBlock *FalseBlock,
+                                    llvm::PHINode *TruePhi,
+                                    llvm::PHINode *FalsePhi);
 
   /// \brief Emit a description of a type in a format suitable for passing to
   /// a runtime sanitizer handler.
