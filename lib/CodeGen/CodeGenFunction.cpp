@@ -974,11 +974,6 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     // br(!x, t, f) -> br(x, f, t)
     if (CondUOp->getOpcode() == UO_LNot)
     {
-      // TODO
-
-      // Save the current insert point
-      llvm::BasicBlock::iterator curIP = Builder.GetInsertPoint();
-
       llvm::Value *Value = EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
                                                  falseFirst,
                                                  mask,
@@ -987,10 +982,15 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                  TruePhi,
                                                  FalsePhi );
 
-      // Restore the insert point
-      Builder.SetInsertPoint( --curIP );
+      llvm::Value *notValue = llvm::BinaryOperator::CreateNot(
+        Value,
+        "not",
+        Builder.GetInsertBlock()->getTerminator() );
 
-      return Builder.CreateNot( Value );
+      return llvm::BinaryOperator::Create( llvm::Instruction::And,
+                                           notValue, getCurrentMask(),
+                                           "and",
+                                           Builder.GetInsertBlock()->getTerminator() );
     }
   }
 
@@ -1037,7 +1037,10 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     // Evaluate the condition
     llvm::Value *CondV = EmitScalarExpr( Cond );
 
-    // TODO Do we need to apply the mask to CondV here?
+    /*
+     * Mask the result.
+     */
+    CondV = Builder.CreateAnd( CondV, mask );
 
     /*
      * Emit the code for the falseFirst / allFalse cases.
