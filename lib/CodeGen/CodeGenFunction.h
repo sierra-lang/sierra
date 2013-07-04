@@ -2581,7 +2581,7 @@ public:
   /// EmitBranchOnBoolExpr - Emit a branch on a boolean condition (e.g. for an
   /// if statement) to the specified blocks.  Based on the condition, this might
   /// try to simplify the codegen of the conditional based on the branch.
-  void EmitBranchOnBoolExpr(const Expr *Cond,
+	llvm::Value* EmitBranchOnBoolExpr(const Expr *Cond,
                             llvm::BasicBlock *TrueBlock,
                             llvm::BasicBlock *FalseBlock,
 														bool falseFirst = true,

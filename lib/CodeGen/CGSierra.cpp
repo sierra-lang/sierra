@@ -185,20 +185,21 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
 
   llvm::BasicBlock *ThenBlock = CGF.createBasicBlock("vectorized-if.then");
   llvm::BasicBlock *ContBlock = CGF.createBasicBlock("vectorized-if.end");
-  llvm::BasicBlock *ElseBlock = ContBlock;
-  if (S.getElse())
-    ElseBlock = CGF.createBasicBlock("vectorized-if.else");
+  llvm::BasicBlock *ElseBlock = CGF.createBasicBlock("vectorized-if.else");
 
   llvm::Value* OldMask = CGF.getCurrentMask();
 
   llvm::PHINode *ThenMask, *ElseMask;
 
-  CGF.EmitBranchOnBoolExpr( S.getCond(),
+	llvm::Value *result = CGF.EmitBranchOnBoolExpr( S.getCond(),
                             ThenBlock,
                             ElseBlock,
                             false,
                             &ThenMask,
                             &ElseMask );
+
+	ThenMask->addIncoming( result, Builder.GetInsertBlock() );
+	ElseMask->addIncoming( result, Builder.GetInsertBlock() );
 
   Builder.GetInsertBlock()->getParent()->dump();
 
@@ -206,10 +207,8 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
   {
     Builder.Insert( ThenMask );
 
-    if ( S.getElse() )
-      ElseMask->addIncoming( ThenMask, ThenBlock );
+		ElseMask->addIncoming( ThenMask, ThenBlock );
 
-    // TODO emit code for the phi node ThenMask
     CGF.setCurrentMask(ThenMask);
     CodeGenFunction::RunCleanupsScope ThenScope(CGF);
     CGF.EmitStmt(S.getThen());
@@ -226,30 +225,28 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
       CondI, llvm::ConstantInt::get(llvm::IntegerType::get( Context,
                                                             NumElems*8), 0));
 
-    if ( S.getElse() )
-      /*
-       * Emit the branch from the Then block to the Else block
-       */
-      Builder.CreateCondBr( ScalarCond, ContBlock, ElseBlock );
-    else
-      Builder.CreateBr( ContBlock );
+		/*
+		 * Emit the branch from the Then block to the Else block
+		 */
+		Builder.CreateCondBr( ScalarCond, ContBlock, ElseBlock );
   }
 
   Builder.GetInsertBlock()->getParent()->dump();
 
   // Emit the 'else' code if present.
-  if (const Stmt *Else = S.getElse()) {
-    CGF.EmitBlock(ElseBlock);
-    {
-      Builder.Insert( ElseMask );
-      CGF.setCurrentMask( Builder.CreateAnd( CGF.getCurrentMask(),
-                                             Builder.CreateNot( ElseMask ) ) );
+	CGF.EmitBlock(ElseBlock);
+	{
+		Builder.Insert( ElseMask );
+		if ( const Stmt *Else = S.getElse() )
+		{
+			CGF.setCurrentMask( Builder.CreateAnd( CGF.getCurrentMask(),
+																						 Builder.CreateNot( ElseMask ) ) );
 
-      CodeGenFunction::RunCleanupsScope ElseScope(CGF);
-      CGF.EmitStmt(Else);
-      CGF.setCurrentMask(OldMask);
-    }
-  }
+			CodeGenFunction::RunCleanupsScope ElseScope(CGF);
+			CGF.EmitStmt(Else);
+			CGF.setCurrentMask(OldMask);
+		}
+	}
 
   Builder.GetInsertBlock()->getParent()->dump();
 
