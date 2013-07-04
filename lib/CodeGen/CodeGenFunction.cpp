@@ -1601,21 +1601,15 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       // Negate the count.
       uint64_t FalseCount = getCurrentProfileCount() - TrueCount;
 
-      // TODO
+      llvm::Value *notValue = llvm::BinaryOperator::CreateNot(
+        Value,
+        "not",
+        Builder.GetInsertBlock()->getTerminator() );
 
-      // Save the current insert point
-      llvm::BasicBlock::iterator curIP = Builder.GetInsertPoint();
-
-      llvm::Value *Value
-        = Builder.CreateNot(EmitBranchOnBoolExpr(CondUOp->getSubExpr(),
-                                                 falseFirst, mask, FalseBlock,
-                                                 TrueBlock, FalseCount, TruePhi,
-                                                 FalsePhi));
-
-      // Restore the insert point
-      Builder.SetInsertPoint( --curIP );
-
-      return Builder.CreateNot( Value );
+      return llvm::BinaryOperator::Create( llvm::Instruction::And,
+                                           notValue, getCurrentMask(),
+                                           "and",
+                                           Builder.GetInsertBlock()->getTerminator() );
     }
   }
 
@@ -1710,7 +1704,10 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     // Evaluate the condition
     llvm::Value *CondV = EmitScalarExpr( Cond );
 
-    // TODO Do we need to apply the mask to CondV here?
+    /*
+     * Mask the result.
+     */
+    CondV = Builder.CreateAnd( CondV, mask );
 
     /*
      * Emit the code for the falseFirst / allFalse cases.
