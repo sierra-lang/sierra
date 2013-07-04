@@ -1445,13 +1445,11 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       uint64_t RHSCount = getProfileCount(CondBOp->getRHS());
 
       ConditionalEvaluation eval(*this);
-      llvm::Value *LHSValue, *RHSValue;
-      LHSValue = RHSValue = nullptr;
       {
         ApplyDebugLocation DL(*this, Cond);
-        LHSValue = EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst, mask,
-                                        LHSTrue, FalseBlock, RHSCount, TruePhi,
-                                        FalsePhi);
+        EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst, mask,
+                             LHSTrue, FalseBlock, RHSCount,
+                             TruePhi, FalsePhi);
         EmitBlock(LHSTrue);
       }
 
@@ -1460,15 +1458,12 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 
       // Any temporaries created here are conditional.
       eval.begin(*this);
-      RHSValue = EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst, mask,
-                                      TrueBlock, FalseBlock, TrueCount,
-                                      TruePhi, FalsePhi);
+      EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst, mask,
+                           TrueBlock, FalseBlock, TrueCount,
+                           TruePhi, FalsePhi);
       eval.end(*this);
 
-      return llvm::BinaryOperator::Create( llvm::Instruction::And,
-                                           LHSValue, RHSValue,
-                                           "scalar-land",
-                                           Builder.GetInsertBlock()->getTerminator() );
+      return NULL;
     } // End BO_Land
 
     if (CondBOp->getOpcode() == BO_LOr) {
@@ -1563,13 +1558,11 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       uint64_t RHSCount = TrueCount - LHSCount;
 
       ConditionalEvaluation eval(*this);
-      llvm::Value *LHSValue, *RHSValue;
-      LHSValue = RHSValue = nullptr;
       {
         ApplyDebugLocation DL(*this, Cond);
-        LHSValue = EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst, mask,
-                                        TrueBlock, LHSFalse, LHSCount, TruePhi,
-                                        FalsePhi);
+        EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst, mask,
+                             TrueBlock, LHSFalse, LHSCount,
+                             TruePhi, FalsePhi);
         EmitBlock(LHSFalse);
       }
 
@@ -1578,20 +1571,12 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 
       // Any temporaries created here are conditional.
       eval.begin(*this);
-      llvm::Value *RHSValue = EmitBranchOnBoolExpr(CondBOp->getRHS(),
-                                                   falseFirst,
-                                                   mask,
-                                                   TrueBlock,
-                                                   FalseBlock,
-                                                   RHSCount,
-                                                   TruePhi,
-                                                   FalsePhi);
+      EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst, mask,
+                           TrueBlock, FalseBlock, RHSCount,
+                           TruePhi, FalsePhi);
       eval.end(*this);
 
-      return llvm::BinaryOperator::Create( llvm::Instruction::Or,
-                                           LHSValue, RHSValue,
-                                           "scalar-lor",
-                                           Builder.GetInsertBlock()->getTerminator() );
+      return NULL;
     } // End BO_Lor
   } // End Binary
 
@@ -1601,16 +1586,21 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       // Negate the count.
       uint64_t FalseCount = getCurrentProfileCount() - TrueCount;
 
-      llvm::Value *notValue = llvm::BinaryOperator::CreateNot(
-        Value,
-        "not",
-        Builder.GetInsertBlock()->getTerminator() );
+      if ( Cond->getType()->isSierraVectorType() )
+      {
+        llvm::Value *notValue = llvm::BinaryOperator::CreateNot(
+          Value,
+          "not",
+          Builder.GetInsertBlock()->getTerminator() );
 
-      return llvm::BinaryOperator::Create(
-        llvm::Instruction::And,
-        notValue, getCurrentMask(),
-        "and",
-        Builder.GetInsertBlock()->getTerminator() );
+        return llvm::BinaryOperator::Create(
+          llvm::Instruction::And,
+          notValue, getCurrentMask(),
+          "and",
+          Builder.GetInsertBlock()->getTerminator() );
+      }
+
+      return NULL;
     }
   }
 
@@ -1755,7 +1745,8 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     CondV = EvaluateExprAsBool(Cond);
   }
   Builder.CreateCondBr(CondV, TrueBlock, FalseBlock, Weights, Unpredictable);
-  return CondV;
+
+  return NULL;
 }
 
 
