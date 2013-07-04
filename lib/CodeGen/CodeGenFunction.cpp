@@ -834,30 +834,19 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       llvm::BasicBlock *LHSTrue = createBasicBlock("land.lhs.true");
 
       ConditionalEvaluation eval(*this);
-      llvm::Value *LHSValue = EmitBranchOnBoolExpr(CondBOp->getLHS(),
-                                                   falseFirst,
-                                                   mask,
-                                                   LHSTrue,
-                                                   FalseBlock,
-                                                   TruePhi,
-                                                   FalsePhi);
+      EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst, mask,
+                           LHSTrue, FalseBlock,
+                           TruePhi, FalsePhi);
       EmitBlock(LHSTrue);
       
       // Any temporaries created here are conditional.
       eval.begin(*this);
-      llvm::Value *RHSValue = EmitBranchOnBoolExpr(CondBOp->getRHS(),
-                                                   falseFirst,
-                                                   mask,
-                                                   TrueBlock,
-                                                   FalseBlock,
-                                                   TruePhi,
-                                                   FalsePhi);
+      EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst, mask,
+                           TrueBlock, FalseBlock,
+                           TruePhi, FalsePhi);
       eval.end(*this);
 
-      return llvm::BinaryOperator::Create( llvm::Instruction::And,
-                                           LHSValue, RHSValue,
-                                           "scalar-land",
-                                           Builder.GetInsertBlock()->getTerminator() );
+      return NULL;
     } // End BO_Land
 
     if (CondBOp->getOpcode() == BO_LOr) {
@@ -943,30 +932,19 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       llvm::BasicBlock *LHSFalse = createBasicBlock("lor.lhs.false");
 
       ConditionalEvaluation eval(*this);
-      llvm::Value *LHSValue = EmitBranchOnBoolExpr(CondBOp->getLHS(),
-                                                   falseFirst,
-                                                   mask,
-                                                   TrueBlock,
-                                                   LHSFalse,
-                                                   TruePhi,
-                                                   FalsePhi);
+      EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst, mask,
+                           TrueBlock, LHSFalse,
+                           TruePhi, FalsePhi);
       EmitBlock(LHSFalse);
 
       // Any temporaries created here are conditional.
       eval.begin(*this);
-      llvm::Value *RHSValue = EmitBranchOnBoolExpr(CondBOp->getRHS(),
-                                                   falseFirst,
-                                                   mask,
-                                                   TrueBlock,
-                                                   FalseBlock,
-                                                   TruePhi,
-                                                   FalsePhi);
+      EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst, mask,
+                           TrueBlock, FalseBlock,
+                           TruePhi, FalsePhi);
       eval.end(*this);
 
-      return llvm::BinaryOperator::Create( llvm::Instruction::Or,
-                                           LHSValue, RHSValue,
-                                           "scalar-lor",
-                                           Builder.GetInsertBlock()->getTerminator() );
+      return NULL;
     } // End BO_Lor
   } // End Binary
 
@@ -982,16 +960,21 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                  TruePhi,
                                                  FalsePhi );
 
-      llvm::Value *notValue = llvm::BinaryOperator::CreateNot(
-        Value,
-        "not",
-        Builder.GetInsertBlock()->getTerminator() );
+      if ( Cond->getType()->isSierraVectorType() )
+      {
+        llvm::Value *notValue = llvm::BinaryOperator::CreateNot(
+          Value,
+          "not",
+          Builder.GetInsertBlock()->getTerminator() );
 
-      return llvm::BinaryOperator::Create(
-        llvm::Instruction::And,
-        notValue, getCurrentMask(),
-        "and",
-        Builder.GetInsertBlock()->getTerminator() );
+        return llvm::BinaryOperator::Create(
+          llvm::Instruction::And,
+          notValue, getCurrentMask(),
+          "and",
+          Builder.GetInsertBlock()->getTerminator() );
+      }
+
+      return NULL;
     }
   }
 
@@ -1084,7 +1067,8 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 
   llvm::Value *ScalarCond = EvaluateExprAsBool( Cond );
   Builder.CreateCondBr(ScalarCond, TrueBlock, FalseBlock);
-  return ScalarCond;
+
+  return NULL;
 }
 
 
