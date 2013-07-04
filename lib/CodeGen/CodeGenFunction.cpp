@@ -1606,10 +1606,11 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
         "not",
         Builder.GetInsertBlock()->getTerminator() );
 
-      return llvm::BinaryOperator::Create( llvm::Instruction::And,
-                                           notValue, getCurrentMask(),
-                                           "and",
-                                           Builder.GetInsertBlock()->getTerminator() );
+      return llvm::BinaryOperator::Create(
+        llvm::Instruction::And,
+        notValue, getCurrentMask(),
+        "and",
+        Builder.GetInsertBlock()->getTerminator() );
     }
   }
 
