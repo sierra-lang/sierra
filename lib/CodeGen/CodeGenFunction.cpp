@@ -1396,13 +1396,13 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       //  Builder.Insert( RHSPhi );
 
         // Compute the new value of the mask used for the right hand side.
-        LHSValue = Builder.CreateAnd( mask, RHSPhi );
+        llvm::Value *newMask = Builder.CreateAnd( mask, RHSPhi );
 
         // Invoke recursive call on the right hand side.
         eval.begin( *this );
         llvm::Value *RHSValue = EmitBranchOnBoolExpr( CondBOp->getRHS(),
                                                       falseFirst,
-                                                      LHSValue,
+                                                      newMask,
                                                       TrueBlock,
                                                       FalseBlock,
                                                       TruePhi,
@@ -1410,7 +1410,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
         eval.end( *this );
 
         return llvm::BinaryOperator::Create( llvm::Instruction::And,
-                                             LHSValue, RHSValue,
+                                             RHSPhi, RHSValue,
                                              "sierra-land",
                                              Builder.GetInsertBlock()->getTerminator() );
       } // End Sierra Vector Type
@@ -1510,13 +1510,14 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       //  Builder.Insert( RHSPhi );
 
         // Compute the new value of the mask used for the right hand side.
-        LHSValue = Builder.CreateAnd( mask, Builder.CreateNot( RHSPhi ) );
+        llvm::Value *newMask = Builder.CreateAnd( mask,
+                                                  Builder.CreateNot( RHSPhi ) );
 
         // Invoke recursive call on the right hand side.
         eval.begin( *this );
         llvm::Value *RHSValue = EmitBranchOnBoolExpr( CondBOp->getRHS(),
                                                       falseFirst,
-                                                      LHSValue,
+                                                      newMask,
                                                       TrueBlock,
                                                       FalseBlock,
                                                       TruePhi,
@@ -1524,7 +1525,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
         eval.end( *this );
 
         return llvm::BinaryOperator::Create( llvm::Instruction::Or,
-                                             LHSValue, RHSValue,
+                                             RHSPhi, RHSValue,
                                              "sierra-lor",
                                              Builder.GetInsertBlock()->getTerminator() );
       } // End Sierra Vector Type

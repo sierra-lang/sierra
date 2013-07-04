@@ -201,8 +201,6 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
 	ThenMask->addIncoming( result, Builder.GetInsertBlock() );
 	ElseMask->addIncoming( result, Builder.GetInsertBlock() );
 
-  Builder.GetInsertBlock()->getParent()->dump();
-
   CGF.EmitBlock(ThenBlock); 
   {
     Builder.Insert( ThenMask );
@@ -231,8 +229,6 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
 		Builder.CreateCondBr( ScalarCond, ContBlock, ElseBlock );
   }
 
-  Builder.GetInsertBlock()->getParent()->dump();
-
   // Emit the 'else' code if present.
 	CGF.EmitBlock(ElseBlock);
 	{
@@ -248,16 +244,12 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
 		}
 	}
 
-  Builder.GetInsertBlock()->getParent()->dump();
-
   if (noCurrentMask)
     CGF.setCurrentMask(0);
   else
     CGF.setCurrentMask(OldMask);
 
   CGF.EmitBlock( ContBlock );
-
-  Builder.GetInsertBlock()->getParent()->dump();
 }
 
 //------------------------------------------------------------------------------
