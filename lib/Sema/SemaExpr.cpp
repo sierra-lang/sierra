@@ -8907,6 +8907,17 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
       // Vector logical not returns the signed variant of the operand type.
       resultType = GetSignedVectorType(resultType);
       break;
+    } else if (resultType->isSierraVectorType()) {
+      const SierraVectorType *V = cast<SierraVectorType>(resultType.getUnqualifiedType());
+      QualType ElemType = V->getElementType();
+      if (ElemType->isScalarType()) {
+        if (Context.getLangOpts().CPlusPlus) {
+          // C++03 [expr.unary.op]p8, C++0x [expr.unary.op]p9:
+          // operand contextually converted to bool.
+          Input = ImpCastExprToType(Input.take(), Context.getSierraVectorType(Context.BoolTy, V->getNumElements()),
+                                    ScalarTypeToBooleanCastKind(ElemType));
+        }
+      }
     } else {
       return ExprError(Diag(OpLoc, diag::err_typecheck_unary_expr)
         << resultType << Input.get()->getSourceRange());
