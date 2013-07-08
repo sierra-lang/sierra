@@ -205,11 +205,10 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
   {
     Builder.Insert( ThenMask );
 
-		ElseMask->addIncoming( ThenMask, ThenBlock );
-
     CGF.setCurrentMask(ThenMask);
     CodeGenFunction::RunCleanupsScope ThenScope(CGF);
     CGF.EmitStmt(S.getThen());
+    ElseMask->addIncoming( ThenMask, Builder.GetInsertBlock() );
     CGF.setCurrentMask(OldMask);
 
     /*

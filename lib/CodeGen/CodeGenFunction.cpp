@@ -955,10 +955,10 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       llvm::Value *Value = EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
                                                  falseFirst,
                                                  mask,
-                                                 FalseBlock,
                                                  TrueBlock,
-                                                 TruePhi,
-                                                 FalsePhi );
+                                                 FalseBlock,
+                                                 FalsePhi,
+                                                 TruePhi );
 
       if ( Cond->getType()->isSierraVectorType() )
       {
