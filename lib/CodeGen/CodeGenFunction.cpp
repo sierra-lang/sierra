@@ -952,16 +952,15 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     // br(!x, t, f) -> br(x, f, t)
     if (CondUOp->getOpcode() == UO_LNot)
     {
-      llvm::Value *Value = EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
-                                                 falseFirst,
-                                                 mask,
-                                                 TrueBlock,
-                                                 FalseBlock,
-                                                 FalsePhi,
-                                                 TruePhi );
+      if (Cond->getType()->isSierraVectorType()) {
+        llvm::Value *Value = EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
+                                                  falseFirst,
+                                                  mask,
+                                                  TrueBlock,
+                                                  FalseBlock,
+                                                  FalsePhi,
+                                                  TruePhi );
 
-      if ( Cond->getType()->isSierraVectorType() )
-      {
         llvm::Value *notValue = llvm::BinaryOperator::CreateNot(
           Value,
           "not",
@@ -974,7 +973,14 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
           Builder.GetInsertBlock()->getTerminator() );
       }
 
-      return NULL;
+      assert(TruePhi == 0 && FalsePhi == 0 && mask == 0);
+      return EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
+                                   falseFirst,
+                                   mask,
+                                   FalseBlock,
+                                   TrueBlock,
+                                   TruePhi,
+                                   FalsePhi );
     }
   }
 
