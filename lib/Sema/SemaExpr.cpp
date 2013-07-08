@@ -11706,6 +11706,9 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
           // operand contextually converted to bool.
           Input = ImpCastExprToType(Input.take(), Context.getSierraVectorType(Context.BoolTy, V->getNumElements()),
                                     ScalarTypeToBooleanCastKind(ElemType));
+
+          resultType = Input.get()->getType();
+          break;
         }
       }
     } else {
