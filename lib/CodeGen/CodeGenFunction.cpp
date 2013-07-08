@@ -1586,17 +1586,16 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       // Negate the count.
       uint64_t FalseCount = getCurrentProfileCount() - TrueCount;
 
-      llvm::Value *Value = EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
-                                                 falseFirst,
-                                                 mask,
-                                                 TrueBlock,
-                                                 FalseBlock,
-                                                 TrueCount,
-                                                 FalsePhi,
-                                                 TruePhi );
+      if (Cond->getType()->isSierraVectorType()) {
+        llvm::Value *Value = EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
+                                                  falseFirst,
+                                                  mask,
+                                                  TrueBlock,
+                                                  FalseBlock,
+                                                  TrueCount,
+                                                  FalsePhi,
+                                                  TruePhi );
 
-      if ( Cond->getType()->isSierraVectorType() )
-      {
         llvm::Value *notValue = llvm::BinaryOperator::CreateNot(
           Value,
           "not",
@@ -1609,7 +1608,14 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
           Builder.GetInsertBlock()->getTerminator() );
       }
 
-      return NULL;
+      assert(TruePhi == 0 && FalsePhi == 0 && mask == 0);
+      return EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
+                                   falseFirst,
+                                   mask,
+                                   FalseBlock,
+                                   TrueBlock,
+                                   TruePhi,
+                                   FalsePhi );
     }
   }
 
