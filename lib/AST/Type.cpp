@@ -2271,6 +2271,7 @@ static LinkageInfo computeLinkageInfo(const Type *T) {
   case Type::VariableArray:
     return computeLinkageInfo(cast<ArrayType>(T)->getElementType());
   case Type::Vector:
+  case Type::SierraVector:
   case Type::ExtVector:
     return computeLinkageInfo(cast<VectorType>(T)->getElementType());
   case Type::FunctionNoProto:
