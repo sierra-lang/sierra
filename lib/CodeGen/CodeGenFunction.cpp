@@ -845,57 +845,57 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
        */
       if ( Cond->getType()->isSierraVectorType() )
       {
-        //llvm::LLVMContext &Context = Builder.getContext();
-        //unsigned NumElems = Cond->getType()->getSierraVectorLength();
+        llvm::LLVMContext &Context = Builder.getContext();
+        unsigned NumElems = Cond->getType()->getSierraVectorLength();
 
-        //llvm::VectorType* MaskTy = llvm::VectorType::get(
-          //llvm::IntegerType::getInt1Ty( Context ), NumElems );
-        
-        //// Create a new basic block for the case of some false.
-        //llvm::BasicBlock *LHSFalse = createBasicBlock( "sierra-lor.lhs.false" );
+        llvm::VectorType* MaskTy = llvm::VectorType::get(
+          llvm::IntegerType::getInt1Ty( Context ), NumElems );
 
-        //llvm::PHINode *RHSPhi = llvm::PHINode::Create( MaskTy, 0,
-                                                       //"sierra-lor.rhs-phi",
-                                                       //LHSFalse );
+        // Create a new basic block for the case of some false.
+        llvm::BasicBlock *LHSFalse = createBasicBlock( "sierra-lor.lhs.false" );
 
-        //ConditionalEvaluation eval( *this );
+        llvm::PHINode *RHSPhi = llvm::PHINode::Create( MaskTy, 0,
+                                                       "sierra-lor.rhs-phi",
+                                                       LHSFalse );
 
-        //// Invoke recursive call on the left hand side.
-        //llvm::Value *LHSValue = EmitBranchOnBoolExpr( CondBOp->getLHS(),
-                                                      //true,
-                                                      //mask,
-                                                      //TrueBlock,
-                                                      //LHSFalse,
-                                                      //TruePhi,
-                                                      //RHSPhi );
+        ConditionalEvaluation eval( *this );
 
-        //RHSPhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
-        //TruePhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
+        // Invoke recursive call on the left hand side.
+        llvm::Value *LHSValue = EmitBranchOnBoolExpr( CondBOp->getLHS(),
+                                                      true,
+                                                      mask,
+                                                      TrueBlock,
+                                                      LHSFalse,
+                                                      TruePhi,
+                                                      RHSPhi );
 
-        //// Emit the block for the case of left hand side some false
-        //EmitBlock( LHSFalse );
+        RHSPhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
+        TruePhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
 
-      ////  Builder.Insert( RHSPhi );
+        // Emit the block for the case of left hand side some false
+        EmitBlock( LHSFalse );
 
-        //// Compute the new value of the mask used for the right hand side.
-        //llvm::Value *newMask = Builder.CreateAnd( mask,
-                                                  //Builder.CreateNot( RHSPhi ) );
+        //  Builder.Insert( RHSPhi );
 
-        //// Invoke recursive call on the right hand side.
-        //eval.begin( *this );
-        //llvm::Value *RHSValue = EmitBranchOnBoolExpr( CondBOp->getRHS(),
-                                                      //falseFirst,
-                                                      //newMask,
-                                                      //TrueBlock,
-                                                      //FalseBlock,
-                                                      //TruePhi,
-                                                      //FalsePhi );
-        //eval.end( *this );
+        // Compute the new value of the mask used for the right hand side.
+        llvm::Value *newMask = Builder.CreateAnd( mask,
+                                                  Builder.CreateNot( RHSPhi ) );
 
-        //return llvm::BinaryOperator::Create( llvm::Instruction::Or,
-                                             //RHSPhi, RHSValue,
-                                             //"sierra-lor",
-                                             //Builder.GetInsertBlock()->getTerminator() );
+        // Invoke recursive call on the right hand side.
+        eval.begin( *this );
+        llvm::Value *RHSValue = EmitBranchOnBoolExpr( CondBOp->getRHS(),
+                                                      falseFirst,
+                                                      newMask,
+                                                      TrueBlock,
+                                                      FalseBlock,
+                                                      TruePhi,
+                                                      FalsePhi );
+        eval.end( *this );
+
+        return llvm::BinaryOperator::Create( llvm::Instruction::Or,
+                                             RHSPhi, RHSValue,
+                                             "sierra-lor",
+                                             Builder.GetInsertBlock()->getTerminator() );
       } // End Sierra Vector Type
 
       // If we have "0 || X", simplify the code.  "1 || X" would have constant
@@ -980,52 +980,52 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     llvm::BasicBlock *LHSBlock = createBasicBlock("cond.true");
     llvm::BasicBlock *RHSBlock = createBasicBlock("cond.false");
 
-		if ( Cond->getType()->isSierraVectorType() )
-		{
-			llvm::PHINode *LHSPhi;
-			llvm::PHINode *RHSPhi;
-      llvm::Value *OldMask;
+		//if ( Cond->getType()->isSierraVectorType() )
+		//{
+			//llvm::PHINode *LHSPhi;
+			//llvm::PHINode *RHSPhi;
+      //llvm::Value *OldMask;
 
-			ConditionalEvaluation cond( *this );
-      llvm::Value mask = EmitBranchOnBoolExpr( CondOp->getCond(), LHSBlock,
-                                               RHSBlock, false, &LHSPhi, &RHSPhi );
+			//ConditionalEvaluation cond( *this );
+      //llvm::Value *mask = EmitBranchOnBoolExpr( CondOp->getCond(), LHSBlock,
+                                               //RHSBlock, false, &LHSPhi, &RHSPhi );
 
-      /*
-       * Emit code for the LHS
-       */
-      OldMask = getCurrentMask();
-      setCurrentMask( mask );
+      ///*
+       //* Emit code for the LHS
+       //*/
+      //OldMask = getCurrentMask();
+      //setCurrentMask( mask );
 
-      cond.begin( *this );
-      EmitBlock( LHSBlock );
-      llvm::Value *LHSResult = EmitBranchOnBoolExpr( CondOp->getLHS(),
-                                                     TrueBlock, FalseBlock );
-      cond.end( *this );
+      //cond.begin( *this );
+      //EmitBlock( LHSBlock );
+      //llvm::Value *LHSResult = EmitBranchOnBoolExpr( CondOp->getLHS(),
+                                                     //TrueBlock, FalseBlock );
+      //cond.end( *this );
 
-      Builder.GetInsertBlock()->getTerminator()->eraseFromParent();
+      //Builder.GetInsertBlock()->getTerminator()->eraseFromParent();
 
-      /*
-       * Emit code for the RHS
-       */
-      setCurrentMask( Builder.CreateAnd( OldMask, Builder.CreateNot( mask ) ) );
+      ///*
+       //* Emit code for the RHS
+       //*/
+      //setCurrentMask( Builder.CreateAnd( OldMask, Builder.CreateNot( mask ) ) );
 
-      cond.begin( *this );
-      EmitBlock( RHSBlock );
-      llvm::Value *RHSResult = EmitBranchOnBoolExpr( CondOp->getRHS(),
-                                                     TrueBlock, FalseBlock );
-      cond.end( *this );
+      //cond.begin( *this );
+      //EmitBlock( RHSBlock );
+      //llvm::Value *RHSResult = EmitBranchOnBoolExpr( CondOp->getRHS(),
+                                                     //TrueBlock, FalseBlock );
+      //cond.end( *this );
 
-      Builder.GetInsertBlock()->getTerminator()->eraseFromParent();
+      //Builder.GetInsertBlock()->getTerminator()->eraseFromParent();
 
 
-      /*
-       * Merge results of LHS and RHS.
-       */
-      setCurrentMask( OldMask );
+      ///*
+       //* Merge results of LHS and RHS.
+       //*/
+      //setCurrentMask( OldMask );
 
-      return Builder.CreateOr( LHSResult, RHSResult );
+      //return Builder.CreateOr( LHSResult, RHSResult );
 
-		} // End Sierra Vector
+		//} // End Sierra Vector
 
     ConditionalEvaluation cond(*this);
     EmitBranchOnBoolExpr(CondOp->getCond(), LHSBlock, RHSBlock);
