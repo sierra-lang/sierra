@@ -56,15 +56,15 @@ namespace test1 {
   // CHECK:   [[THIS:%.*]] = alloca [[A]]*, align 4
   // CHECK:   store [[A]]* {{.*}}, [[A]]** [[THIS]]
   // CHECK:   [[THIS1:%.*]] = load [[A]]** [[THIS]]
-  // CHECK:   call [[A]]* @_ZN5test11AC2Ei(
-  // CHECK:   ret [[A]]* [[THIS1]]
+  // CHECK:   [[THIS2:%.*]] = call [[A]]* @_ZN5test11AC2Ei(
+  // CHECK:   ret [[A]]* [[THIS2]]
 
   // CHECK: define linkonce_odr [[A]]* @_ZN5test11AD1Ev([[A]]* %this) unnamed_addr
   // CHECK:   [[THIS:%.*]] = alloca [[A]]*, align 4
   // CHECK:   store [[A]]* {{.*}}, [[A]]** [[THIS]]
   // CHECK:   [[THIS1:%.*]] = load [[A]]** [[THIS]]
-  // CHECK:   call [[A]]* @_ZN5test11AD2Ev(
-  // CHECK:   ret [[A]]* [[THIS1]]
+  // CHECK:   [[THIS2:%.*]] = call [[A]]* @_ZN5test11AD2Ev(
+  // CHECK:   ret [[A]]* [[THIS2]]
 }
 
 // Awkward virtual cases.
@@ -274,11 +274,11 @@ namespace test6 {
     // CHECK-NEXT: [[V:%.*]] = load [[A]]** [[AVAR]], align 4
     // CHECK-NEXT: [[ISNULL:%.*]] = icmp eq [[A]]* [[V]], null
     // CHECK-NEXT: br i1 [[ISNULL]]
-    // CHECK:      [[T0:%.*]] = bitcast [[A]]* [[V]] to [[A]]* ([[A]]*)***
-    // CHECK-NEXT: [[T1:%.*]] = load [[A]]* ([[A]]*)*** [[T0]]
-    // CHECK-NEXT: [[T2:%.*]] = getelementptr inbounds [[A]]* ([[A]]*)** [[T1]], i64 1
-    // CHECK-NEXT: [[T3:%.*]] = load [[A]]* ([[A]]*)** [[T2]]
-    // CHECK-NEXT: call [[A]]* [[T3]]([[A]]* [[V]])
+    // CHECK:      [[T0:%.*]] = bitcast [[A]]* [[V]] to void ([[A]]*)***
+    // CHECK-NEXT: [[T1:%.*]] = load void ([[A]]*)*** [[T0]]
+    // CHECK-NEXT: [[T2:%.*]] = getelementptr inbounds void ([[A]]*)** [[T1]], i64 1
+    // CHECK-NEXT: [[T3:%.*]] = load void ([[A]]*)** [[T2]]
+    // CHECK-NEXT: call void [[T3]]([[A]]* [[V]])
     // CHECK-NEXT: br label
     // CHECK:      ret void
     delete a;

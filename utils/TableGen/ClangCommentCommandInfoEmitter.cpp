@@ -47,6 +47,9 @@ void EmitClangCommentCommandInfo(RecordKeeper &Records, raw_ostream &OS) {
        << Tag.getValueAsBit("IsVerbatimBlockEndCommand") << ", "
        << Tag.getValueAsBit("IsVerbatimLineCommand") << ", "
        << Tag.getValueAsBit("IsDeclarationCommand") << ", "
+       << Tag.getValueAsBit("IsFunctionDeclarationCommand") << ", "
+       << Tag.getValueAsBit("IsRecordLikeDetailCommand") << ", "
+       << Tag.getValueAsBit("IsRecordLikeDeclarationCommand") << ", "
        << /* IsUnknownCommand = */ "0"
        << " }";
     if (i + 1 != e)
@@ -93,6 +96,9 @@ static std::string MangleName(StringRef Str) {
       break;
     case '$':
       Mangled += "dollar";
+      break;
+    case '/':
+      Mangled += "slash";
       break;
     }
   }

@@ -17,6 +17,7 @@
 #include "clang/Analysis/ProgramPoint.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/Store.h"
+#include "clang/StaticAnalyzer/Core/AnalyzerOptions.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -112,11 +113,35 @@ public:
   RET operator()() const { return Fn(Checker); } 
 };
 
+/// \brief Describes the different reasons a pointer escapes
+/// during analysis.
+enum PointerEscapeKind {
+  /// A pointer escapes due to binding its value to a location
+  /// that the analyzer cannot track.
+  PSK_EscapeOnBind,
+
+  /// The pointer has been passed to a function call directly.
+  PSK_DirectEscapeOnCall,
+
+  /// The pointer has been passed to a function indirectly.
+  /// For example, the pointer is accessible through an
+  /// argument to a function.
+  PSK_IndirectEscapeOnCall,
+
+  /// The reason for pointer escape is unknown. For example, 
+  /// a region containing this pointer is invalidated.
+  PSK_EscapeOther
+};
+
 class CheckerManager {
   const LangOptions LangOpts;
-
+  AnalyzerOptionsRef AOptions;
 public:
-  CheckerManager(const LangOptions &langOpts) : LangOpts(langOpts) { }
+  CheckerManager(const LangOptions &langOpts,
+                 AnalyzerOptionsRef AOptions)
+    : LangOpts(langOpts),
+      AOptions(AOptions) {}
+
   ~CheckerManager();
 
   bool hasPathSensitiveCheckers() const;
@@ -124,6 +149,7 @@ public:
   void finishedCheckerRegistration();
 
   const LangOptions &getLangOpts() const { return LangOpts; }
+  AnalyzerOptions &getAnalyzerOptions() { return *AOptions; }
 
   typedef CheckerBase *CheckerRef;
   typedef const void *CheckerTag;
@@ -144,6 +170,20 @@ public:
       return static_cast<CHECKER *>(ref); // already registered.
 
     CHECKER *checker = new CHECKER();
+    CheckerDtors.push_back(CheckerDtor(checker, destruct<CHECKER>));
+    CHECKER::_register(checker, *this);
+    ref = checker;
+    return checker;
+  }
+
+  template <typename CHECKER>
+  CHECKER *registerChecker(AnalyzerOptions &AOpts) {
+    CheckerTag tag = getTag<CHECKER>();
+    CheckerRef &ref = CheckerTags[tag];
+    if (ref)
+      return static_cast<CHECKER *>(ref); // already registered.
+
+    CHECKER *checker = new CHECKER(AOpts);
     CheckerDtors.push_back(CheckerDtor(checker, destruct<CHECKER>));
     CHECKER::_register(checker, *this);
     ref = checker;
@@ -326,11 +366,14 @@ public:
   /// \param Escaped The list of escaped symbols.
   /// \param Call The corresponding CallEvent, if the symbols escape as 
   ///        parameters to the given call.
+  /// \param IsConst Specifies if the pointer is const.
   /// \returns Checkers can modify the state by returning a new one.
   ProgramStateRef 
   runCheckersForPointerEscape(ProgramStateRef State,
                               const InvalidatedSymbols &Escaped,
-                              const CallEvent *Call);
+                              const CallEvent *Call,
+                              PointerEscapeKind Kind,
+                              bool IsConst = false);
 
   /// \brief Run checkers for handling assumptions on symbolic values.
   ProgramStateRef runCheckersForEvalAssume(ProgramStateRef state,
@@ -420,7 +463,9 @@ public:
 
   typedef CheckerFn<ProgramStateRef (ProgramStateRef,
                                      const InvalidatedSymbols &Escaped,
-                                     const CallEvent *Call)>
+                                     const CallEvent *Call,
+                                     PointerEscapeKind Kind,
+                                     bool IsConst)>
       CheckPointerEscapeFunc;
   
   typedef CheckerFn<ProgramStateRef (ProgramStateRef,
@@ -464,6 +509,8 @@ public:
                                  WantsRegionChangeUpdateFunc wantUpdateFn);
 
   void _registerForPointerEscape(CheckPointerEscapeFunc checkfn);
+
+  void _registerForConstPointerEscape(CheckPointerEscapeFunc checkfn);
 
   void _registerForEvalAssume(EvalAssumeFunc checkfn);
 

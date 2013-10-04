@@ -632,6 +632,7 @@ public:
   /// \brief Add the parent context information to this code completion.
   void addParentContext(const DeclContext *DC);
 
+  const char *getBriefComment() const { return BriefComment; }
   void addBriefComment(StringRef Comment);
   
   StringRef getParentName() const { return ParentName; }
@@ -745,7 +746,7 @@ public:
                        unsigned Priority = CCP_CodePattern,
                        CXCursorKind CursorKind = CXCursor_NotImplemented,
                    CXAvailabilityKind Availability = CXAvailability_Available,
-                       NamedDecl *D = 0)
+                       const NamedDecl *D = 0)
     : Declaration(D), Pattern(Pattern), Priority(Priority), StartParameter(0),
       Kind(RK_Pattern), CursorKind(CursorKind), Availability(Availability),
       Hidden(false), QualifierIsInformative(0),

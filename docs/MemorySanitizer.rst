@@ -46,7 +46,7 @@ to disable inlining (just use ``-O1``) and tail call elimination
       return 0;
     }
 
-    % clang -fsanitize=memory -fPIE -pie -fno-omit-frame-pointer -g -O2 umr.cc
+    % clang -fsanitize=memory -fno-omit-frame-pointer -g -O2 umr.cc
 
 If a bug is detected, the program will print an error message to
 stderr and exit with a non-zero exit code. Currently, MemorySanitizer
@@ -80,6 +80,19 @@ whether MemorySanitizer is enabled. :ref:`\_\_has\_feature
     #  endif
     #endif
 
+``__attribute__((no_sanitize_memory))``
+-----------------------------------------------
+
+Some code should not be checked by MemorySanitizer.
+One may use the function attribute
+:ref:`no_sanitize_memory <langext-memory_sanitizer>`
+to disable uninitialized checks in a particular function.
+MemorySanitizer may still instrument such functions to avoid false positives.
+This attribute may not be
+supported by other compilers, so we suggest to use it together with
+``__has_feature(memory_sanitizer)``. Note: currently, this attribute will be
+lost if the function is inlined.
+
 Origin Tracking
 ===============
 
@@ -90,7 +103,7 @@ the example above,
 
 .. code-block:: console
 
-    % clang -fsanitize=memory -fsanitize-memory-track-origins -fPIE -pie -fno-omit-frame-pointer -g -O2 umr.cc
+    % clang -fsanitize=memory -fsanitize-memory-track-origins -fno-omit-frame-pointer -g -O2 umr.cc
     % ./a.out 2>log
     % projects/compiler-rt/lib/asan/scripts/asan_symbolize.py / < log | c++filt
     ==14425==  WARNING: MemorySanitizer: UMR (uninitialized-memory-read)
@@ -147,7 +160,10 @@ Limitations
   address space. This means that tools like ``ulimit`` may not work as
   usually expected.
 * Static linking is not supported.
-* Non-position-independent executables are not supported.
+* Non-position-independent executables are not supported.  Therefore, the
+  ``fsanitize=memory`` flag will cause Clang to act as though the ``-fPIE``
+  flag had been supplied if compiling without ``-fPIC``, and as though the
+  ``-pie`` flag had been supplied if linking an executable.
 * Depending on the version of Linux kernel, running without ASLR may
   be not supported. Note that GDB disables ASLR by default. To debug
   instrumented programs, use "set disable-randomization off".

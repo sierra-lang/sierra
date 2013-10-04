@@ -148,7 +148,7 @@ private:
             if (FD->getName() == "CFRetain" && 
                 FD->getNumParams() == 1 &&
                 FD->getParent()->isTranslationUnit() &&
-                FD->getLinkage() == ExternalLinkage) {
+                FD->hasExternalLinkage()) {
               Expr *Arg = callE->getArg(0);
               if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(Arg)) {
                 const Expr *sub = ICE->getSubExpr();
@@ -413,7 +413,7 @@ private:
             FD = dyn_cast_or_null<FunctionDecl>(callE->getCalleeDecl()))
         if (FD->getName() == "CFRetain" && FD->getNumParams() == 1 &&
             FD->getParent()->isTranslationUnit() &&
-            FD->getLinkage() == ExternalLinkage)
+            FD->hasExternalLinkage())
           return true;
 
     return false;
@@ -430,7 +430,7 @@ private:
           if (arg == E || arg->IgnoreParenImpCasts() == E)
             break;
         }
-        if (i < callE->getNumArgs()) {
+        if (i < callE->getNumArgs() && i < FD->getNumParams()) {
           ParmVarDecl *PD = FD->getParamDecl(i);
           if (PD->getAttr<CFConsumedAttr>()) {
             isConsumed = true;

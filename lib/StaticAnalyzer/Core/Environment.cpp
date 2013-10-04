@@ -37,9 +37,6 @@ static const Expr *ignoreTransparentExprs(const Expr *E) {
   case Stmt::SubstNonTypeTemplateParmExprClass:
     E = cast<SubstNonTypeTemplateParmExpr>(E)->getReplacement();
     break;
-  case Stmt::CXXDefaultArgExprClass:
-    E = cast<CXXDefaultArgExpr>(E)->getExpr();
-    break;
   default:
     // This is the base case: we can't look through more than we already have.
     return E;
@@ -75,7 +72,6 @@ SVal Environment::getSVal(const EnvironmentEntry &Entry,
 
   switch (S->getStmtClass()) {
   case Stmt::CXXBindTemporaryExprClass:
-  case Stmt::CXXDefaultArgExprClass:
   case Stmt::ExprWithCleanupsClass:
   case Stmt::GenericSelectionExprClass:
   case Stmt::OpaqueValueExprClass:
@@ -84,43 +80,17 @@ SVal Environment::getSVal(const EnvironmentEntry &Entry,
     llvm_unreachable("Should have been handled by ignoreTransparentExprs");
 
   case Stmt::AddrLabelExprClass:
-    return svalBuilder.makeLoc(cast<AddrLabelExpr>(S));
-
-  case Stmt::CharacterLiteralClass: {
-    const CharacterLiteral *C = cast<CharacterLiteral>(S);
-    return svalBuilder.makeIntVal(C->getValue(), C->getType());
-  }
-
+  case Stmt::CharacterLiteralClass:
   case Stmt::CXXBoolLiteralExprClass:
-    return svalBuilder.makeBoolVal(cast<CXXBoolLiteralExpr>(S));
-
   case Stmt::CXXScalarValueInitExprClass:
-  case Stmt::ImplicitValueInitExprClass: {
-    QualType Ty = cast<Expr>(S)->getType();
-    return svalBuilder.makeZeroVal(Ty);
-  }
-
+  case Stmt::ImplicitValueInitExprClass:
   case Stmt::IntegerLiteralClass:
-    return svalBuilder.makeIntVal(cast<IntegerLiteral>(S));
-
   case Stmt::ObjCBoolLiteralExprClass:
-    return svalBuilder.makeBoolVal(cast<ObjCBoolLiteralExpr>(S));
-
-  // For special C0xx nullptr case, make a null pointer SVal.
   case Stmt::CXXNullPtrLiteralExprClass:
-    return svalBuilder.makeNull();
-
-  case Stmt::ObjCStringLiteralClass: {
-    MemRegionManager &MRMgr = svalBuilder.getRegionManager();
-    const ObjCStringLiteral *SL = cast<ObjCStringLiteral>(S);
-    return svalBuilder.makeLoc(MRMgr.getObjCStringRegion(SL));
-  }
-
-  case Stmt::StringLiteralClass: {
-    MemRegionManager &MRMgr = svalBuilder.getRegionManager();
-    const StringLiteral *SL = cast<StringLiteral>(S);
-    return svalBuilder.makeLoc(MRMgr.getStringRegion(SL));
-  }
+  case Stmt::ObjCStringLiteralClass:
+  case Stmt::StringLiteralClass:
+    // Known constants; defer to SValBuilder.
+    return svalBuilder.getConstantVal(cast<Expr>(S)).getValue();
 
   case Stmt::ReturnStmtClass: {
     const ReturnStmt *RS = cast<ReturnStmt>(S);
@@ -131,10 +101,8 @@ SVal Environment::getSVal(const EnvironmentEntry &Entry,
     
   // Handle all other Stmt* using a lookup.
   default:
-    break;
+    return lookupExpr(EnvironmentEntry(S, LCtx));
   }
-  
-  return lookupExpr(EnvironmentEntry(S, LCtx));
 }
 
 Environment EnvironmentManager::bindExpr(Environment Env,
@@ -202,10 +170,8 @@ EnvironmentManager::removeDeadBindings(Environment Env,
       EBMapRef = EBMapRef.add(BlkExpr, X);
 
       // If the block expr's value is a memory region, then mark that region.
-      if (isa<loc::MemRegionVal>(X)) {
-        const MemRegion *R = cast<loc::MemRegionVal>(X).getRegion();
-        SymReaper.markLive(R);
-      }
+      if (Optional<loc::MemRegionVal> R = X.getAs<loc::MemRegionVal>())
+        SymReaper.markLive(R->getRegion());
 
       // Mark all symbols in the block expr's value live.
       RSScaner.scan(X);

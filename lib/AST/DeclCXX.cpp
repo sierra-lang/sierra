@@ -87,6 +87,7 @@ CXXRecordDecl *CXXRecordDecl::Create(const ASTContext &C, TagKind TK,
                                      bool DelayTypeCreation) {
   CXXRecordDecl* R = new (C) CXXRecordDecl(CXXRecord, TK, DC, StartLoc, IdLoc,
                                            Id, PrevDecl);
+  R->MayHaveOutOfDateDef = C.getLangOpts().Modules;
 
   // FIXME: DelayTypeCreation seems like such a hack
   if (!DelayTypeCreation)
@@ -101,6 +102,7 @@ CXXRecordDecl *CXXRecordDecl::CreateLambda(const ASTContext &C, DeclContext *DC,
                                            0, 0);
   R->IsBeingDefined = true;
   R->DefinitionData = new (C) struct LambdaDefinitionData(R, Info, Dependent);
+  R->MayHaveOutOfDateDef = false;
   C.getTypeDeclType(R, /*PrevDecl=*/0);
   return R;
 }
@@ -108,8 +110,11 @@ CXXRecordDecl *CXXRecordDecl::CreateLambda(const ASTContext &C, DeclContext *DC,
 CXXRecordDecl *
 CXXRecordDecl::CreateDeserialized(const ASTContext &C, unsigned ID) {
   void *Mem = AllocateDeserializedDecl(C, ID, sizeof(CXXRecordDecl));
-  return new (Mem) CXXRecordDecl(CXXRecord, TTK_Struct, 0, SourceLocation(),
-                                 SourceLocation(), 0, 0);
+  CXXRecordDecl *R = new (Mem) CXXRecordDecl(CXXRecord, TTK_Struct, 0,
+                                             SourceLocation(), SourceLocation(),
+                                             0, 0);
+  R->MayHaveOutOfDateDef = false;
+  return R;
 }
 
 void
@@ -181,7 +186,7 @@ CXXRecordDecl::setBases(CXXBaseSpecifier const * const *Bases,
       data().IsStandardLayout = false;
 
     // Record if this base is the first non-literal field or base.
-    if (!hasNonLiteralTypeFieldsOrBases() && !BaseType->isLiteralType())
+    if (!hasNonLiteralTypeFieldsOrBases() && !BaseType->isLiteralType(C))
       data().HasNonLiteralTypeFieldsOrBases = true;
     
     // Now go through all virtual bases of this base and add them.
@@ -500,7 +505,7 @@ void CXXRecordDecl::addedMember(Decl *D) {
     // C++ [dcl.init.aggr]p1:
     //   An aggregate is an array or a class with no user-declared
     //   constructors [...].
-    // C++0x [dcl.init.aggr]p1:
+    // C++11 [dcl.init.aggr]p1:
     //   An aggregate is an array or a class with no user-provided
     //   constructors [...].
     if (getASTContext().getLangOpts().CPlusPlus11
@@ -537,22 +542,28 @@ void CXXRecordDecl::addedMember(Decl *D) {
 
     // Keep the list of conversion functions up-to-date.
     if (CXXConversionDecl *Conversion = dyn_cast<CXXConversionDecl>(D)) {
-      // FIXME: We intentionally don't use the decl's access here because it
-      // hasn't been set yet.  That's really just a misdesign in Sema.
+      // FIXME: We use the 'unsafe' accessor for the access specifier here,
+      // because Sema may not have set it yet. That's really just a misdesign
+      // in Sema. However, LLDB *will* have set the access specifier correctly,
+      // and adds declarations after the class is technically completed,
+      // so completeDefinition()'s overriding of the access specifiers doesn't
+      // work.
+      AccessSpecifier AS = Conversion->getAccessUnsafe();
+
       if (Conversion->getPrimaryTemplate()) {
         // We don't record specializations.
       } else if (FunTmpl) {
         if (FunTmpl->getPreviousDecl())
           data().Conversions.replace(FunTmpl->getPreviousDecl(),
-                                     FunTmpl);
+                                     FunTmpl, AS);
         else
-          data().Conversions.addDecl(getASTContext(), FunTmpl);
+          data().Conversions.addDecl(getASTContext(), FunTmpl, AS);
       } else {
         if (Conversion->getPreviousDecl())
           data().Conversions.replace(Conversion->getPreviousDecl(),
-                                     Conversion);
+                                     Conversion, AS);
         else
-          data().Conversions.addDecl(getASTContext(), Conversion);
+          data().Conversions.addDecl(getASTContext(), Conversion, AS);
       }
     }
 
@@ -665,7 +676,7 @@ void CXXRecordDecl::addedMember(Decl *D) {
     }
 
     // Record if this field is the first non-literal or volatile field or base.
-    if (!T->isLiteralType() || T.isVolatileQualified())
+    if (!T->isLiteralType(Context) || T.isVolatileQualified())
       data().HasNonLiteralTypeFieldsOrBases = true;
 
     if (Field->hasInClassInitializer()) {
@@ -679,7 +690,10 @@ void CXXRecordDecl::addedMember(Decl *D) {
       // C++11 [dcl.init.aggr]p1:
       //   An aggregate is a [...] class with [...] no
       //   brace-or-equal-initializers for non-static data members.
-      data().Aggregate = false;
+      //
+      // This rule was removed in C++1y.
+      if (!getASTContext().getLangOpts().CPlusPlus1y)
+        data().Aggregate = false;
 
       // C++11 [class]p10:
       //   A POD struct is [...] a trivial class.
@@ -831,7 +845,7 @@ void CXXRecordDecl::addedMember(Decl *D) {
       }
     } else {
       // Base element type of field is a non-class type.
-      if (!T->isLiteralType() ||
+      if (!T->isLiteralType(Context) ||
           (!Field->hasInClassInitializer() && !isUnion()))
         data().DefaultedDefaultConstructorIsConstexpr = false;
 
@@ -1115,10 +1129,6 @@ CXXRecordDecl *CXXRecordDecl::getInstantiatedFromMemberClass() const {
   return 0;
 }
 
-MemberSpecializationInfo *CXXRecordDecl::getMemberSpecializationInfo() const {
-  return TemplateOrInstantiation.dyn_cast<MemberSpecializationInfo *>();
-}
-
 void 
 CXXRecordDecl::setInstantiationOfMemberClass(CXXRecordDecl *RD,
                                              TemplateSpecializationKind TSK) {
@@ -1250,6 +1260,29 @@ bool CXXRecordDecl::mayBeAbstract() const {
 
 void CXXMethodDecl::anchor() { }
 
+bool CXXMethodDecl::isStatic() const {
+  const CXXMethodDecl *MD = getCanonicalDecl();
+
+  if (MD->getStorageClass() == SC_Static)
+    return true;
+
+  DeclarationName Name = getDeclName();
+  // [class.free]p1:
+  // Any allocation function for a class T is a static member
+  // (even if not explicitly declared static).
+  if (Name.getCXXOverloadedOperator() == OO_New ||
+      Name.getCXXOverloadedOperator() == OO_Array_New)
+    return true;
+
+  // [class.free]p6 Any deallocation function for a class X is a static member
+  // (even if not explicitly declared static).
+  if (Name.getCXXOverloadedOperator() == OO_Delete ||
+      Name.getCXXOverloadedOperator() == OO_Array_Delete)
+    return true;
+
+  return false;
+}
+
 static bool recursivelyOverrides(const CXXMethodDecl *DerivedMD,
                                  const CXXMethodDecl *BaseMD) {
   for (CXXMethodDecl::method_iterator I = DerivedMD->begin_overridden_methods(),
@@ -1311,10 +1344,10 @@ CXXMethodDecl::Create(ASTContext &C, CXXRecordDecl *RD,
                       SourceLocation StartLoc,
                       const DeclarationNameInfo &NameInfo,
                       QualType T, TypeSourceInfo *TInfo,
-                      bool isStatic, StorageClass SCAsWritten, bool isInline,
+                      StorageClass SC, bool isInline,
                       bool isConstexpr, SourceLocation EndLocation) {
   return new (C) CXXMethodDecl(CXXMethod, RD, StartLoc, NameInfo, T, TInfo,
-                               isStatic, SCAsWritten, isInline, isConstexpr,
+                               SC, isInline, isConstexpr,
                                EndLocation);
 }
 
@@ -1322,7 +1355,7 @@ CXXMethodDecl *CXXMethodDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
   void *Mem = AllocateDeserializedDecl(C, ID, sizeof(CXXMethodDecl));
   return new (Mem) CXXMethodDecl(CXXMethod, 0, SourceLocation(), 
                                  DeclarationNameInfo(), QualType(),
-                                 0, false, SC_None, false, false,
+                                 0, SC_None, false, false,
                                  SourceLocation());
 }
 
@@ -1783,14 +1816,14 @@ LinkageSpecDecl *LinkageSpecDecl::Create(ASTContext &C,
                                          SourceLocation ExternLoc,
                                          SourceLocation LangLoc,
                                          LanguageIDs Lang,
-                                         SourceLocation RBraceLoc) {
-  return new (C) LinkageSpecDecl(DC, ExternLoc, LangLoc, Lang, RBraceLoc);
+                                         bool HasBraces) {
+  return new (C) LinkageSpecDecl(DC, ExternLoc, LangLoc, Lang, HasBraces);
 }
 
 LinkageSpecDecl *LinkageSpecDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
   void *Mem = AllocateDeserializedDecl(C, ID, sizeof(LinkageSpecDecl));
   return new (Mem) LinkageSpecDecl(0, SourceLocation(), SourceLocation(),
-                                   lang_c, SourceLocation());
+                                   lang_c, false);
 }
 
 void UsingDirectiveDecl::anchor() { }

@@ -83,7 +83,6 @@ Arg *ArgList::getLastArg(OptSpecifier Id0, OptSpecifier Id1) const {
         (*it)->getOption().matches(Id1)) {
       Res = *it;
       Res->claim();
-
     }
   }
 
@@ -207,6 +206,13 @@ bool ArgList::hasFlag(OptSpecifier Pos, OptSpecifier Neg, bool Default) const {
   return Default;
 }
 
+bool ArgList::hasFlag(OptSpecifier Pos, OptSpecifier PosAlias, OptSpecifier Neg,
+                      bool Default) const {
+  if (Arg *A = getLastArg(Pos, PosAlias, Neg))
+    return A->getOption().matches(Pos) || A->getOption().matches(PosAlias);
+  return Default;
+}
+
 StringRef ArgList::getLastArgValue(OptSpecifier Id,
                                          StringRef Default) const {
   if (Arg *A = getLastArg(Id))
@@ -237,6 +243,14 @@ std::vector<std::string> ArgList::getAllArgValues(OptSpecifier Id) const {
 
 void ArgList::AddLastArg(ArgStringList &Output, OptSpecifier Id) const {
   if (Arg *A = getLastArg(Id)) {
+    A->claim();
+    A->render(*this, Output);
+  }
+}
+
+void ArgList::AddLastArg(ArgStringList &Output, OptSpecifier Id0,
+                         OptSpecifier Id1) const {
+  if (Arg *A = getLastArg(Id0, Id1)) {
     A->claim();
     A->render(*this, Output);
   }
@@ -305,6 +319,14 @@ const char *ArgList::GetOrMakeJoinedArgString(unsigned Index,
     return Cur.data();
 
   return MakeArgString(LHS + RHS);
+}
+
+void ArgList::dump() {
+  llvm::errs() << "ArgList:";
+  for (iterator it = begin(), ie = end(); it != ie; ++it) {
+    llvm::errs() << " " << (*it)->getSpelling();
+  }
+  llvm::errs() << "\n";
 }
 
 //

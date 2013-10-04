@@ -60,9 +60,9 @@ def CallAndMessageChecker : Checker<"CallAndMessage">,
   HelpText<"Check for logical errors for function calls and Objective-C message expressions (e.g., uninitialized arguments, null function pointers)">,
   DescFile<"CallAndMessageChecker.cpp">;
 
-def AttrNonNullChecker : Checker<"AttributeNonNull">,
-  HelpText<"Check for null pointers passed as arguments to a function whose arguments are marked with the 'nonnull' attribute">,
-  DescFile<"AttrNonNullChecker.cpp">;
+def NonNullParamChecker : Checker<"NonNullParamChecker">,
+  HelpText<"Check for null pointers passed as arguments to a function whose arguments are references or marked with the 'nonnull' attribute">,
+  DescFile<"NonNullParamChecker.cpp">;
 
 def VLASizeChecker : Checker<"VLASize">,
   HelpText<"Check for declarations of VLA of undefined or zero size">,
@@ -166,11 +166,23 @@ def ReturnUndefChecker : Checker<"UndefReturn">,
 // C++ checkers.
 //===----------------------------------------------------------------------===//
 
+let ParentPackage = Cplusplus in {
+
+def NewDeleteChecker : Checker<"NewDelete">,
+  HelpText<"Check for double-free and use-after-free problems. Traces memory managed by new/delete.">, 
+  DescFile<"MallocChecker.cpp">;
+
+} // end: "cplusplus"
+
 let ParentPackage = CplusplusAlpha in {
 
 def VirtualCallChecker : Checker<"VirtualCall">,
   HelpText<"Check virtual function calls during construction or destruction">, 
   DescFile<"VirtualCallChecker.cpp">;
+
+def NewDeleteLeaksChecker : Checker<"NewDeleteLeaks">,
+  HelpText<"Check for memory leaks. Traces memory managed by new/delete.">, 
+  DescFile<"MallocChecker.cpp">;
 
 } // end: "alpha.cplusplus"
 
@@ -276,12 +288,16 @@ def UnixAPIChecker : Checker<"API">,
   DescFile<"UnixAPIChecker.cpp">;
 
 def MallocPessimistic : Checker<"Malloc">,
-  HelpText<"Check for memory leaks, double free, and use-after-free problems.">,
+  HelpText<"Check for memory leaks, double free, and use-after-free problems. Traces memory managed by malloc()/free().">,
   DescFile<"MallocChecker.cpp">;
   
 def MallocSizeofChecker : Checker<"MallocSizeof">,
   HelpText<"Check for dubious malloc arguments involving sizeof">,
   DescFile<"MallocSizeofChecker.cpp">;
+
+def MismatchedDeallocatorChecker : Checker<"MismatchedDeallocator">,
+  HelpText<"Check for mismatched deallocators.">,
+  DescFile<"MallocChecker.cpp">;
   
 } // end "unix"
 
@@ -292,7 +308,7 @@ def ChrootChecker : Checker<"Chroot">,
   DescFile<"ChrootChecker.cpp">;
 
 def MallocOptimistic : Checker<"MallocWithAnnotations">,
-  HelpText<"Check for memory leaks, double free, and use-after-free problems. Assumes that all user-defined functions which might free a pointer are annotated.">,
+  HelpText<"Check for memory leaks, double free, and use-after-free problems. Traces memory managed by malloc()/free(). Assumes that all user-defined functions which might free a pointer are annotated.">,
   DescFile<"MallocChecker.cpp">;
 
 def PthreadLockChecker : Checker<"PthreadLock">,
@@ -343,7 +359,7 @@ let ParentPackage = OSX in {
 
 def MacOSXAPIChecker : Checker<"API">,
   InPackage<OSX>,
-  HelpText<"Check for proper uses of various Mac OS X APIs">,
+  HelpText<"Check for proper uses of various Apple APIs">,
   DescFile<"MacOSXAPIChecker.cpp">;
 
 def MacOSKeychainAPIChecker : Checker<"SecKeychainAPI">,
@@ -412,8 +428,12 @@ def ObjCDeallocChecker : Checker<"Dealloc">,
   HelpText<"Warn about Objective-C classes that lack a correct implementation of -dealloc">,
   DescFile<"CheckObjCDealloc.cpp">;
 
-def IvarInvalidationChecker : Checker<"InstanceVariableInvalidation">,
+def InstanceVariableInvalidation : Checker<"InstanceVariableInvalidation">,
   HelpText<"Check that the invalidatable instance variables are invalidated in the methods annotated with objc_instance_variable_invalidator">,
+  DescFile<"IvarInvalidationChecker.cpp">;
+
+def MissingInvalidationMethod : Checker<"MissingInvalidationMethod">,
+  HelpText<"Check that the invalidation methods are present in classes that contain invalidatable instance variables">,
   DescFile<"IvarInvalidationChecker.cpp">;
 
 def DirectIvarAssignment : Checker<"DirectIvarAssignment">,
@@ -519,4 +539,3 @@ def ExprInspectionChecker : Checker<"ExprInspection">,
   DescFile<"ExprInspectionChecker.cpp">;
 
 } // end "debug"
-

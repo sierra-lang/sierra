@@ -62,12 +62,18 @@ typedef enum : NSUInteger {
     TMap       *map = [TMap mapForID:mapID];
 // Make sure we do not map code generated for the block to the above line.
 // CHECK: define internal void @"__39-[TServer serverConnection:getCommand:]_block_invoke"
+// CHECK: call void @objc_storeStrong(i8** [[ZERO:%.*]], i8* [[ONE:%.*]]) [[NUW:#[0-9]+]]
+// CHECK: call void @objc_storeStrong(i8** [[TWO:%.*]], i8* [[THREE:%.*]]) [[NUW]]
+// CHECK: call {{.*}}@objc_msgSend{{.*}}, !dbg ![[LINE_ABOVE:[0-9]+]]
+// CHECK: getelementptr
+// CHECK-NOT: !dbg, ![[LINE_ABOVE]]
 // CHECK: bitcast %5** [[TMP:%.*]] to i8**
-// CHECK: call void @objc_storeStrong(i8** [[VAL1:%.*]], i8* null) nounwind, !dbg ![[MD1:.*]]
-// CHECK: bitcast %4** [[TMP:%.*]] to i8**
-// CHECK: call void @objc_storeStrong(i8** [[VAL2:%.*]], i8* null) nounwind, !dbg ![[MD1]]
+// CHECK-NOT: !dbg, ![[LINE_ABOVE]]
+// CHECK: call void @objc_storeStrong(i8** [[VAL1:%.*]], i8* null) [[NUW]]
+// CHECK-NEXT: bitcast %4** [[TMP:%.*]] to i8**
+// CHECK-NEXT: call void @objc_storeStrong(i8** [[VAL2:%.*]], i8* null) [[NUW]]
 // CHECK-NEXT: ret
-// CHECK: ![[MD1]] = metadata !{i32 84
+// CHECK: attributes [[NUW]] = { nounwind }
     [map dataWithCompletionBlock:^(NSData *data, NSError *error) {
         if (data) {
             NSString    *encoded = [[data compressedData] encodedString:18];

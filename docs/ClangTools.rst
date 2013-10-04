@@ -67,7 +67,7 @@ Core Clang Tools
 ================
 
 The core set of Clang tools that are within the main repository are
-tools that very specifically compliment, and allow use and testing of
+tools that very specifically complement, and allow use and testing of
 *Clang* specific functionality.
 
 ``clang-check``
@@ -100,7 +100,11 @@ Currently it can:
 
 * convert loops to range-based for loops;
 
-* convert null pointer constants (like ``NULL`` or ``0``) to C++11 ``nullptr``.
+* convert null pointer constants (like ``NULL`` or ``0``) to C++11 ``nullptr``;
+
+* replace the type specifier in variable declarations with the ``auto`` type specifier;
+
+* add the ``override`` specifier to applicable member functions.
 
 Extra Clang Tools
 =================
@@ -116,4 +120,72 @@ Ideas for new Tools
 * C++ cast conversion tool.  Will convert C-style casts (``(type) value``) to
   appropriate C++ cast (``static_cast``, ``const_cast`` or
   ``reinterpret_cast``).
+* Non-member ``begin()`` and ``end()`` conversion tool.  Will convert
+  ``foo.begin()`` into ``begin(foo)`` and similarly for ``end()``, where
+  ``foo`` is a standard container.  We could also detect similar patterns for
+  arrays.
+* ``make_shared`` / ``make_unique`` conversion.  Part of this transformation
+can be incorporated into the ``auto`` transformation.  Will convert
+
+  .. code-block:: c++
+
+    std::shared_ptr<Foo> sp(new Foo);
+    std::unique_ptr<Foo> up(new Foo);
+
+    func(std::shared_ptr<Foo>(new Foo), bar());
+
+  into:
+
+  .. code-block:: c++
+
+    auto sp = std::make_shared<Foo>();
+    auto up = std::make_unique<Foo>(); // In C++14 mode.
+
+    // This also affects correctness.  For the cases where bar() throws,
+    // make_shared() is safe and the original code may leak.
+    func(std::make_shared<Foo>(), bar());
+
+* ``tr1`` removal tool.  Will migrate source code from using TR1 library
+  features to C++11 library.  For example:
+
+  .. code-block:: c++
+
+    #include <tr1/unordered_map>
+    int main()
+    {
+        std::tr1::unordered_map <int, int> ma;
+        std::cout << ma.size () << std::endl;
+        return 0;
+    }
+
+  should be rewritten to:
+
+  .. code-block:: c++
+
+    #include <unordered_map>
+    int main()
+    {
+        std::unordered_map <int, int> ma;
+        std::cout << ma.size () << std::endl;
+        return 0;
+    }
+
+* A tool to remove ``auto``.  Will convert ``auto`` to an explicit type or add
+  comments with deduced types.  The motivation is that there are developers
+  that don't want to use ``auto`` because they are afraid that they might lose
+  control over their code.
+
+* C++14: less verbose operator function objects (`N3421
+  <http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2012/n3421.htm>`_).
+  For example:
+
+  .. code-block:: c++
+
+    sort(v.begin(), v.end(), greater<ValueType>());
+
+  should be rewritten to:
+
+  .. code-block:: c++
+
+    sort(v.begin(), v.end(), greater<>());
 

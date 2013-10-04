@@ -74,7 +74,7 @@ AnalyzerOptions::mayInlineCXXMemberFunction(CXXInlineableMemberKind K) {
     static const char *ModeKey = "c++-inlining";
     
     StringRef ModeStr(Config.GetOrCreateValue(ModeKey,
-                                              "methods").getValue());
+                                              "destructors").getValue());
 
     CXXInlineableMemberKind &MutableMode =
       const_cast<CXXInlineableMemberKind &>(CXXMemberInliningMode);
@@ -109,8 +109,7 @@ bool AnalyzerOptions::getBooleanOption(StringRef Name, bool DefaultVal) {
       .Default(DefaultVal);
 }
 
-bool AnalyzerOptions::getBooleanOption(llvm::Optional<bool> &V,
-                                       StringRef Name,
+bool AnalyzerOptions::getBooleanOption(Optional<bool> &V, StringRef Name,
                                        bool DefaultVal) {
   if (!V.hasValue())
     V = getBooleanOption(Name, DefaultVal);
@@ -135,6 +134,13 @@ bool AnalyzerOptions::mayInlineTemplateFunctions() {
                           /*Default=*/true);
 }
 
+bool AnalyzerOptions::mayInlineCXXContainerCtorsAndDtors() {
+  return getBooleanOption(InlineCXXContainerCtorsAndDtors,
+                          "c++-container-inlining",
+                          /*Default=*/false);
+}
+
+
 bool AnalyzerOptions::mayInlineObjCMethod() {
   return getBooleanOption(ObjCInliningMode,
                           "objc-inlining",
@@ -150,6 +156,18 @@ bool AnalyzerOptions::shouldSuppressNullReturnPaths() {
 bool AnalyzerOptions::shouldAvoidSuppressingNullArgumentPaths() {
   return getBooleanOption(AvoidSuppressingNullArgumentPaths,
                           "avoid-suppressing-null-argument-paths",
+                          /* Default = */ false);
+}
+
+bool AnalyzerOptions::shouldSuppressInlinedDefensiveChecks() {
+  return getBooleanOption(SuppressInlinedDefensiveChecks,
+                          "suppress-inlined-defensive-checks",
+                          /* Default = */ true);
+}
+
+bool AnalyzerOptions::shouldSuppressFromCXXStandardLibrary() {
+  return getBooleanOption(SuppressFromCXXStandardLibrary,
+                          "suppress-c++-stdlib",
                           /* Default = */ false);
 }
 
@@ -231,3 +249,8 @@ bool AnalyzerOptions::shouldSynthesizeBodies() {
 bool AnalyzerOptions::shouldPrunePaths() {
   return getBooleanOption("prune-paths", true);
 }
+
+bool AnalyzerOptions::shouldConditionalizeStaticInitializers() {
+  return getBooleanOption("cfg-conditional-static-initializers", true);
+}
+

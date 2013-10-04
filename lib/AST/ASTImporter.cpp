@@ -487,6 +487,21 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
     break;
   }
       
+  case Type::DependentSizedSierraVector: {
+    const DependentSizedSierraVectorType *Vec1
+      = cast<DependentSizedSierraVectorType>(T1);
+    const DependentSizedSierraVectorType *Vec2
+      = cast<DependentSizedSierraVectorType>(T2);
+    if (!IsStructurallyEquivalent(Context, 
+                                  Vec1->getSizeExpr(), Vec2->getSizeExpr()))
+      return false;
+    if (!IsStructurallyEquivalent(Context, 
+                                  Vec1->getElementType(), 
+                                  Vec2->getElementType()))
+      return false;
+    break;
+  }
+   
   case Type::DependentSizedExtVector: {
     const DependentSizedExtVectorType *Vec1
       = cast<DependentSizedExtVectorType>(T1);
@@ -503,6 +518,7 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
   }
    
   case Type::Vector: 
+  case Type::SierraVector:
   case Type::ExtVector: {
     const VectorType *Vec1 = cast<VectorType>(T1);
     const VectorType *Vec2 = cast<VectorType>(T2);
@@ -839,6 +855,12 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
     RecordDecl *D2 = Field2->getType()->castAs<RecordType>()->getDecl();
     return IsStructurallyEquivalent(Context, D1, D2);
   }
+    
+  // Check for equivalent field names.
+  IdentifierInfo *Name1 = Field1->getIdentifier();
+  IdentifierInfo *Name2 = Field2->getIdentifier();
+  if (!::IsStructurallyEquivalent(Name1, Name2))
+    return false;
 
   if (!IsStructurallyEquivalent(Context,
                                 Field1->getType(), Field2->getType())) {
@@ -902,14 +924,13 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
 /// including the next assigned index (if none of them match). Returns an
 /// empty option if the context is not a record, i.e.. if the anonymous
 /// struct/union is at namespace or block scope.
-static llvm::Optional<unsigned>
-findAnonymousStructOrUnionIndex(RecordDecl *Anon) {
+static Optional<unsigned> findAnonymousStructOrUnionIndex(RecordDecl *Anon) {
   ASTContext &Context = Anon->getASTContext();
   QualType AnonTy = Context.getRecordType(Anon);
 
   RecordDecl *Owner = dyn_cast<RecordDecl>(Anon->getDeclContext());
   if (!Owner)
-    return llvm::Optional<unsigned>();
+    return None;
 
   unsigned Index = 0;
   for (DeclContext::decl_iterator D = Owner->noload_decls_begin(),
@@ -944,10 +965,8 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
   if (D1->isAnonymousStructOrUnion() && D2->isAnonymousStructOrUnion()) {
     // If both anonymous structs/unions are in a record context, make sure
     // they occur in the same location in the context records.
-    if (llvm::Optional<unsigned> Index1
-          = findAnonymousStructOrUnionIndex(D1)) {
-      if (llvm::Optional<unsigned> Index2
-            = findAnonymousStructOrUnionIndex(D2)) {
+    if (Optional<unsigned> Index1 = findAnonymousStructOrUnionIndex(D1)) {
+      if (Optional<unsigned> Index2 = findAnonymousStructOrUnionIndex(D2)) {
         if (*Index1 != *Index2)
           return false;
       }
@@ -1622,8 +1641,7 @@ QualType ASTNodeImporter::VisitFunctionProtoType(const FunctionProtoType *T) {
   ToEPI.ExceptionSpecTemplate = cast_or_null<FunctionDecl>(
                                 Importer.Import(FromEPI.ExceptionSpecTemplate));
 
-  return Importer.getToContext().getFunctionType(ToResultType, ArgTypes.data(),
-                                                 ArgTypes.size(), ToEPI);
+  return Importer.getToContext().getFunctionType(ToResultType, ArgTypes, ToEPI);
 }
 
 QualType ASTNodeImporter::VisitParenType(const ParenType *T) {
@@ -1684,7 +1702,7 @@ QualType ASTNodeImporter::VisitUnaryTransformType(const UnaryTransformType *T) {
 }
 
 QualType ASTNodeImporter::VisitAutoType(const AutoType *T) {
-  // FIXME: Make sure that the "to" context supports C++0x!
+  // FIXME: Make sure that the "to" context supports C++11!
   QualType FromDeduced = T->getDeducedType();
   QualType ToDeduced;
   if (!FromDeduced.isNull()) {
@@ -1693,7 +1711,7 @@ QualType ASTNodeImporter::VisitAutoType(const AutoType *T) {
       return QualType();
   }
   
-  return Importer.getToContext().getAutoType(ToDeduced);
+  return Importer.getToContext().getAutoType(ToDeduced, T->isDecltypeAuto());
 }
 
 QualType ASTNodeImporter::VisitRecordType(const RecordType *T) {
@@ -2459,10 +2477,10 @@ Decl *ASTNodeImporter::VisitRecordDecl(RecordDecl *D) {
             FoundRecord->isAnonymousStructOrUnion()) {
           // If both anonymous structs/unions are in a record context, make sure
           // they occur in the same location in the context records.
-          if (llvm::Optional<unsigned> Index1
+          if (Optional<unsigned> Index1
               = findAnonymousStructOrUnionIndex(D)) {
-            if (llvm::Optional<unsigned> Index2
-                = findAnonymousStructOrUnionIndex(FoundRecord)) {
+            if (Optional<unsigned> Index2 =
+                    findAnonymousStructOrUnionIndex(FoundRecord)) {
               if (*Index1 != *Index2)
                 continue;
             }
@@ -2663,8 +2681,8 @@ Decl *ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
       FunctionProtoType::ExtProtoInfo DefaultEPI;
       FromTy = Importer.getFromContext().getFunctionType(
                             FromFPT->getResultType(),
-                            FromFPT->arg_type_begin(),
-                            FromFPT->arg_type_end() - FromFPT->arg_type_begin(),
+                            ArrayRef<QualType>(FromFPT->arg_type_begin(),
+                                               FromFPT->getNumArgs()),
                             DefaultEPI);
       usedDifferentExceptionSpec = true;
     }
@@ -2720,8 +2738,7 @@ Decl *ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
                                        cast<CXXRecordDecl>(DC),
                                        D->getInnerLocStart(),
                                        NameInfo, T, TInfo,
-                                       Method->isStatic(),
-                                       Method->getStorageClassAsWritten(),
+                                       Method->getStorageClass(),
                                        Method->isInlineSpecified(),
                                        D->isConstexpr(),
                                        Importer.Import(D->getLocEnd()));
@@ -2729,7 +2746,6 @@ Decl *ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
     ToFunction = FunctionDecl::Create(Importer.getToContext(), DC,
                                       D->getInnerLocStart(),
                                       NameInfo, T, TInfo, D->getStorageClass(),
-                                      D->getStorageClassAsWritten(),
                                       D->isInlineSpecified(),
                                       D->hasWrittenPrototype(),
                                       D->isConstexpr());
@@ -3080,8 +3096,7 @@ Decl *ASTNodeImporter::VisitVarDecl(VarDecl *D) {
                                    Importer.Import(D->getInnerLocStart()),
                                    Loc, Name.getAsIdentifierInfo(),
                                    T, TInfo,
-                                   D->getStorageClass(),
-                                   D->getStorageClassAsWritten());
+                                   D->getStorageClass());
   ToVar->setQualifierInfo(Importer.Import(D->getQualifierLoc()));
   ToVar->setAccess(D->getAccess());
   ToVar->setLexicalDeclContext(LexicalDC);
@@ -3149,7 +3164,6 @@ Decl *ASTNodeImporter::VisitParmVarDecl(ParmVarDecl *D) {
                                      Importer.Import(D->getInnerLocStart()),
                                             Loc, Name.getAsIdentifierInfo(),
                                             T, TInfo, D->getStorageClass(),
-                                             D->getStorageClassAsWritten(),
                                             /*FIXME: Default argument*/ 0);
   ToParm->setHasInheritedDefaultArg(D->hasInheritedDefaultArg());
   return Importer.Imported(D, ToParm);
@@ -3652,6 +3666,7 @@ Decl *ASTNodeImporter::VisitObjCImplementationDecl(ObjCImplementationDecl *D) {
                                           Iface, Super,
                                           Importer.Import(D->getLocation()),
                                           Importer.Import(D->getAtStartLoc()),
+                                          Importer.Import(D->getSuperClassLoc()),
                                           Importer.Import(D->getIvarLBraceLoc()),
                                           Importer.Import(D->getIvarRBraceLoc()));
     

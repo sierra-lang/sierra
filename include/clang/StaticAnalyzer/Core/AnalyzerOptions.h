@@ -190,39 +190,49 @@ private:
   CXXInlineableMemberKind CXXMemberInliningMode;
   
   /// \sa includeTemporaryDtorsInCFG
-  llvm::Optional<bool> IncludeTemporaryDtorsInCFG;
+  Optional<bool> IncludeTemporaryDtorsInCFG;
   
   /// \sa mayInlineCXXStandardLibrary
-  llvm::Optional<bool> InlineCXXStandardLibrary;
+  Optional<bool> InlineCXXStandardLibrary;
   
   /// \sa mayInlineTemplateFunctions
-  llvm::Optional<bool> InlineTemplateFunctions;
+  Optional<bool> InlineTemplateFunctions;
+
+  /// \sa mayInlineCXXContainerCtorsAndDtors
+  Optional<bool> InlineCXXContainerCtorsAndDtors;
 
   /// \sa mayInlineObjCMethod
-  llvm::Optional<bool> ObjCInliningMode;
+  Optional<bool> ObjCInliningMode;
 
   // Cache of the "ipa-always-inline-size" setting.
   // \sa getAlwaysInlineSize
-  llvm::Optional<unsigned> AlwaysInlineSize;
+  Optional<unsigned> AlwaysInlineSize;
 
   /// \sa shouldSuppressNullReturnPaths
-  llvm::Optional<bool> SuppressNullReturnPaths;
+  Optional<bool> SuppressNullReturnPaths;
 
   // \sa getMaxInlinableSize
-  llvm::Optional<unsigned> MaxInlinableSize;
+  Optional<unsigned> MaxInlinableSize;
 
   /// \sa shouldAvoidSuppressingNullArgumentPaths
-  llvm::Optional<bool> AvoidSuppressingNullArgumentPaths;
+  Optional<bool> AvoidSuppressingNullArgumentPaths;
+
+  /// \sa shouldSuppressInlinedDefensiveChecks
+  Optional<bool> SuppressInlinedDefensiveChecks;
+
+  /// \sa shouldSuppressFromCXXStandardLibrary
+  Optional<bool> SuppressFromCXXStandardLibrary;
 
   /// \sa getGraphTrimInterval
-  llvm::Optional<unsigned> GraphTrimInterval;
+  Optional<unsigned> GraphTrimInterval;
 
   /// \sa getMaxTimesInlineLarge
-  llvm::Optional<unsigned> MaxTimesInlineLarge;
+  Optional<unsigned> MaxTimesInlineLarge;
 
   /// \sa getMaxNodesPerTopLevelFunction
-  llvm::Optional<unsigned> MaxNodesPerTopLevelFunction;
+  Optional<unsigned> MaxNodesPerTopLevelFunction;
 
+public:
   /// Interprets an option's string value as a boolean.
   ///
   /// Accepts the strings "true" and "false".
@@ -230,13 +240,11 @@ private:
   bool getBooleanOption(StringRef Name, bool DefaultVal);
 
   /// Variant that accepts a Optional value to cache the result.
-  bool getBooleanOption(llvm::Optional<bool> &V, StringRef Name,
-                        bool DefaultVal);
-  
+  bool getBooleanOption(Optional<bool> &V, StringRef Name, bool DefaultVal);
+
   /// Interprets an option's string value as an integer value.
   int getOptionAsInteger(StringRef Name, int DefaultVal);
 
-public:
   /// \brief Retrieves and sets the UserMode. This is a high-level option,
   /// which is used to set other low-level options. It is not accessible
   /// outside of AnalyzerOptions.
@@ -276,6 +284,13 @@ public:
   /// accepts the values "true" and "false".
   bool mayInlineTemplateFunctions();
 
+  /// Returns whether or not constructors and destructors of C++ container
+  /// objects may be considered for inlining.
+  ///
+  /// This is controlled by the 'c++-container-inlining' config option, which
+  /// accepts the values "true" and "false".
+  bool mayInlineCXXContainerCtorsAndDtors();
+
   /// Returns whether or not paths that go through null returns should be
   /// suppressed.
   ///
@@ -297,12 +312,30 @@ public:
   /// option, which accepts the values "true" and "false".
   bool shouldAvoidSuppressingNullArgumentPaths();
 
+  /// Returns whether or not diagnostics containing inlined defensive NULL
+  /// checks should be suppressed.
+  ///
+  /// This is controlled by the 'suppress-inlined-defensive-checks' config
+  /// option, which accepts the values "true" and "false".
+  bool shouldSuppressInlinedDefensiveChecks();
+
+  /// Returns whether or not diagnostics reported within the C++ standard
+  /// library should be suppressed.
+  ///
+  /// This is controlled by the 'suppress-c++-stdlib' config option,
+  /// which accepts the values "true" and "false".
+  bool shouldSuppressFromCXXStandardLibrary();
+
   /// Returns whether irrelevant parts of a bug report path should be pruned
   /// out of the final output.
   ///
   /// This is controlled by the 'prune-paths' config option, which accepts the
   /// values "true" and "false".
   bool shouldPrunePaths();
+
+  /// Returns true if 'static' initializers should be in conditional logic
+  /// in the CFG.
+  bool shouldConditionalizeStaticInitializers();
 
   // Returns the size of the functions (in basic blocks), which should be
   // considered to be small enough to always inline.

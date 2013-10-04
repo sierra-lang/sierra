@@ -281,17 +281,18 @@ public:
   }
 
   /// MacroDefined - This hook is called whenever a macro definition is seen.
-  virtual void MacroDefined(const Token &Id, const MacroInfo *MI) {
+  virtual void MacroDefined(const Token &Id, const MacroDirective *MD) {
   }
 
   /// MacroUndefined - This hook is called whenever a macro #undef is seen.
   /// MI is released immediately following this callback.
-  virtual void MacroUndefined(const Token &MacroNameTok, const MacroInfo *MI) {
+  virtual void MacroUndefined(const Token &MacroNameTok,
+                              const MacroDirective *MD) {
   }
 
   /// MacroExpands - This is called by when a macro invocation is found.
-  virtual void MacroExpands(const Token &MacroNameTok, const MacroInfo* MI,
-                            SourceRange Range) {
+  virtual void MacroExpands(const Token &MacroNameTok, const MacroDirective *MD,
+                            SourceRange Range, const MacroArgs *Args) {
   }
 
   /// SourceRangeSkipped - This hook is called when a source range is skipped.
@@ -396,10 +397,6 @@ public:
                                 const Diagnostic &Info) {
     if (level >= DiagnosticsEngine::Error)
       Errors.push_back(StoredDiagnostic(level, Info));
-  }
-
-  DiagnosticConsumer *clone(DiagnosticsEngine &Diags) const {
-    return new IgnoringDiagConsumer();
   }
 };
 
@@ -538,14 +535,17 @@ static void clang_indexSourceFile_Impl(void *UserData) {
   if (CXXIdx->isOptEnabled(CXGlobalOpt_ThreadBackgroundPriorityForIndexing))
     setThreadBackgroundPriority();
 
-  CaptureDiagnosticConsumer *CaptureDiag = new CaptureDiagnosticConsumer();
+  bool CaptureDiagnostics = !Logger::isLoggingEnabled();
+
+  CaptureDiagnosticConsumer *CaptureDiag = 0;
+  if (CaptureDiagnostics)
+    CaptureDiag = new CaptureDiagnosticConsumer();
 
   // Configure the diagnostics.
   IntrusiveRefCntPtr<DiagnosticsEngine>
     Diags(CompilerInstance::createDiagnostics(new DiagnosticOptions,
                                               CaptureDiag,
-                                              /*ShouldOwnClient=*/true,
-                                              /*ShouldCloneClient=*/false));
+                                              /*ShouldOwnClient=*/true));
 
   // Recover resources if we crash before exiting this function.
   llvm::CrashRecoveryContextCleanupRegistrar<DiagnosticsEngine,
@@ -608,7 +608,7 @@ static void clang_indexSourceFile_Impl(void *UserData) {
     CInvok->getDiagnosticOpts().IgnoreWarnings = true;
 
   ASTUnit *Unit = ASTUnit::create(CInvok.getPtr(), Diags,
-                                  /*CaptureDiagnostics=*/true,
+                                  CaptureDiagnostics,
                                   /*UserFilesAreVolatile=*/true);
   OwningPtr<CXTUOwner> CXTU(new CXTUOwner(MakeCXTranslationUnit(CXXIdx, Unit)));
 
@@ -661,7 +661,7 @@ static void clang_indexSourceFile_Impl(void *UserData) {
                                                        Persistent,
                                                 CXXIdx->getClangResourcesPath(),
                                                        OnlyLocalDecls,
-                                                    /*CaptureDiagnostics=*/true,
+                                                       CaptureDiagnostics,
                                                        PrecompilePreamble,
                                                     CacheCodeCompletionResults,
                                  /*IncludeBriefCommentsInCodeCompletion=*/false,

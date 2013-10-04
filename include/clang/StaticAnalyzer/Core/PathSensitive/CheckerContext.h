@@ -110,10 +110,6 @@ public:
   StoreManager &getStoreManager() {
     return Eng.getStoreManager();
   }
-
-  const AnalyzerOptions::ConfigTable &getConfig() const {
-    return Eng.getAnalysisManager().options.Config;
-  }
   
   /// \brief Returns the previous node in the exploded graph, which includes
   /// the state of the program before the checker ran. Note, checkers should
@@ -185,7 +181,7 @@ public:
   /// example, for finding variables that the given symbol was assigned to.
   static const MemRegion *getLocationRegionIfPostStore(const ExplodedNode *N) {
     ProgramPoint L = N->getLocation();
-    if (const PostStore *PSL = dyn_cast<PostStore>(&L))
+    if (Optional<PostStore> PSL = L.getAs<PostStore>())
       return reinterpret_cast<const MemRegion*>(PSL->getLocationValue());
     return 0;
   }
@@ -301,14 +297,6 @@ private:
       node = NB.generateNode(LocalLoc, State, P);
     return node;
   }
-};
-
-/// \brief A helper class which wraps a boolean value set to false by default.
-struct DefaultBool {
-  bool Val;
-  DefaultBool() : Val(false) {}
-  operator bool() const { return Val; }
-  DefaultBool &operator=(bool b) { Val = b; return *this; }
 };
 
 } // end GR namespace

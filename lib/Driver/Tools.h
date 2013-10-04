@@ -51,6 +51,7 @@ namespace tools {
                           bool KernelOrKext) const;
     void AddMIPSTargetArgs(const ArgList &Args, ArgStringList &CmdArgs) const;
     void AddPPCTargetArgs(const ArgList &Args, ArgStringList &CmdArgs) const;
+    void AddR600TargetArgs(const ArgList &Args, ArgStringList &CmdArgs) const;
     void AddSparcTargetArgs(const ArgList &Args, ArgStringList &CmdArgs) const;
     void AddX86TargetArgs(const ArgList &Args, ArgStringList &CmdArgs) const;
     void AddHexagonTargetArgs (const ArgList &Args, ArgStringList &CmdArgs) const;
@@ -77,6 +78,7 @@ namespace tools {
   /// \brief Clang integrated assembler tool.
   class LLVM_LIBRARY_VISIBILITY ClangAs : public Tool {
     void AddARMTargetArgs(const ArgList &Args, ArgStringList &CmdArgs) const;
+    void AddX86TargetArgs(const ArgList &Args, ArgStringList &CmdArgs) const;
   public:
     ClangAs(const ToolChain &TC) : Tool("clang::as",
                                         "clang integrated assembler", TC) {}
@@ -426,12 +428,11 @@ namespace netbsd {
   };
 } // end namespace netbsd
 
-  /// linux -- Directly call GNU Binutils assembler and linker
-namespace linuxtools {
+  /// Directly call GNU Binutils' assembler and linker.
+namespace gnutools {
   class LLVM_LIBRARY_VISIBILITY Assemble : public Tool  {
   public:
-    Assemble(const ToolChain &TC) : Tool("linux::Assemble", "assembler",
-                                         TC) {}
+    Assemble(const ToolChain &TC) : Tool("GNU::Assemble", "assembler", TC) {}
 
     virtual bool hasIntegratedCPP() const { return false; }
 
@@ -443,24 +444,10 @@ namespace linuxtools {
   };
   class LLVM_LIBRARY_VISIBILITY Link : public Tool  {
   public:
-    Link(const ToolChain &TC) : Tool("linux::Link", "linker", TC) {}
+    Link(const ToolChain &TC) : Tool("GNU::Link", "linker", TC) {}
 
     virtual bool hasIntegratedCPP() const { return false; }
     virtual bool isLinkJob() const { return true; }
-
-    virtual void ConstructJob(Compilation &C, const JobAction &JA,
-                              const InputInfo &Output,
-                              const InputInfoList &Inputs,
-                              const ArgList &TCArgs,
-                              const char *LinkingOutput) const;
-  };
-
-  class LLVM_LIBRARY_VISIBILITY SplitDebug : public Tool  {
-  public:
-    SplitDebug(const ToolChain &TC) : Tool("linuxtools::SplitDebug",
-                                           "objcopy", TC) {}
-
-    virtual bool hasIntegratedCPP() const { return false; }
 
     virtual void ConstructJob(Compilation &C, const JobAction &JA,
                               const InputInfo &Output,

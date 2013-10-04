@@ -13,11 +13,11 @@
 
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/AddressSpaces.h"
+#include "clang/Basic/CharInfo.h"
 #include "clang/Basic/LangOptions.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
-#include <cctype>
 #include <cstdlib>
 using namespace clang;
 
@@ -37,6 +37,7 @@ TargetInfo::TargetInfo(const std::string &T) : TargetOpts(), Triple(T)
   LongWidth = LongAlign = 32;
   LongLongWidth = LongLongAlign = 64;
   SuitableAlign = 64;
+  MinGlobalAlign = 0;
   HalfWidth = 16;
   HalfAlign = 16;
   FloatWidth = 32;
@@ -223,7 +224,7 @@ bool TargetInfo::isValidGCCRegisterName(StringRef Name) const {
   getGCCRegNames(Names, NumNames);
 
   // If we have a number it maps to an entry in the register name array.
-  if (isdigit(Name[0])) {
+  if (isDigit(Name[0])) {
     int n;
     if (!Name.getAsInteger(0, n))
       return n >= 0 && (unsigned)n < NumNames;
@@ -279,7 +280,7 @@ TargetInfo::getNormalizedGCCRegisterName(StringRef Name) const {
   getGCCRegNames(Names, NumNames);
 
   // First, check if we have a number.
-  if (isdigit(Name[0])) {
+  if (isDigit(Name[0])) {
     int n;
     if (!Name.getAsInteger(0, n)) {
       assert(n >= 0 && (unsigned)n < NumNames &&
@@ -373,7 +374,9 @@ bool TargetInfo::validateOutputConstraint(ConstraintInfo &Info) const {
     Name++;
   }
 
-  return true;
+  // If a constraint allows neither memory nor register operands it contains
+  // only modifiers. Reject it.
+  return Info.allowsMemory() || Info.allowsRegister();
 }
 
 bool TargetInfo::resolveSymbolicName(const char *&Name,

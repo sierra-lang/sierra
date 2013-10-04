@@ -5,7 +5,7 @@ import lookup_left_cxx;
 #define IMPORT(X) @import X
 IMPORT(lookup_right_cxx);
 
-// in lookup_left.hpp: expected-warning@3 {{weak identifier 'weak_identifier' never declared}}
+// expected-warning@Inputs/lookup_left.hpp:3 {{weak identifier 'weak_identifier' never declared}}
 
 void test(int i, float f) {
   // unqualified lookup
@@ -24,10 +24,10 @@ void f() {
 }
 
 // RUN: rm -rf %t
-// RUN: %clang_cc1 -fmodules -x objective-c++ -emit-module -fmodule-cache-path %t -fmodule-name=lookup_left_cxx %S/Inputs/module.map -verify
-// RUN: %clang_cc1 -fmodules -x objective-c++ -emit-module -fmodule-cache-path %t -fmodule-name=lookup_right_cxx %S/Inputs/module.map -verify
-// RUN: %clang_cc1 -fmodules -x objective-c++ -fmodule-cache-path %t %s -verify
-// RUN: %clang_cc1 -fmodules -ast-print -x objective-c++ -fmodule-cache-path %t %s | FileCheck -check-prefix=CHECK-PRINT %s
+// RUN: %clang_cc1 -fmodules -x objective-c++ -emit-module -fmodules-cache-path=%t -fmodule-name=lookup_left_cxx %S/Inputs/module.map -verify
+// RUN: %clang_cc1 -fmodules -x objective-c++ -emit-module -fmodules-cache-path=%t -fmodule-name=lookup_right_cxx %S/Inputs/module.map -verify
+// RUN: %clang_cc1 -fmodules -x objective-c++ -fmodules-cache-path=%t %s -verify
+// RUN: %clang_cc1 -fmodules -ast-print -x objective-c++ -fmodules-cache-path=%t %s | FileCheck -check-prefix=CHECK-PRINT %s
 // FIXME: When we have a syntax for modules in C++, use that.
 
 // CHECK-PRINT: int *f0(int *);

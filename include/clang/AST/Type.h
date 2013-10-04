@@ -998,14 +998,12 @@ private:
 namespace llvm {
 /// Implement simplify_type for QualType, so that we can dyn_cast from QualType
 /// to a specific Type class.
-template<> struct simplify_type<const ::clang::QualType> {
+template<> struct simplify_type< ::clang::QualType> {
   typedef const ::clang::Type *SimpleType;
-  static SimpleType getSimplifiedValue(const ::clang::QualType &Val) {
+  static SimpleType getSimplifiedValue(::clang::QualType Val) {
     return Val.getTypePtr();
   }
 };
-template<> struct simplify_type< ::clang::QualType>
-  : public simplify_type<const ::clang::QualType> {};
 
 // Teach SmallPtrSet that QualType is "basically a pointer".
 template<>
@@ -1191,13 +1189,9 @@ private:
     /// (for C++0x variadic templates).
     unsigned ContainsUnexpandedParameterPack : 1;
 
-    /// \brief Nonzero if the cache (i.e. the bitfields here starting
-    /// with 'Cache') is valid.  If so, then this is a
-    /// LangOptions::VisibilityMode+1.
-    mutable unsigned CacheValidAndVisibility : 2;
-
-    /// \brief True if the visibility was set explicitly in the source code.
-    mutable unsigned CachedExplicitVisibility : 1;
+    /// \brief True if the cache (i.e. the bitfields here starting with
+    /// 'Cache') is valid.
+    mutable unsigned CacheValid : 1;
 
     /// \brief Linkage of this type.
     mutable unsigned CachedLinkage : 2;
@@ -1209,15 +1203,7 @@ private:
     mutable unsigned FromAST : 1;
 
     bool isCacheValid() const {
-      return (CacheValidAndVisibility != 0);
-    }
-    Visibility getVisibility() const {
-      assert(isCacheValid() && "getting linkage from invalid cache");
-      return static_cast<Visibility>(CacheValidAndVisibility-1);
-    }
-    bool isVisibilityExplicit() const {
-      assert(isCacheValid() && "getting linkage from invalid cache");
-      return CachedExplicitVisibility;
+      return CacheValid;
     }
     Linkage getLinkage() const {
       assert(isCacheValid() && "getting linkage from invalid cache");
@@ -1341,10 +1327,20 @@ protected:
     unsigned AttrKind : 32 - NumTypeBits;
   };
 
+  class AutoTypeBitfields {
+    friend class AutoType;
+
+    unsigned : NumTypeBits;
+
+    /// Was this placeholder type spelled as 'decltype(auto)'?
+    unsigned IsDecltypeAuto : 1;
+  };
+
   union {
     TypeBitfields TypeBits;
     ArrayTypeBitfields ArrayTypeBits;
     AttributedTypeBitfields AttributedTypeBits;
+    AutoTypeBitfields AutoTypeBits;
     BuiltinTypeBitfields BuiltinTypeBits;
     FunctionTypeBitfields FunctionTypeBits;
     ObjCObjectTypeBitfields ObjCObjectTypeBits;
@@ -1374,8 +1370,7 @@ protected:
     TypeBits.InstantiationDependent = Dependent || InstantiationDependent;
     TypeBits.VariablyModified = VariablyModified;
     TypeBits.ContainsUnexpandedParameterPack = ContainsUnexpandedParameterPack;
-    TypeBits.CacheValidAndVisibility = 0;
-    TypeBits.CachedExplicitVisibility = false;
+    TypeBits.CacheValid = false;
     TypeBits.CachedLocalOrUnnamed = false;
     TypeBits.CachedLinkage = NoLinkage;
     TypeBits.FromAST = false;
@@ -1459,8 +1454,8 @@ public:
   }
 
   /// isLiteralType - Return true if this is a literal type
-  /// (C++0x [basic.types]p10)
-  bool isLiteralType() const;
+  /// (C++11 [basic.types]p10)
+  bool isLiteralType(ASTContext &Ctx) const;
 
   /// \brief Test if this type is a standard-layout type.
   /// (C++0x [basic.type]p9)
@@ -1626,6 +1621,10 @@ public:
     return TypeBits.InstantiationDependent;
   }
 
+  /// \brief Determine whether this type is an undeduced type, meaning that
+  /// it somehow involves a C++11 'auto' type which has not yet been deduced.
+  bool isUndeducedType() const;
+
   /// \brief Whether this type is a variably-modified type (C99 6.7.5).
   bool isVariablyModifiedType() const { return TypeBits.VariablyModified; }
 
@@ -1777,16 +1776,21 @@ public:
   Linkage getLinkage() const;
 
   /// \brief Determine the visibility of this type.
-  Visibility getVisibility() const;
+  Visibility getVisibility() const {
+    return getLinkageAndVisibility().getVisibility();
+  }
 
   /// \brief Return true if the visibility was explicitly set is the code.
-  bool isVisibilityExplicit() const;
+  bool isVisibilityExplicit() const {
+    return getLinkageAndVisibility().isVisibilityExplicit();
+  }
 
   /// \brief Determine the linkage and visibility of this type.
-  std::pair<Linkage,Visibility> getLinkageAndVisibility() const;
+  LinkageInfo getLinkageAndVisibility() const;
 
-  /// \brief Note that the linkage is no longer known.
-  void ClearLinkageCache();
+  /// \brief True if the computed linkage is valid. Used for consistency
+  /// checking. Should always return true.
+  bool isLinkageValid() const;
 
   const char *getTypeClassName() const;
 
@@ -2879,7 +2883,7 @@ private:
     return false;
   }
 
-  FunctionProtoType(QualType result, const QualType *args, unsigned numArgs,
+  FunctionProtoType(QualType result, ArrayRef<QualType> args,
                     QualType canonical, const ExtProtoInfo &epi);
 
   /// NumArgs - The number of arguments this function has, not counting '...'.
@@ -2943,6 +2947,9 @@ public:
   QualType getArgType(unsigned i) const {
     assert(i < NumArgs && "Invalid argument number!");
     return arg_type_begin()[i];
+  }
+  ArrayRef<QualType> getArgTypes() const {
+    return ArrayRef<QualType>(arg_type_begin(), arg_type_end());
   }
 
   ExtProtoInfo getExtProtoInfo() const {
@@ -3085,9 +3092,6 @@ public:
   bool isSugared() const { return false; }
   QualType desugar() const { return QualType(this, 0); }
 
-  // FIXME: Remove the string version.
-  void printExceptionSpecification(std::string &S, 
-                                   const PrintingPolicy &Policy) const;
   void printExceptionSpecification(raw_ostream &OS, 
                                    const PrintingPolicy &Policy) const;
 
@@ -3627,41 +3631,48 @@ public:
   }
 };
 
-/// \brief Represents a C++0x auto type.
+/// \brief Represents a C++11 auto or C++1y decltype(auto) type.
 ///
-/// These types are usually a placeholder for a deduced type. However, within
-/// templates and before the initializer is attached, there is no deduced type
-/// and an auto type is type-dependent and canonical.
+/// These types are usually a placeholder for a deduced type. However, before
+/// the initializer is attached, or if the initializer is type-dependent, there
+/// is no deduced type and an auto type is canonical. In the latter case, it is
+/// also a dependent type.
 class AutoType : public Type, public llvm::FoldingSetNode {
-  AutoType(QualType DeducedType)
+  AutoType(QualType DeducedType, bool IsDecltypeAuto, bool IsDependent)
     : Type(Auto, DeducedType.isNull() ? QualType(this, 0) : DeducedType,
-           /*Dependent=*/DeducedType.isNull(),
-           /*InstantiationDependent=*/DeducedType.isNull(),
+           /*Dependent=*/IsDependent, /*InstantiationDependent=*/IsDependent,
            /*VariablyModified=*/false, /*ContainsParameterPack=*/false) {
-    assert((DeducedType.isNull() || !DeducedType->isDependentType()) &&
-           "deduced a dependent type for auto");
+    assert((DeducedType.isNull() || !IsDependent) &&
+           "auto deduced to dependent type");
+    AutoTypeBits.IsDecltypeAuto = IsDecltypeAuto;
   }
 
   friend class ASTContext;  // ASTContext creates these
 
 public:
-  bool isSugared() const { return isDeduced(); }
+  bool isDecltypeAuto() const { return AutoTypeBits.IsDecltypeAuto; }
+
+  bool isSugared() const { return !isCanonicalUnqualified(); }
   QualType desugar() const { return getCanonicalTypeInternal(); }
 
+  /// \brief Get the type deduced for this auto type, or null if it's either
+  /// not been deduced or was deduced to a dependent type.
   QualType getDeducedType() const {
-    return isDeduced() ? getCanonicalTypeInternal() : QualType();
+    return !isCanonicalUnqualified() ? getCanonicalTypeInternal() : QualType();
   }
   bool isDeduced() const {
-    return !isDependentType();
+    return !isCanonicalUnqualified() || isDependentType();
   }
 
   void Profile(llvm::FoldingSetNodeID &ID) {
-    Profile(ID, getDeducedType());
+    Profile(ID, getDeducedType(), isDecltypeAuto(), isDependentType());
   }
 
-  static void Profile(llvm::FoldingSetNodeID &ID,
-                      QualType Deduced) {
+  static void Profile(llvm::FoldingSetNodeID &ID, QualType Deduced,
+                      bool IsDecltypeAuto, bool IsDependent) {
     ID.AddPointer(Deduced.getAsOpaquePtr());
+    ID.AddBoolean(IsDecltypeAuto);
+    ID.AddBoolean(IsDependent);
   }
 
   static bool classof(const Type *T) {
@@ -3728,21 +3739,6 @@ public:
 
   static bool anyDependentTemplateArguments(const TemplateArgumentListInfo &,
                                             bool &InstantiationDependent);
-
-  /// \brief Print a template argument list, including the '<' and '>'
-  /// enclosing the template arguments.
-  // FIXME: remove the string ones.
-  static std::string PrintTemplateArgumentList(const TemplateArgument *Args,
-                                               unsigned NumArgs,
-                                               const PrintingPolicy &Policy,
-                                               bool SkipBrackets = false);
-
-  static std::string PrintTemplateArgumentList(const TemplateArgumentLoc *Args,
-                                               unsigned NumArgs,
-                                               const PrintingPolicy &Policy);
-
-  static std::string PrintTemplateArgumentList(const TemplateArgumentListInfo &,
-                                               const PrintingPolicy &Policy);
 
   /// \brief Print a template argument list, including the '<' and '>'
   /// enclosing the template arguments.
@@ -4208,7 +4204,7 @@ class PackExpansionType : public Type, public llvm::FoldingSetNode {
   unsigned NumExpansions;
 
   PackExpansionType(QualType Pattern, QualType Canon,
-                    llvm::Optional<unsigned> NumExpansions)
+                    Optional<unsigned> NumExpansions)
     : Type(PackExpansion, Canon, /*Dependent=*/Pattern->isDependentType(),
            /*InstantiationDependent=*/true,
            /*VariableModified=*/Pattern->isVariablyModifiedType(),
@@ -4226,11 +4222,11 @@ public:
 
   /// \brief Retrieve the number of expansions that this pack expansion will
   /// generate, if known.
-  llvm::Optional<unsigned> getNumExpansions() const {
+  Optional<unsigned> getNumExpansions() const {
     if (NumExpansions)
       return NumExpansions - 1;
 
-    return llvm::Optional<unsigned>();
+    return None;
   }
 
   bool isSugared() const { return false; }
@@ -4241,9 +4237,9 @@ public:
   }
 
   static void Profile(llvm::FoldingSetNodeID &ID, QualType Pattern,
-                      llvm::Optional<unsigned> NumExpansions) {
+                      Optional<unsigned> NumExpansions) {
     ID.AddPointer(Pattern.getAsOpaquePtr());
-    ID.AddBoolean(NumExpansions);
+    ID.AddBoolean(NumExpansions.hasValue());
     if (NumExpansions)
       ID.AddInteger(*NumExpansions);
   }
@@ -4726,7 +4722,7 @@ inline QualType QualType::getUnqualifiedType() const {
 
   return QualType(getSplitUnqualifiedTypeImpl(*this).Ty, 0);
 }
-
+  
 inline SplitQualType QualType::getSplitUnqualifiedType() const {
   if (!getTypePtr()->getCanonicalTypeInternal().hasLocalQualifiers())
     return split();
@@ -4758,7 +4754,7 @@ inline void QualType::removeLocalCVRQualifiers(unsigned Mask) {
 inline unsigned QualType::getAddressSpace() const {
   return getQualifiers().getAddressSpace();
 }
-
+  
 /// getObjCGCAttr - Return the gc attribute of this type.
 inline Qualifiers::GC QualType::getObjCGCAttr() const {
   return getQualifiers().getObjCGCAttr();
@@ -5120,6 +5116,11 @@ inline bool Type::isBooleanType() const {
   if (const BuiltinType *BT = dyn_cast<BuiltinType>(CanonicalType))
     return BT->getKind() == BuiltinType::Bool;
   return false;
+}
+
+inline bool Type::isUndeducedType() const {
+  const AutoType *AT = getContainedAutoType();
+  return AT && !AT->isDeduced();
 }
 
 /// \brief Determines whether this is a type for which one can define

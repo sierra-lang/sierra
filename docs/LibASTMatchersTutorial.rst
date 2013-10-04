@@ -21,18 +21,20 @@ repositories, but we'll be accessing them through the git mirror. For
 further information, see the `getting started
 guide <http://llvm.org/docs/GettingStarted.html>`_.
 
-::
+.. code-block:: console
 
       mkdir ~/clang-llvm && cd ~/clang-llvm
       git clone http://llvm.org/git/llvm.git
       cd llvm/tools
       git clone http://llvm.org/git/clang.git
+      cd clang/tools
+      git clone http://llvm.org/git/clang-tools-extra.git extra
 
 Next you need to obtain the CMake build system and Ninja build tool. You
 may already have CMake installed, but current binary versions of CMake
 aren't built with Ninja support.
 
-::
+.. code-block:: console
 
       cd ~/clang-llvm
       git clone https://github.com/martine/ninja.git
@@ -51,7 +53,7 @@ aren't built with Ninja support.
 
 Okay. Now we'll build Clang!
 
-::
+.. code-block:: console
 
       cd ~/clang-llvm
       mkdir build && cd build
@@ -69,7 +71,7 @@ in both the llvm and clang directories should fix any problems.
 
 Finally, we want to set Clang as its own compiler.
 
-::
+.. code-block:: console
 
       cd ~/clang-llvm/build
       ccmake ../llvm
@@ -94,7 +96,7 @@ First, we'll need to create a new directory for our tool and tell CMake
 that it exists. As this is not going to be a core clang tool, it will
 live in the ``tools/extra`` repository.
 
-::
+.. code-block:: console
 
       cd ~/clang-llvm/llvm/tools/clang
       mkdir tools/extra/loop-convert
@@ -123,7 +125,7 @@ something to compile! Put the following into
 why the different parts are needed can be found in the `LibTooling
 documentation <LibTooling.html>`_.
 
-::
+.. code-block:: c++
 
       // Declares clang::SyntaxOnlyAction.
       #include "clang/Frontend/FrontendActions.h"
@@ -153,7 +155,7 @@ documentation <LibTooling.html>`_.
 And that's it! You can compile our new tool by running ninja from the
 ``build`` directory.
 
-::
+.. code-block:: console
 
       cd ~/clang-llvm/build
       ninja
@@ -161,9 +163,9 @@ And that's it! You can compile our new tool by running ninja from the
 You should now be able to run the syntax checker, which is located in
 ``~/clang-llvm/build/bin``, on any source file. Try it!
 
-::
+.. code-block:: console
 
-      cat "void main() {}" > test.cpp
+      cat "int main() { return 0; }" > test.cpp
       bin/loop-convert test.cpp --
 
 Note the two dashes after we specify the source file. The additional
@@ -186,7 +188,7 @@ For example, suppose you wanted to examine only binary operators. There
 is a matcher to do exactly that, conveniently named ``binaryOperator``.
 I'll give you one guess what this matcher does:
 
-::
+.. code-block:: c++
 
       binaryOperator(hasOperatorName("+"), hasLHS(integerLiteral(equals(0))))
 
@@ -207,7 +209,7 @@ All matcher that are nouns describe entities in the AST and can be
 bound, so that they can be referred to whenever a match is found. To do
 so, simply call the method ``bind`` on these matchers, e.g.:
 
-::
+.. code-block:: c++
 
       variable(hasType(isInteger())).bind("intvar")
 
@@ -218,21 +220,21 @@ Okay, on to using matchers for real. Let's start by defining a matcher
 which will capture all ``for`` statements that define a new variable
 initialized to zero. Let's start with matching all ``for`` loops:
 
-::
+.. code-block:: c++
 
       forStmt()
 
 Next, we want to specify that a single variable is declared in the first
 portion of the loop, so we can extend the matcher to
 
-::
+.. code-block:: c++
 
       forStmt(hasLoopInit(declStmt(hasSingleDecl(varDecl()))))
 
 Finally, we can add the condition that the variable is initialized to
 zero.
 
-::
+.. code-block:: c++
 
       forStmt(hasLoopInit(declStmt(hasSingleDecl(varDecl(
         hasInitializer(integerLiteral(equals(0))))))))
@@ -247,7 +249,7 @@ zero besides the integer 0.
 The last step is giving the matcher a name and binding the ``ForStmt``
 as we will want to do something with it:
 
-::
+.. code-block:: c++
 
       StatementMatcher LoopMatcher =
         forStmt(hasLoopInit(declStmt(hasSingleDecl(varDecl(
@@ -260,7 +262,13 @@ from a ``ClangTool``. More code!
 
 Add the following to ``LoopConvert.cpp``:
 
-::
+.. code-block:: c++
+
+      #include "clang/ASTMatchers/ASTMatchers.h"
+      #include "clang/ASTMatchers/ASTMatchFinder.h"
+
+      using namespace clang;
+      using namespace clang::ast_matchers;
 
       StatementMatcher LoopMatcher =
         forStmt(hasLoopInit(declStmt(hasSingleDecl(varDecl(
@@ -269,13 +277,14 @@ Add the following to ``LoopConvert.cpp``:
       class LoopPrinter : public MatchFinder::MatchCallback {
       public :
         virtual void run(const MatchFinder::MatchResult &Result) {
-        if (const ForStmt *FS = Result.Nodes.getNodeAs<clang::ForStmt>("forLoop"))
-          FS->dump();
+          if (const ForStmt *FS = Result.Nodes.getNodeAs<clang::ForStmt>("forLoop"))
+            FS->dump();
+        }
       };
 
 And change ``main()`` to:
 
-::
+.. code-block:: c++
 
       int main(int argc, const char **argv) {
         CommonOptionsParser OptionsParser(argc, argv);
@@ -293,7 +302,7 @@ Now, you should be able to recompile and run the code to discover for
 loops. Create a new file with a few examples, and test out our new
 handiwork:
 
-::
+.. code-block:: console
 
       cd ~/clang-llvm/llvm/llvm_build/
       ninja loop-convert
@@ -331,7 +340,7 @@ would like to allow, and punting extra comparisons to the callback.
 In any case, we can start building this sub-matcher. We can require that
 the increment step be a unary increment like this:
 
-::
+.. code-block:: c++
 
       hasIncrement(unaryOperator(hasOperatorName("++")))
 
@@ -341,7 +350,7 @@ reference expressions") because they are expressions which refer to
 variable declarations. To find a ``unaryOperator`` that refers to a
 specific declaration, we can simply add a second condition to it:
 
-::
+.. code-block:: c++
 
       hasIncrement(unaryOperator(
         hasOperatorName("++"),
@@ -350,7 +359,7 @@ specific declaration, we can simply add a second condition to it:
 Furthermore, we can restrict our matcher to only match if the
 incremented variable is an integer:
 
-::
+.. code-block:: c++
 
       hasIncrement(unaryOperator(
         hasOperatorName("++"),
@@ -359,7 +368,7 @@ incremented variable is an integer:
 And the last step will be to attach an identifier to this variable, so
 that we can retrieve it in the callback:
 
-::
+.. code-block:: c++
 
       hasIncrement(unaryOperator(
         hasOperatorName("++"),
@@ -378,19 +387,19 @@ without looking at the body of the loop! We are again restricted to
 approximating the result we want with matchers, filling in the details
 in the callback. So we start with:
 
-::
+.. code-block:: c++
 
       hasCondition(binaryOperator(hasOperatorName("<"))
 
 It makes sense to ensure that the left-hand side is a reference to a
 variable, and that the right-hand side has integer type.
 
-::
+.. code-block:: c++
 
       hasCondition(binaryOperator(
         hasOperatorName("<"),
-        hasRHS(expr(hasType(isInteger()))),
-        hasLHS(declRefExpr(to(varDecl(hasType(isInteger())))))))
+        hasLHS(declRefExpr(to(varDecl(hasType(isInteger()))))),
+        hasRHS(expr(hasType(isInteger())))))
 
 Why? Because it doesn't work. Of the three loops provided in
 ``test-files/simple.cpp``, zero of them have a matching condition. A
@@ -405,13 +414,13 @@ previous iteration of loop-convert, shows us the answer:
             (IntegerLiteral 0x173afa8 'int' 0)")
         <<>>
         (BinaryOperator 0x173b060 '_Bool' '<'
-          (ImplicitCastExpr 0x173b030 'int' 
+          (ImplicitCastExpr 0x173b030 'int'
             (DeclRefExpr 0x173afe0 'int' lvalue Var 0x173af50 'i' 'int'))
-          (ImplicitCastExpr 0x173b048 'int' 
+          (ImplicitCastExpr 0x173b048 'int'
             (DeclRefExpr 0x173b008 'const int' lvalue Var 0x170fa80 'N' 'const int')))
         (UnaryOperator 0x173b0b0 'int' lvalue prefix '++'
           (DeclRefExpr 0x173b088 'int' lvalue Var 0x173af50 'i' 'int'))
-        (CompoundStatement …
+        (CompoundStatement ...
 
 We already know that the declaration and increments both match, or this
 loop wouldn't have been dumped. The culprit lies in the implicit cast
@@ -422,13 +431,13 @@ in the form of ``ignoringParenImpCasts``, which instructs the matcher to
 ignore implicit casts and parentheses before continuing to match.
 Adjusting the condition operator will restore the desired match.
 
-::
+.. code-block:: c++
 
       hasCondition(binaryOperator(
         hasOperatorName("<"),
-        hasLHS(expr(hasType(isInteger()))),
-        hasRHS(ignoringParenImpCasts(declRefExpr(
-          to(varDecl(hasType(isInteger()))))))))
+        hasLHS(ignoringParenImpCasts(declRefExpr(
+          to(varDecl(hasType(isInteger())))))),
+        hasRHS(expr(hasType(isInteger())))))
 
 After adding binds to the expressions we wished to capture and
 extracting the identifier strings into variables, we have array-step-2
@@ -454,37 +463,65 @@ Since we bind three variables (identified by ConditionVarName,
 InitVarName, and IncrementVarName), we can obtain the matched nodes by
 using the ``getNodeAs()`` member function.
 
-In ``LoopActions.cpp``:
+In ``LoopConvert.cpp`` add
 
-::
+.. code-block:: c++
 
       #include "clang/AST/ASTContext.h"
 
+Change ``LoopMatcher`` to
+
+.. code-block:: c++
+
+      StatementMatcher LoopMatcher =
+          forStmt(hasLoopInit(declStmt(
+                      hasSingleDecl(varDecl(hasInitializer(integerLiteral(equals(0))))
+                                        .bind("initVarName")))),
+                  hasIncrement(unaryOperator(
+                      hasOperatorName("++"),
+                      hasUnaryOperand(declRefExpr(
+                          to(varDecl(hasType(isInteger())).bind("incVarName")))))),
+                  hasCondition(binaryOperator(
+                      hasOperatorName("<"),
+                      hasLHS(ignoringParenImpCasts(declRefExpr(
+                          to(varDecl(hasType(isInteger())).bind("condVarName"))))),
+                      hasRHS(expr(hasType(isInteger())))))).bind("forLoop");
+
+And change ``LoopPrinter::run`` to
+
+.. code-block:: c++
+
       void LoopPrinter::run(const MatchFinder::MatchResult &Result) {
         ASTContext *Context = Result.Context;
-        const ForStmt *FS = Result.Nodes.getStmtAs<ForStmt>(LoopName);
+        const ForStmt *FS = Result.Nodes.getStmtAs<ForStmt>("forLoop");
         // We do not want to convert header files!
         if (!FS || !Context->getSourceManager().isFromMainFile(FS->getForLoc()))
           return;
-        const VarDecl *IncVar = Result.Nodes.getNodeAs<VarDecl>(IncrementVarName);
-        const VarDecl *CondVar = Result.Nodes.getNodeAs<VarDecl>(ConditionVarName);
-        const VarDecl *InitVar = Result.Nodes.getNodeAs<VarDecl>(InitVarName);
+        const VarDecl *IncVar = Result.Nodes.getNodeAs<VarDecl>("incVarName");
+        const VarDecl *CondVar = Result.Nodes.getNodeAs<VarDecl>("condVarName");
+        const VarDecl *InitVar = Result.Nodes.getNodeAs<VarDecl>("initVarName");
 
-Now that we have the three variables, represented by their respective
-declarations, let's make sure that they're all the same, using a helper
-function I call ``areSameVariable()``.
+        if (!areSameVariable(IncVar, CondVar) || !areSameVariable(IncVar, InitVar))
+          return;
+        llvm::outs() << "Potential array-based loop discovered.\n";
+      }
 
-::
+Clang associates a ``VarDecl`` with each variable to represent the variable's
+declaration. Since the "canonical" form of each declaration is unique by
+address, all we need to do is make sure neither ``ValueDecl`` (base class of
+``VarDecl``) is ``NULL`` and compare the canonical Decls.
 
-      if (!areSameVariable(IncVar, CondVar) || !areSameVariable(IncVar, InitVar))
-        return;
-      llvm::outs() << "Potential array-based loop discovered.\n";
-    }
+.. code-block:: c++
+
+      static bool areSameVariable(const ValueDecl *First, const ValueDecl *Second) {
+        return First && Second &&
+               First->getCanonicalDecl() == Second->getCanonicalDecl();
+      }
 
 If execution reaches the end of ``LoopPrinter::run()``, we know that the
 loop shell that looks like
 
-::
+.. code-block:: c++
 
       for (int i= 0; i < expr(); ++i) { ... }
 
@@ -492,26 +529,13 @@ For now, we will just print a message explaining that we found a loop.
 The next section will deal with recursively traversing the AST to
 discover all changes needed.
 
-As a side note, here is the implementation of ``areSameVariable``. Clang
-associates a ``VarDecl`` with each variable to represent the variable's
-declaration. Since the "canonical" form of each declaration is unique by
-address, all we need to do is make sure neither ``ValueDecl`` (base
-class of ``VarDecl``) is ``NULL`` and compare the canonical Decls.
-
-::
-
-      static bool areSameVariable(const ValueDecl *First, const ValueDecl *Second) {
-        return First && Second &&
-               First->getCanonicalDecl() == Second->getCanonicalDecl();
-      }
-
-It's not as trivial to test if two expressions are the same, though
-Clang has already done the hard work for us by providing a way to
+As a side note, it's not as trivial to test if two expressions are the same,
+though Clang has already done the hard work for us by providing a way to
 canonicalize expressions:
 
-::
+.. code-block:: c++
 
-      static bool areSameExpr(ASTContext* Context, const Expr *First,
+      static bool areSameExpr(ASTContext *Context, const Expr *First,
                               const Expr *Second) {
         if (!First || !Second)
           return false;

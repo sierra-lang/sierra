@@ -10,7 +10,7 @@
 /// \file
 /// \brief Defines the SourceManager interface.
 ///
-/// There are three different types of locations in a file: a spelling
+/// There are three different types of locations in a %file: a spelling
 /// location, an expansion location, and a presumed location.
 ///
 /// Given an example of:
@@ -79,7 +79,7 @@ namespace SrcMgr {
   };
 
   /// \brief One instance of this struct is kept for every file loaded or used.
-  ////
+  ///
   /// This object owns the MemoryBuffer object.
   class ContentCache {
     enum CCFlags {
@@ -447,7 +447,7 @@ public:
 ///
 /// The cache structure is complex enough to be worth breaking out of
 /// SourceManager.
-class IsBeforeInTranslationUnitCache {
+class InBeforeInTUCacheEntry {
   /// \brief The FileID's of the cached query.
   ///
   /// If these match up with a subsequent query, the result can be reused.
@@ -469,7 +469,6 @@ class IsBeforeInTranslationUnitCache {
   /// random token in the parent.
   unsigned LCommonOffset, RCommonOffset;
 public:
-
   /// \brief Return true if the currently cached values match up with
   /// the specified LHS/RHS query.
   ///
@@ -588,13 +587,13 @@ class SourceManager : public RefCountedBase<SourceManager> {
   ///
   /// Positive FileIDs are indexes into this table. Entry 0 indicates an invalid
   /// expansion.
-  std::vector<SrcMgr::SLocEntry> LocalSLocEntryTable;
+  SmallVector<SrcMgr::SLocEntry, 0> LocalSLocEntryTable;
 
   /// \brief The table of SLocEntries that are loaded from other modules.
   ///
   /// Negative FileIDs are indexes into this table. To get from ID to an index,
   /// use (-ID - 2).
-  mutable std::vector<SrcMgr::SLocEntry> LoadedSLocEntryTable;
+  mutable SmallVector<SrcMgr::SLocEntry, 0> LoadedSLocEntryTable;
 
   /// \brief The starting offset of the next local SLocEntry.
   ///
@@ -647,8 +646,28 @@ class SourceManager : public RefCountedBase<SourceManager> {
   // Statistics for -print-stats.
   mutable unsigned NumLinearScans, NumBinaryProbes;
 
-  // Cache results for the isBeforeInTranslationUnit method.
-  mutable IsBeforeInTranslationUnitCache IsBeforeInTUCache;
+  /// \brief Associates a FileID with its "included/expanded in" decomposed
+  /// location.
+  ///
+  /// Used to cache results from and speed-up \c getDecomposedIncludedLoc
+  /// function.
+  mutable llvm::DenseMap<FileID, std::pair<FileID, unsigned> > IncludedLocMap;
+
+  /// The key value into the IsBeforeInTUCache table.
+  typedef std::pair<FileID, FileID> IsBeforeInTUCacheKey;
+
+  /// The IsBeforeInTranslationUnitCache is a mapping from FileID pairs
+  /// to cache results.
+  typedef llvm::DenseMap<IsBeforeInTUCacheKey, InBeforeInTUCacheEntry>
+          InBeforeInTUCache;
+
+  /// Cache results for the isBeforeInTranslationUnit method.
+  mutable InBeforeInTUCache IBTUCache;
+  mutable InBeforeInTUCacheEntry IBTUCacheOverflow;
+
+  /// Return the cache entry for comparing the given file IDs
+  /// for isBeforeInTranslationUnit.
+  InBeforeInTUCacheEntry &getInBeforeInTUCache(FileID LFID, FileID RFID) const;
 
   // Cache for the "fake" buffer used for error-recovery purposes.
   mutable llvm::MemoryBuffer *FakeBufferForRecovery;
@@ -1114,6 +1133,10 @@ public:
       return std::make_pair(FID, Offset);
     return getDecomposedSpellingLocSlowCase(E, Offset);
   }
+
+  /// \brief Returns the "included/expanded in" decomposed location of the given
+  /// FileID.
+  std::pair<FileID, unsigned> getDecomposedIncludedLoc(FileID FID) const;
 
   /// \brief Returns the offset from the start of the file that the
   /// specified SourceLocation represents.

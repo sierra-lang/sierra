@@ -104,7 +104,8 @@ namespace {
     bool shouldWalkTypesOfTypeLocs() const { return false; }
 
     virtual bool VisitNamedDecl(NamedDecl *D) {
-      Out << D->getQualifiedNameAsString() << "\n";
+      D->printQualifiedName(Out);
+      Out << '\n';
       return true;
     }
 
@@ -460,6 +461,10 @@ void DeclContextPrinter::PrintDeclContext(const DeclContext* DC,
     case Decl::ClassTemplate: {
       ClassTemplateDecl *CTD = cast<ClassTemplateDecl>(*I);
       Out << "<class template> " << *CTD << '\n';
+      break;
+    }
+    case Decl::OMPThreadPrivate: {
+      Out << "<omp threadprivate> " << '"' << *I << "\"\n";
       break;
     }
     default:

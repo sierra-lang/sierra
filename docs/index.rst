@@ -21,6 +21,7 @@ Using Clang as a Compiler
    AddressSanitizer
    ThreadSanitizer
    MemorySanitizer
+   Modules
    FAQ
 
 Using Clang as a Library
@@ -30,6 +31,7 @@ Using Clang as a Library
    :maxdepth: 1
 
    Tooling
+   ExternalClangExamples
    IntroductionToTheClangAST
    LibTooling
    LibFormat

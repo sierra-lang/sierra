@@ -84,6 +84,13 @@ public:
 
   unsigned size() const { return NumParams; }
 
+  llvm::ArrayRef<NamedDecl*> asArray() {
+    return llvm::ArrayRef<NamedDecl*>(begin(), size());
+  }
+  llvm::ArrayRef<const NamedDecl*> asArray() const {
+    return llvm::ArrayRef<const NamedDecl*>(begin(), size());
+  }
+
   NamedDecl* getParam(unsigned Idx) {
     assert(Idx < size() && "Template parameter index out-of-range");
     return begin()[Idx];
@@ -192,6 +199,11 @@ public:
 
   /// \brief Retrieve the template argument at a given index.
   const TemplateArgument &operator[](unsigned Idx) const { return get(Idx); }
+
+  /// \brief Produce this as an array ref.
+  llvm::ArrayRef<TemplateArgument> asArray() const {
+    return llvm::ArrayRef<TemplateArgument>(data(), size());
+  }
 
   /// \brief Retrieve the number of template arguments in this
   /// template argument list.
@@ -324,6 +336,23 @@ public:
     return getTemplateSpecializationKind() == TSK_ExplicitSpecialization;
   }
 
+  /// \brief True if this declaration is an explicit specialization,
+  /// explicit instantiation declaration, or explicit instantiation
+  /// definition.
+  bool isExplicitInstantiationOrSpecialization() const {
+    switch (getTemplateSpecializationKind()) {
+    case TSK_ExplicitSpecialization:
+    case TSK_ExplicitInstantiationDeclaration:
+    case TSK_ExplicitInstantiationDefinition:
+      return true;
+
+    case TSK_Undeclared:
+    case TSK_ImplicitInstantiation:
+      return false;
+    }
+    llvm_unreachable("bad template specialization kind");
+  }
+
   /// \brief Set the template specialization kind.
   void setTemplateSpecializationKind(TemplateSpecializationKind TSK) {
     assert(TSK != TSK_Undeclared &&
@@ -390,6 +419,10 @@ public:
     return (TemplateSpecializationKind)(MemberAndTSK.getInt() + 1);
   }
 
+  bool isExplicitSpecialization() const {
+    return getTemplateSpecializationKind() == TSK_ExplicitSpecialization;
+  }
+
   /// \brief Set the template specialization kind.
   void setTemplateSpecializationKind(TemplateSpecializationKind TSK) {
     assert(TSK != TSK_Undeclared &&
@@ -425,18 +458,19 @@ public:
 ///   };
 /// \endcode
 class DependentFunctionTemplateSpecializationInfo {
+  struct CA {
+    /// The number of potential template candidates.
+    unsigned NumTemplates;
+
+    /// The number of template arguments.
+    unsigned NumArgs;
+  };
+
   union {
     // Force sizeof to be a multiple of sizeof(void*) so that the
     // trailing data is aligned.
     void *Aligner;
-
-    struct {
-      /// The number of potential template candidates.
-      unsigned NumTemplates;
-
-      /// The number of template arguments.
-      unsigned NumArgs;
-    } d;
+    struct CA d;
   };
 
   /// The locations of the left and right angle brackets.
@@ -552,7 +586,7 @@ protected:
   };
 
   template <typename EntryType>
-  SpecIterator<EntryType>
+  static SpecIterator<EntryType>
   makeSpecIterator(llvm::FoldingSetVector<EntryType> &Specs, bool isEnd) {
     return SpecIterator<EntryType>(isEnd ? Specs.end() : Specs.begin());
   }
@@ -731,7 +765,7 @@ protected:
 
   CommonBase *newCommon(ASTContext &C) const;
 
-  Common *getCommonPtr() {
+  Common *getCommonPtr() const {
     return static_cast<Common *>(RedeclarableTemplateDecl::getCommonPtr());
   }
 
@@ -740,7 +774,7 @@ protected:
   /// \brief Retrieve the set of function template specializations of this
   /// function template.
   llvm::FoldingSetVector<FunctionTemplateSpecializationInfo> &
-  getSpecializations() {
+  getSpecializations() const {
     return getCommonPtr()->Specializations;
   }
 
@@ -798,11 +832,11 @@ public:
 
   typedef SpecIterator<FunctionTemplateSpecializationInfo> spec_iterator;
 
-  spec_iterator spec_begin() {
+  spec_iterator spec_begin() const {
     return makeSpecIterator(getSpecializations(), false);
   }
 
-  spec_iterator spec_end() {
+  spec_iterator spec_end() const {
     return makeSpecIterator(getSpecializations(), true);
   }
 
@@ -1399,7 +1433,7 @@ public:
   static ClassTemplateSpecializationDecl *
   CreateDeserialized(ASTContext &C, unsigned ID);
 
-  virtual void getNameForDiagnostic(std::string &S,
+  virtual void getNameForDiagnostic(raw_ostream &OS,
                                     const PrintingPolicy &Policy,
                                     bool Qualified) const;
 
@@ -1431,6 +1465,23 @@ public:
 
   bool isExplicitSpecialization() const {
     return getSpecializationKind() == TSK_ExplicitSpecialization;
+  }
+
+  /// \brief True if this declaration is an explicit specialization,
+  /// explicit instantiation declaration, or explicit instantiation
+  /// definition.
+  bool isExplicitInstantiationOrSpecialization() const {
+    switch (getTemplateSpecializationKind()) {
+    case TSK_ExplicitSpecialization:
+    case TSK_ExplicitInstantiationDeclaration:
+    case TSK_ExplicitInstantiationDefinition:
+      return true;
+
+    case TSK_Undeclared:
+    case TSK_ImplicitInstantiation:
+      return false;
+    }
+    llvm_unreachable("bad template specialization kind");
   }
 
   void setSpecializationKind(TemplateSpecializationKind TSK) {
@@ -1778,10 +1829,11 @@ protected:
   };
 
   /// \brief Load any lazily-loaded specializations from the external source.
-  void LoadLazySpecializations();
+  void LoadLazySpecializations() const;
 
   /// \brief Retrieve the set of specializations of this class template.
-  llvm::FoldingSetVector<ClassTemplateSpecializationDecl> &getSpecializations();
+  llvm::FoldingSetVector<ClassTemplateSpecializationDecl> &
+  getSpecializations() const;
 
   /// \brief Retrieve the set of partial specializations of this class
   /// template.
@@ -1798,7 +1850,7 @@ protected:
 
   CommonBase *newCommon(ASTContext &C) const;
 
-  Common *getCommonPtr() {
+  Common *getCommonPtr() const {
     return static_cast<Common *>(RedeclarableTemplateDecl::getCommonPtr());
   }
 
@@ -1923,11 +1975,11 @@ public:
 
   typedef SpecIterator<ClassTemplateSpecializationDecl> spec_iterator;
 
-  spec_iterator spec_begin() {
+  spec_iterator spec_begin() const {
     return makeSpecIterator(getSpecializations(), false);
   }
 
-  spec_iterator spec_end() {
+  spec_iterator spec_end() const {
     return makeSpecIterator(getSpecializations(), true);
   }
 

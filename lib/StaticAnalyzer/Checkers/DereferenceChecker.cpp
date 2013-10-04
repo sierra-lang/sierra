@@ -76,6 +76,14 @@ DereferenceChecker::AddDerefSource(raw_ostream &os,
       Ranges.push_back(SourceRange(L, L));
       break;
     }
+    case Stmt::ObjCIvarRefExprClass: {
+      const ObjCIvarRefExpr *IV = cast<ObjCIvarRefExpr>(Ex);
+      os << " (" << (loadedFrom ? "loaded from" : "via")
+         << " ivar '" << IV->getDecl()->getName() << "')";
+      SourceLocation L = IV->getLocation();
+      Ranges.push_back(SourceRange(L, L));
+      break;
+    }    
   }
 }
 
@@ -183,10 +191,10 @@ void DereferenceChecker::checkLocation(SVal l, bool isLoad, const Stmt* S,
     return;
   }
 
-  DefinedOrUnknownSVal location = cast<DefinedOrUnknownSVal>(l);
+  DefinedOrUnknownSVal location = l.castAs<DefinedOrUnknownSVal>();
 
   // Check for null dereferences.
-  if (!isa<Loc>(location))
+  if (!location.getAs<Loc>())
     return;
 
   ProgramStateRef state = C.getState();
@@ -231,7 +239,8 @@ void DereferenceChecker::checkBind(SVal L, SVal V, const Stmt *S,
   ProgramStateRef State = C.getState();
 
   ProgramStateRef StNonNull, StNull;
-  llvm::tie(StNonNull, StNull) = State->assume(cast<DefinedOrUnknownSVal>(V));
+  llvm::tie(StNonNull, StNull) =
+      State->assume(V.castAs<DefinedOrUnknownSVal>());
 
   if (StNull) {
     if (!StNonNull) {

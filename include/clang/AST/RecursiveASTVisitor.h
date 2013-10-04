@@ -18,6 +18,7 @@
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclFriend.h"
 #include "clang/AST/DeclObjC.h"
+#include "clang/AST/DeclOpenMP.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
@@ -594,7 +595,7 @@ bool RecursiveASTVisitor<Derived>::TraverseTypeLoc(TypeLoc TL) {
 #define ABSTRACT_TYPELOC(CLASS, BASE)
 #define TYPELOC(CLASS, BASE) \
   case TypeLoc::CLASS: \
-    return getDerived().Traverse##CLASS##TypeLoc(*cast<CLASS##TypeLoc>(&TL));
+    return getDerived().Traverse##CLASS##TypeLoc(TL.castAs<CLASS##TypeLoc>());
 #include "clang/AST/TypeLocNodes.def"
   }
 
@@ -1251,8 +1252,9 @@ bool RecursiveASTVisitor<Derived>::TraverseDeclContextHelper(DeclContext *DC) {
   for (DeclContext::decl_iterator Child = DC->decls_begin(),
            ChildEnd = DC->decls_end();
        Child != ChildEnd; ++Child) {
-    // BlockDecls are traversed through BlockExprs.
-    if (!isa<BlockDecl>(*Child))
+    // BlockDecls and CapturedDecls are traversed through BlockExprs and
+    // CapturedStmts respectively.
+    if (!isa<BlockDecl>(*Child) && !isa<CapturedDecl>(*Child))
       TRY_TO(TraverseDecl(*Child));
   }
 
@@ -1280,6 +1282,16 @@ DEF_TRAVERSE_DECL(BlockDecl, {
     // is skipped - don't remove it.
     return true;
   })
+
+DEF_TRAVERSE_DECL(CapturedDecl, {
+    TRY_TO(TraverseStmt(D->getBody()));
+    // This return statement makes sure the traversal of nodes in
+    // decls_begin()/decls_end() (done in the DEF_TRAVERSE_DECL macro)
+    // is skipped - don't remove it.
+    return true;
+  })
+
+DEF_TRAVERSE_DECL(EmptyDecl, { })
 
 DEF_TRAVERSE_DECL(FileScopeAsmDecl, {
     TRY_TO(TraverseStmt(D->getAsmString()));
@@ -1410,6 +1422,14 @@ DEF_TRAVERSE_DECL(UsingDirectiveDecl, {
   })
 
 DEF_TRAVERSE_DECL(UsingShadowDecl, { })
+
+DEF_TRAVERSE_DECL(OMPThreadPrivateDecl, {
+    for (OMPThreadPrivateDecl::varlist_iterator I = D->varlist_begin(),
+                                                E = D->varlist_end();
+         I != E; ++I) {
+      TRY_TO(TraverseStmt(*I));
+    }
+  })
 
 // A helper method for TemplateDecl's children.
 template<typename Derived>
@@ -1684,6 +1704,10 @@ bool RecursiveASTVisitor<Derived>::TraverseDeclaratorHelper(DeclaratorDecl *D) {
   return true;
 }
 
+DEF_TRAVERSE_DECL(MSPropertyDecl, {
+    TRY_TO(TraverseDeclaratorHelper(D));
+  })
+
 DEF_TRAVERSE_DECL(FieldDecl, {
     TRY_TO(TraverseDeclaratorHelper(D));
     if (D->isBitField())
@@ -1734,7 +1758,7 @@ bool RecursiveASTVisitor<Derived>::TraverseFunctionHelper(FunctionDecl *D) {
   // FunctionNoProtoType or FunctionProtoType, or a typedef.  This
   // also covers the return type and the function parameters,
   // including exception specifications.
-  if (clang::TypeSourceInfo *TSI = D->getTypeSourceInfo()) {
+  if (TypeSourceInfo *TSI = D->getTypeSourceInfo()) {
     TRY_TO(TraverseTypeLoc(TSI->getTypeLoc()));
   }
 
@@ -2071,6 +2095,10 @@ DEF_TRAVERSE_STMT(CXXTypeidExpr, {
       TRY_TO(TraverseTypeLoc(S->getTypeOperandSourceInfo()->getTypeLoc()));
   })
 
+DEF_TRAVERSE_STMT(MSPropertyRefExpr, {
+  TRY_TO(TraverseNestedNameSpecifierLoc(S->getQualifierLoc()));
+})
+
 DEF_TRAVERSE_STMT(CXXUuidofExpr, {
     // The child-iterator will pick up the arg if it's an expression,
     // but not if it's a type.
@@ -2124,8 +2152,7 @@ bool RecursiveASTVisitor<Derived>::TraverseLambdaExpr(LambdaExpr *S) {
     if (S->hasExplicitParameters() && S->hasExplicitResultType()) {
       // Visit the whole type.
       TRY_TO(TraverseTypeLoc(TL));
-    } else if (isa<FunctionProtoTypeLoc>(TL)) {
-      FunctionProtoTypeLoc Proto = cast<FunctionProtoTypeLoc>(TL);
+    } else if (FunctionProtoTypeLoc Proto = TL.getAs<FunctionProtoTypeLoc>()) {
       if (S->hasExplicitParameters()) {
         // Visit parameters.
         for (unsigned I = 0, N = Proto.getNumArgs(); I != N; ++I) {
@@ -2167,6 +2194,7 @@ DEF_TRAVERSE_STMT(CompoundLiteralExpr, {
 DEF_TRAVERSE_STMT(CXXBindTemporaryExpr, { })
 DEF_TRAVERSE_STMT(CXXBoolLiteralExpr, { })
 DEF_TRAVERSE_STMT(CXXDefaultArgExpr, { })
+DEF_TRAVERSE_STMT(CXXDefaultInitExpr, { })
 DEF_TRAVERSE_STMT(CXXDeleteExpr, { })
 DEF_TRAVERSE_STMT(ExprWithCleanups, { })
 DEF_TRAVERSE_STMT(CXXNullPtrLiteralExpr, { })
@@ -2191,7 +2219,10 @@ DEF_TRAVERSE_STMT(ObjCEncodeExpr, {
 })
 DEF_TRAVERSE_STMT(ObjCIsaExpr, { })
 DEF_TRAVERSE_STMT(ObjCIvarRefExpr, { })
-DEF_TRAVERSE_STMT(ObjCMessageExpr, { })
+DEF_TRAVERSE_STMT(ObjCMessageExpr, {
+  if (TypeSourceInfo *TInfo = S->getClassReceiverTypeInfo())
+    TRY_TO(TraverseTypeLoc(TInfo->getTypeLoc()));
+})
 DEF_TRAVERSE_STMT(ObjCPropertyRefExpr, { })
 DEF_TRAVERSE_STMT(ObjCSubscriptRefExpr, { })
 DEF_TRAVERSE_STMT(ObjCProtocolExpr, { })
@@ -2224,6 +2255,9 @@ DEF_TRAVERSE_STMT(UnresolvedMemberExpr, {
 DEF_TRAVERSE_STMT(SEHTryStmt, {})
 DEF_TRAVERSE_STMT(SEHExceptStmt, {})
 DEF_TRAVERSE_STMT(SEHFinallyStmt,{})
+DEF_TRAVERSE_STMT(CapturedStmt, {
+  TRY_TO(TraverseDecl(S->getCapturedDecl()));
+})
 
 DEF_TRAVERSE_STMT(CXXOperatorCallExpr, { })
 DEF_TRAVERSE_STMT(OpaqueValueExpr, { })

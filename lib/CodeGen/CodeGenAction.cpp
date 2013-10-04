@@ -23,9 +23,9 @@
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IRReader/IRReader.h"
 #include "llvm/Linker.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/IRReader.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/Timer.h"
@@ -67,7 +67,7 @@ namespace clang {
       AsmOutStream(OS),
       Context(), 
       LLVMIRGeneration("LLVM IR Generation Time"),
-      Gen(CreateLLVMCodeGen(Diags, infile, compopts, C)),
+      Gen(CreateLLVMCodeGen(Diags, infile, compopts, targetopts, C)),
       LinkModule(LinkModule)
     {
       llvm::TimePassesIsEnabled = TimePasses;

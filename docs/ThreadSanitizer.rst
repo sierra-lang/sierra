@@ -25,9 +25,9 @@ platforms is problematic and not yet planned.
 Usage
 -----
 
-Simply compile your program with ``-fsanitize=thread -fPIE`` and link it with
-``-fsanitize=thread -pie``.  To get a reasonable performance add ``-O1`` or
-higher.  Use ``-g`` to get file names and line numbers in the warning messages.
+Simply compile and link your program with ``-fsanitize=thread``.  To get a
+reasonable performance add ``-O1`` or higher.  Use ``-g`` to get file names
+and line numbers in the warning messages.
 
 Example:
 
@@ -48,7 +48,7 @@ Example:
     return Global;
   }
 
-  $ clang -fsanitize=thread -g -O1 tiny_race.c -fPIE -pie
+  $ clang -fsanitize=thread -g -O1 tiny_race.c
 
 If a bug is detected, the program will print an error message to stderr.
 Currently, ThreadSanitizer symbolizes its output using an external
@@ -78,9 +78,24 @@ this purpose.
 
 .. code-block:: c
 
-    #if defined(__has_feature) && __has_feature(thread_sanitizer)
+    #if defined(__has_feature)
+    #  if __has_feature(thread_sanitizer)
     // code that builds only under ThreadSanitizer
+    #  endif
     #endif
+
+``__attribute__((no_sanitize_thread))``
+-----------------------------------------------
+
+Some code should not be instrumented by ThreadSanitizer.
+One may use the function attribute
+:ref:`no_sanitize_thread <langext-thread_sanitizer>`
+to disable instrumentation of plain (non-atomic) loads/stores in a particular function.
+ThreadSanitizer may still instrument such functions to avoid false positives.
+This attribute may not be
+supported by other compilers, so we suggest to use it together with
+``__has_feature(thread_sanitizer)``. Note: currently, this attribute will be
+lost if the function is inlined.
 
 Limitations
 -----------
@@ -92,7 +107,10 @@ Limitations
 * ThreadSanitizer maps (but does not reserve) a lot of virtual address space.
   This means that tools like ``ulimit`` may not work as usually expected.
 * Libc/libstdc++ static linking is not supported.
-* ThreadSanitizer requires ``-fPIE -pie`` compiler flags.
+* Non-position-independent executables are not supported.  Therefore, the
+  ``fsanitize=thread`` flag will cause Clang to act as though the ``-fPIE``
+  flag had been supplied if compiling without ``-fPIC``, and as though the
+  ``-pie`` flag had been supplied if linking an executable.
 
 Current Status
 --------------

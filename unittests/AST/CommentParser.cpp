@@ -12,6 +12,7 @@
 #include "clang/AST/CommentCommandTraits.h"
 #include "clang/AST/CommentLexer.h"
 #include "clang/AST/CommentSema.h"
+#include "clang/Basic/CommentOptions.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/FileManager.h"
@@ -38,7 +39,7 @@ protected:
       DiagID(new DiagnosticIDs()),
       Diags(DiagID, new DiagnosticOptions, new IgnoringDiagConsumer()),
       SourceMgr(Diags, FileMgr),
-      Traits(Allocator) {
+      Traits(Allocator, CommentOptions()) {
   }
 
   FileSystemOptions FileMgrOpts;
@@ -57,7 +58,7 @@ FullComment *CommentParserTest::parseString(const char *Source) {
   FileID File = SourceMgr.createFileIDForMemBuffer(Buf);
   SourceLocation Begin = SourceMgr.getLocForStartOfFile(File);
 
-  Lexer L(Allocator, Traits, Begin, Source, Source + strlen(Source));
+  Lexer L(Allocator, Diags, Traits, Begin, Source, Source + strlen(Source));
 
   Sema S(Allocator, SourceMgr, Diags, Traits, /*PP=*/ NULL);
   Parser P(L, S, Allocator, SourceMgr, Diags, Traits);

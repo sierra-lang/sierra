@@ -174,8 +174,8 @@ public:
   /// SetKeepWhitespaceMode - This method lets clients enable or disable
   /// whitespace retention mode.
   void SetKeepWhitespaceMode(bool Val) {
-    assert((!Val || LexingRawMode) &&
-           "Can only enable whitespace retention in raw mode");
+    assert((!Val || LexingRawMode || LangOpts.TraditionalCPP) &&
+           "Can only retain whitespace in raw mode or -traditional-cpp");
     ExtendedTokenMode = Val ? 2 : 0;
   }
 
@@ -193,6 +193,14 @@ public:
            "Can't play with comment retention state when retaining whitespace");
     ExtendedTokenMode = Mode ? 1 : 0;
   }
+
+  /// Sets the extended token mode back to its initial value, according to the
+  /// language options and preprocessor. This controls whether the lexer
+  /// produces comment and whitespace tokens.
+  ///
+  /// This requires the lexer to have an associated preprocessor. A standalone
+  /// lexer has nothing to reset to.
+  void resetExtendedTokenMode();
 
   const char *getBufferStart() const { return BufferStart; }
 
@@ -260,10 +268,10 @@ public:
   /// location and does not jump to the expansion or spelling
   /// location.
   static StringRef getSpelling(SourceLocation loc,
-                                     SmallVectorImpl<char> &buffer,
-                                     const SourceManager &SourceMgr,
-                                     const LangOptions &LangOpts,
-                                     bool *invalid = 0);
+                               SmallVectorImpl<char> &buffer,
+                               const SourceManager &SourceMgr,
+                               const LangOptions &LangOpts,
+                               bool *invalid = 0);
   
   /// MeasureTokenLength - Relex the token at the specified location and return
   /// its length in bytes in the input file.  If the token needs cleaning (e.g.

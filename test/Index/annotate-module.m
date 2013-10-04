@@ -4,7 +4,7 @@
 int glob;
 
 // RUN: rm -rf %t.cache
-// RUN: c-index-test -test-annotate-tokens=%s:2:1:5:1 %s -fmodule-cache-path %t.cache -fmodules -F %S/../Modules/Inputs \
+// RUN: c-index-test -test-annotate-tokens=%s:2:1:5:1 %s -fmodules-cache-path=%t.cache -fmodules -F %S/../Modules/Inputs \
 // RUN:      | FileCheck %s
 
 // CHECK:      Punctuation: "#" [2:1 - 2:2] inclusion directive=[[INC_DIR:DependsOnModule[/\\]DependsOnModule\.h \(.*/Modules/Inputs/DependsOnModule\.framework[/\\]Headers[/\\]DependsOnModule.h\)]]
@@ -24,7 +24,7 @@ int glob;
 // CHECK-NEXT: Identifier: "glob" [4:5 - 4:9] VarDecl=glob:4:5
 // CHECK-NEXT: Punctuation: ";" [4:9 - 4:10]
 
-// RUN: c-index-test -test-annotate-tokens=%S/../Modules/Inputs/Module.framework/Headers/Sub.h:1:1:3:1 %s -fmodule-cache-path %t.cache -fmodules -F %S/../Modules/Inputs \
+// RUN: c-index-test -test-annotate-tokens=%S/../Modules/Inputs/Module.framework/Headers/Sub.h:1:1:3:1 %s -fmodules-cache-path=%t.cache -fmodules -F %S/../Modules/Inputs \
 // RUN:      | FileCheck %s -check-prefix=CHECK-MOD
 
 // CHECK-MOD:      Punctuation: "#" [1:1 - 1:2] inclusion directive=[[INC_DIR:Module[/\\]Sub2\.h \(.*/Modules/Inputs/Module\.framework[/\\]Headers[/\\]Sub2.h\)]]
@@ -40,3 +40,10 @@ int glob;
 // CHECK-MOD-NEXT: Punctuation: "*" [2:5 - 2:6] VarDecl=Module_Sub:2:6
 // CHECK-MOD-NEXT: Identifier: "Module_Sub" [2:6 - 2:16] VarDecl=Module_Sub:2:6
 // CHECK-MOD-NEXT: Punctuation: ";" [2:16 - 2:17]
+
+// RUN: c-index-test -cursor-at=%s:3:11 %s -fmodules-cache-path=%t.cache -fmodules -F %S/../Modules/Inputs \
+// RUN:     | FileCheck %s -check-prefix=CHECK-CURSOR
+
+// CHECK-CURSOR:      3:1 ModuleImport=DependsOnModule:3:1 (Definition) Extent=[3:1 - 3:24] Spelling=DependsOnModule ([3:9 - 3:24]) ModuleName=DependsOnModule ({{.*}}DependsOnModule.pcm) Headers(2):
+// CHECK-CURSOR-NEXT: {{.*}}other.h
+// CHECK-CURSOR-NEXT: {{.*}}DependsOnModule.h

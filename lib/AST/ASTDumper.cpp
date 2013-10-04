@@ -749,7 +749,7 @@ void ASTDumper::VisitFunctionDecl(const FunctionDecl *D) {
   dumpName(D);
   dumpType(D->getType());
 
-  StorageClass SC = D->getStorageClassAsWritten();
+  StorageClass SC = D->getStorageClass();
   if (SC != SC_None)
     OS << ' ' << VarDecl::getStorageClassSpecifierString(SC);
   if (D->isInlineSpecified())
@@ -850,11 +850,14 @@ void ASTDumper::VisitFieldDecl(const FieldDecl *D) {
 void ASTDumper::VisitVarDecl(const VarDecl *D) {
   dumpName(D);
   dumpType(D->getType());
-  StorageClass SC = D->getStorageClassAsWritten();
+  StorageClass SC = D->getStorageClass();
   if (SC != SC_None)
     OS << ' ' << VarDecl::getStorageClassSpecifierString(SC);
-  if (D->isThreadSpecified())
-    OS << " __thread";
+  switch (D->getTLSKind()) {
+  case VarDecl::TLS_None: break;
+  case VarDecl::TLS_Static: OS << " tls"; break;
+  case VarDecl::TLS_Dynamic: OS << " tls_dynamic"; break;
+  }
   if (D->isModulePrivate())
     OS << " __module_private__";
   if (D->isNRVOVariable())
@@ -935,9 +938,9 @@ void ASTDumper::VisitFunctionTemplateDecl(const FunctionTemplateDecl *D) {
   dumpName(D);
   dumpTemplateParameters(D->getTemplateParameters());
   dumpDecl(D->getTemplatedDecl());
-  for (FunctionTemplateDecl::spec_iterator
-       I = const_cast<FunctionTemplateDecl*>(D)->spec_begin(),
-       E = const_cast<FunctionTemplateDecl*>(D)->spec_end(); I != E; ++I) {
+  for (FunctionTemplateDecl::spec_iterator I = D->spec_begin(),
+                                           E = D->spec_end();
+       I != E; ++I) {
     FunctionTemplateDecl::spec_iterator Next = I;
     ++Next;
     if (Next == E)
@@ -947,7 +950,10 @@ void ASTDumper::VisitFunctionTemplateDecl(const FunctionTemplateDecl *D) {
     case TSK_ImplicitInstantiation:
     case TSK_ExplicitInstantiationDeclaration:
     case TSK_ExplicitInstantiationDefinition:
-      dumpDecl(*I);
+      if (D == D->getCanonicalDecl())
+        dumpDecl(*I);
+      else
+        dumpDeclRef(*I);
       break;
     case TSK_ExplicitSpecialization:
       dumpDeclRef(*I);
@@ -960,10 +966,8 @@ void ASTDumper::VisitClassTemplateDecl(const ClassTemplateDecl *D) {
   dumpName(D);
   dumpTemplateParameters(D->getTemplateParameters());
 
-  ClassTemplateDecl::spec_iterator I =
-      const_cast<ClassTemplateDecl*>(D)->spec_begin();
-  ClassTemplateDecl::spec_iterator E =
-      const_cast<ClassTemplateDecl*>(D)->spec_end();
+  ClassTemplateDecl::spec_iterator I = D->spec_begin();
+  ClassTemplateDecl::spec_iterator E = D->spec_end();
   if (I == E)
     lastChild();
   dumpDecl(D->getTemplatedDecl());
@@ -975,7 +979,10 @@ void ASTDumper::VisitClassTemplateDecl(const ClassTemplateDecl *D) {
     switch (I->getTemplateSpecializationKind()) {
     case TSK_Undeclared:
     case TSK_ImplicitInstantiation:
-      dumpDecl(*I);
+      if (D == D->getCanonicalDecl())
+        dumpDecl(*I);
+      else
+        dumpDeclRef(*I);
       break;
     case TSK_ExplicitSpecialization:
     case TSK_ExplicitInstantiationDeclaration:

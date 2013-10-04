@@ -323,10 +323,15 @@ class PointerEscape {
   _checkPointerEscape(void *checker,
                      ProgramStateRef State,
                      const InvalidatedSymbols &Escaped,
-                     const CallEvent *Call) {
-    return ((const CHECKER *)checker)->checkPointerEscape(State, 
-                                                          Escaped, 
-                                                          Call);
+                     const CallEvent *Call,
+                     PointerEscapeKind Kind,
+                    bool IsConst) {
+    if (!IsConst)
+      return ((const CHECKER *)checker)->checkPointerEscape(State,
+                                                            Escaped,
+                                                            Call,
+                                                            Kind);
+    return State;
   }
 
 public:
@@ -338,6 +343,33 @@ public:
   }
 };
 
+class ConstPointerEscape {
+  template <typename CHECKER>
+  static ProgramStateRef
+  _checkConstPointerEscape(void *checker,
+                      ProgramStateRef State,
+                      const InvalidatedSymbols &Escaped,
+                      const CallEvent *Call,
+                      PointerEscapeKind Kind,
+                      bool IsConst) {
+    if (IsConst)
+      return ((const CHECKER *)checker)->checkConstPointerEscape(State,
+                                                                 Escaped,
+                                                                 Call,
+                                                                 Kind);
+    return State;
+  }
+
+public:
+  template <typename CHECKER>
+  static void _register(CHECKER *checker, CheckerManager &mgr) {
+    mgr._registerForPointerEscape(
+      CheckerManager::CheckPointerEscapeFunc(checker,
+                                            _checkConstPointerEscape<CHECKER>));
+  }
+};
+
+  
 template <typename EVENT>
 class Event {
   template <typename CHECKER>
@@ -467,6 +499,14 @@ struct ImplicitNullDerefEvent {
   bool IsLoad;
   ExplodedNode *SinkNode;
   BugReporter *BR;
+};
+
+/// \brief A helper class which wraps a boolean value set to false by default.
+struct DefaultBool {
+  bool val;
+  DefaultBool() : val(false) {}
+  operator bool() const { return val; }
+  DefaultBool &operator=(bool b) { val = b; return *this; }
 };
 
 } // end ento namespace

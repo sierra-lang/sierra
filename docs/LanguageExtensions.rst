@@ -645,8 +645,7 @@ C++11 inheriting constructors
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Use ``__has_feature(cxx_inheriting_constructors)`` to determine if support for
-inheriting constructors is enabled.  Clang does not currently implement this
-feature.
+inheriting constructors is enabled.
 
 C++11 inline namespaces
 ^^^^^^^^^^^^^^^^^^^^^^^
@@ -727,6 +726,12 @@ Use ``__has_feature(cxx_static_assert)`` or
 ``__has_extension(cxx_static_assert)`` to determine if support for compile-time
 assertions using ``static_assert`` is enabled.
 
+C++11 ``thread_local``
+^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_thread_local)`` to determine if support for
+``thread_local`` variables is enabled.
+
 C++11 type inference
 ^^^^^^^^^^^^^^^^^^^^
 
@@ -774,6 +779,98 @@ Use ``__has_feature(cxx_variadic_templates)`` or
 ``__has_extension(cxx_variadic_templates)`` to determine if support for
 variadic templates is enabled.
 
+C++1y
+-----
+
+The features listed below are part of the committee draft for the C++1y
+standard.  As a result, all these features are enabled with the ``-std=c++1y``
+or ``-std=gnu++1y`` option when compiling C++ code.
+
+C++1y binary literals
+^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_binary_literals)`` or
+``__has_extension(cxx_binary_literals)`` to determine whether
+binary literals (for instance, ``0b10010``) are recognized. Clang supports this
+feature as an extension in all language modes.
+
+C++1y contextual conversions
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_contextual_conversions)`` or
+``__has_extension(cxx_contextual_conversions)`` to determine if the C++1y rules
+are used when performing an implicit conversion for an array bound in a
+*new-expression*, the operand of a *delete-expression*, an integral constant
+expression, or a condition in a ``switch`` statement. Clang does not yet
+support this feature.
+
+C++1y decltype(auto)
+^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_decltype_auto)`` or
+``__has_extension(cxx_decltype_auto)`` to determine if support
+for the ``decltype(auto)`` placeholder type is enabled.
+
+C++1y default initializers for aggregates
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_aggregate_nsdmi)`` or
+``__has_extension(cxx_aggregate_nsdmi)`` to determine if support
+for default initializers in aggregate members is enabled.
+
+C++1y generalized lambda capture
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_generalized_capture)`` or
+``__has_extension(cxx_generalized_capture`` to determine if support for
+generalized lambda captures is enabled
+(for instance, ``[n(0)] { return ++n; }``).
+Clang does not yet support this feature.
+
+C++1y generic lambdas
+^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_generic_lambda)`` or
+``__has_extension(cxx_generic_lambda)`` to determine if support for generic
+(polymorphic) lambdas is enabled
+(for instance, ``[] (auto x) { return x + 1; }``).
+Clang does not yet support this feature.
+
+C++1y relaxed constexpr
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_relaxed_constexpr)`` or
+``__has_extension(cxx_relaxed_constexpr)`` to determine if variable
+declarations, local variable modification, and control flow constructs
+are permitted in ``constexpr`` functions.
+Clang's implementation of this feature is incomplete.
+
+C++1y return type deduction
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_return_type_deduction)`` or
+``__has_extension(cxx_return_type_deduction)`` to determine if support
+for return type deduction for functions (using ``auto`` as a return type)
+is enabled.
+Clang's implementation of this feature is incomplete.
+
+C++1y runtime-sized arrays
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_runtime_array)`` or
+``__has_extension(cxx_runtime_array)`` to determine if support
+for arrays of runtime bound (a restricted form of variable-length arrays)
+is enabled.
+Clang's implementation of this feature is incomplete.
+
+C++1y variable templates
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_variable_templates)`` or
+``__has_extension(cxx_variable_templates)`` to determine if support for
+templated variable declarations is enabled.
+Clang does not yet support this feature.
+
 C11
 ---
 
@@ -817,6 +914,12 @@ C11 ``_Static_assert()``
 Use ``__has_feature(c_static_assert)`` or ``__has_extension(c_static_assert)``
 to determine if support for compile-time assertions using ``_Static_assert`` is
 enabled.
+
+C11 ``_Thread_local``
+^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(c_thread_local)`` to determine if support for
+``_Thread_local`` variables is enabled.
 
 Checks for Type Traits
 ======================
@@ -1488,8 +1591,8 @@ C11's ``<stdatomic.h>`` header.  These builtins provide the semantics of the
 Non-standard C++11 Attributes
 =============================
 
-Clang supports one non-standard C++11 attribute.  It resides in the ``clang``
-attribute namespace.
+Clang's non-standard C++11 attributes live in the ``clang`` attribute
+namespace.
 
 The ``clang::fallthrough`` attribute
 ------------------------------------
@@ -1535,6 +1638,28 @@ Here is an example:
   case 77:  // warning: unannotated fall-through
     r();
   }
+
+``gnu::`` attributes
+--------------------
+
+Clang also supports GCC's ``gnu`` attribute namespace. All GCC attributes which
+are accepted with the ``__attribute__((foo))`` syntax are also accepted as
+``[[gnu::foo]]``. This only extends to attributes which are specified by GCC
+(see the list of `GCC function attributes
+<http://gcc.gnu.org/onlinedocs/gcc/Function-Attributes.html>`_, `GCC variable
+attributes <http://gcc.gnu.org/onlinedocs/gcc/Variable-Attributes.html>`_, and
+`GCC type attributes
+<http://gcc.gnu.org/onlinedocs/gcc/Type-Attributes.html>`_. As with the GCC
+implementation, these attributes must appertain to the *declarator-id* in a
+declaration, which means they must go either at the start of the declaration or
+immediately after the name being declared.
+
+For example, this applies the GNU ``unused`` attribute to ``a`` and ``f``, and
+also applies the GNU ``noreturn`` attribute to ``f``.
+
+.. code-block:: c++
+
+  [[gnu::unused]] int a, f [[gnu::noreturn]] ();
 
 Target-Specific Extensions
 ==========================
@@ -1594,9 +1719,37 @@ AddressSanitizer
 Use ``__has_feature(address_sanitizer)`` to check if the code is being built
 with :doc:`AddressSanitizer`.
 
-Use ``__attribute__((no_address_safety_analysis))`` on a function declaration
+Use ``__attribute__((no_sanitize_address))``
+on a function declaration
 to specify that address safety instrumentation (e.g. AddressSanitizer) should
 not be applied to that function.
+
+.. _langext-thread_sanitizer:
+
+ThreadSanitizer
+----------------
+
+Use ``__has_feature(thread_sanitizer)`` to check if the code is being built
+with :doc:`ThreadSanitizer`.
+
+Use ``__attribute__((no_sanitize_thread))`` on a function declaration
+to specify that checks for data races on plain (non-atomic) memory accesses
+should not be inserted by ThreadSanitizer.
+The function may still be instrumented by the tool
+to avoid false positives in other places.
+
+.. _langext-memory_sanitizer:
+
+MemorySanitizer
+----------------
+Use ``__has_feature(memory_sanitizer)`` to check if the code is being built
+with :doc:`MemorySanitizer`.
+
+Use ``__attribute__((no_sanitize_memory))`` on a function declaration
+to specify that checks for uninitialized memory should not be inserted 
+(e.g. by MemorySanitizer). The function may still be instrumented by the tool
+to avoid false positives in other places.
+
 
 Thread-Safety Annotation Checking
 =================================
@@ -1914,7 +2067,7 @@ Clang implements two kinds of checks with this attribute.
    for functions that accept a ``va_list`` argument (for example, ``vprintf``).
    GCC does not emit ``-Wformat-nonliteral`` warning for calls to such
    fuctions.  Clang does not warn if the format string comes from a function
-   parameter, where function is annotated with a compatible attribute,
+   parameter, where the function is annotated with a compatible attribute,
    otherwise it warns.  For example:
 
    .. code-block:: c
@@ -1928,16 +2081,14 @@ Clang implements two kinds of checks with this attribute.
      }
 
    In this case we warn because ``s`` contains a format string for a
-   ``scanf``-like function, but it is passed it to a ``printf``-like function.
+   ``scanf``-like function, but it is passed to a ``printf``-like function.
 
    If the attribute is removed, clang still warns, because the format string is
    not a string literal.
 
-   But in this case Clang does not warn because the format string ``s`` and
-   corresponding arguments are annotated.  If the arguments are incorrect,
-   caller of ``foo`` will get a warning.
+   Another example:
 
-   .. code-block: c
+   .. code-block:: c
 
      __attribute__((__format__ (__printf__, 1, 3)))
      void foo(const char* s, char *buf, ...) {
@@ -1947,3 +2098,6 @@ Clang implements two kinds of checks with this attribute.
        vprintf(s, ap); // warning
      }
 
+   In this case Clang does not warn because the format string ``s`` and
+   the corresponding arguments are annotated.  If the arguments are
+   incorrect, the caller of ``foo`` will receive a warning.

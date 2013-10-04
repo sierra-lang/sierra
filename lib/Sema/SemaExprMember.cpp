@@ -60,6 +60,9 @@ enum IMAKind {
   /// The reference may be to an unresolved using declaration.
   IMA_Unresolved,
 
+  /// The reference is a contextually-permitted abstract member reference.
+  IMA_Abstract,
+
   /// The reference may be to an unresolved using declaration and the
   /// context is not an instance method.
   IMA_Unresolved_StaticContext,
@@ -105,7 +108,8 @@ static IMAKind ClassifyImplicitMemberAccess(Sema &SemaRef,
     NamedDecl *D = *I;
 
     if (D->isCXXInstanceMember()) {
-      if (dyn_cast<FieldDecl>(D) || dyn_cast<IndirectFieldDecl>(D))
+      if (dyn_cast<FieldDecl>(D) || dyn_cast<MSPropertyDecl>(D)
+          || dyn_cast<IndirectFieldDecl>(D))
         isField = true;
 
       CXXRecordDecl *R = cast<CXXRecordDecl>(D->getDeclContext());
@@ -119,19 +123,32 @@ static IMAKind ClassifyImplicitMemberAccess(Sema &SemaRef,
   // member reference.
   if (Classes.empty())
     return IMA_Static;
+  
+  // C++11 [expr.prim.general]p12:
+  //   An id-expression that denotes a non-static data member or non-static
+  //   member function of a class can only be used:
+  //   (...)
+  //   - if that id-expression denotes a non-static data member and it
+  //     appears in an unevaluated operand.
+  //
+  // This rule is specific to C++11.  However, we also permit this form
+  // in unevaluated inline assembly operands, like the operand to a SIZE.
+  IMAKind AbstractInstanceResult = IMA_Static; // happens to be 'false'
+  assert(!AbstractInstanceResult);
+  switch (SemaRef.ExprEvalContexts.back().Context) {
+  case Sema::Unevaluated:
+    if (isField && SemaRef.getLangOpts().CPlusPlus11)
+      AbstractInstanceResult = IMA_Field_Uneval_Context;
+    break;
 
-  bool IsCXX11UnevaluatedField = false;
-  if (SemaRef.getLangOpts().CPlusPlus11 && isField) {
-    // C++11 [expr.prim.general]p12:
-    //   An id-expression that denotes a non-static data member or non-static
-    //   member function of a class can only be used:
-    //   (...)
-    //   - if that id-expression denotes a non-static data member and it
-    //     appears in an unevaluated operand.
-    const Sema::ExpressionEvaluationContextRecord& record
-      = SemaRef.ExprEvalContexts.back();
-    if (record.Context == Sema::Unevaluated)
-      IsCXX11UnevaluatedField = true;
+  case Sema::UnevaluatedAbstract:
+    AbstractInstanceResult = IMA_Abstract;
+    break;
+
+  case Sema::ConstantEvaluated:
+  case Sema::PotentiallyEvaluated:
+  case Sema::PotentiallyEvaluatedIfUsed:
+    break;
   }
 
   // If the current context is not an instance method, it can't be
@@ -140,8 +157,8 @@ static IMAKind ClassifyImplicitMemberAccess(Sema &SemaRef,
     if (hasNonInstance)
       return IMA_Mixed_StaticContext;
 
-    return IsCXX11UnevaluatedField ? IMA_Field_Uneval_Context
-                                   : IMA_Error_StaticContext;
+    return AbstractInstanceResult ? AbstractInstanceResult
+                                  : IMA_Error_StaticContext;
   }
 
   CXXRecordDecl *contextClass;
@@ -171,8 +188,8 @@ static IMAKind ClassifyImplicitMemberAccess(Sema &SemaRef,
   // which case it's an error if any of those members are selected).
   if (isProvablyNotDerivedFrom(SemaRef, contextClass, Classes))
     return hasNonInstance ? IMA_Mixed_Unrelated :
-           IsCXX11UnevaluatedField ? IMA_Field_Uneval_Context :
-                                     IMA_Error_Unrelated;
+           AbstractInstanceResult ? AbstractInstanceResult :
+                                    IMA_Error_Unrelated;
 
   return (hasNonInstance ? IMA_Mixed : IMA_Instance);
 }
@@ -232,6 +249,7 @@ Sema::BuildPossibleImplicitMemberExpr(const CXXScopeSpec &SS,
       << R.getLookupNameInfo().getName();
     // Fall through.
   case IMA_Static:
+  case IMA_Abstract:
   case IMA_Mixed_StaticContext:
   case IMA_Unresolved_StaticContext:
     if (TemplateArgs || TemplateKWLoc.isValid())
@@ -778,6 +796,19 @@ Sema::BuildAnonymousStructUnionMemberReference(const CXXScopeSpec &SS,
   return Owned(result);
 }
 
+static ExprResult
+BuildMSPropertyRefExpr(Sema &S, Expr *BaseExpr, bool IsArrow,
+                       const CXXScopeSpec &SS,
+                       MSPropertyDecl *PD,
+                       const DeclarationNameInfo &NameInfo) {
+  // Property names are always simple identifiers and therefore never
+  // require any interesting additional storage.
+  return new (S.Context) MSPropertyRefExpr(BaseExpr, PD, IsArrow,
+                                           S.Context.PseudoObjectTy, VK_LValue,
+                                           SS.getWithLocInContext(S.Context),
+                                           NameInfo.getLoc());
+}
+
 /// \brief Build a MemberExpr AST node.
 static MemberExpr *BuildMemberExpr(Sema &SemaRef,
                                    ASTContext &C, Expr *Base, bool isArrow,
@@ -934,6 +965,10 @@ Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
   if (FieldDecl *FD = dyn_cast<FieldDecl>(MemberDecl))
     return BuildFieldReferenceExpr(*this, BaseExpr, IsArrow,
                                    SS, FD, FoundDecl, MemberNameInfo);
+
+  if (MSPropertyDecl *PD = dyn_cast<MSPropertyDecl>(MemberDecl))
+    return BuildMSPropertyRefExpr(*this, BaseExpr, IsArrow, SS, PD,
+                                  MemberNameInfo);
 
   if (IndirectFieldDecl *FD = dyn_cast<IndirectFieldDecl>(MemberDecl))
     // We may have found a field within an anonymous union or struct
@@ -1130,29 +1165,14 @@ Sema::LookupMemberExpr(LookupResult &R, ExprResult &BaseExpr,
       // There's an implicit 'isa' ivar on all objects.
       // But we only actually find it this way on objects of type 'id',
       // apparently.
-      if (OTy->isObjCId() && Member->isStr("isa")) {
-        Diag(MemberLoc, diag::warn_objc_isa_use);
+      if (OTy->isObjCId() && Member->isStr("isa"))
         return Owned(new (Context) ObjCIsaExpr(BaseExpr.take(), IsArrow, MemberLoc,
+                                               OpLoc,
                                                Context.getObjCClassType()));
-      }
-
       if (ShouldTryAgainWithRedefinitionType(*this, BaseExpr))
         return LookupMemberExpr(R, BaseExpr, IsArrow, OpLoc, SS,
                                 ObjCImpDecl, HasTemplateArgs);
       goto fail;
-    }
-    else if (Member && Member->isStr("isa")) {
-      // If an ivar is (1) the first ivar in a root class and (2) named `isa`,
-      // then issue the same deprecated warning that id->isa gets.
-      ObjCInterfaceDecl *ClassDeclared = 0;
-      if (ObjCIvarDecl *IV = 
-            IDecl->lookupInstanceVariable(Member, ClassDeclared)) {
-        if (!ClassDeclared->getSuperClass()
-            && (*ClassDeclared->ivar_begin()) == IV) {
-          Diag(MemberLoc, diag::warn_objc_isa_use);
-          Diag(IV->getLocation(), diag::note_ivar_decl);
-        }
-      }
     }
     
     if (RequireCompleteType(OpLoc, BaseType, diag::err_typecheck_incomplete_tag,
@@ -1259,14 +1279,15 @@ Sema::LookupMemberExpr(LookupResult &R, ExprResult &BaseExpr,
       if (ObjCMethodDecl *MD = getCurMethodDecl()) {
         ObjCMethodFamily MF = MD->getMethodFamily();
         warn = (MF != OMF_init && MF != OMF_dealloc && 
-                MF != OMF_finalize);
+                MF != OMF_finalize &&
+                !IvarBacksCurrentMethodAccessor(IDecl, MD, IV));
       }
       if (warn)
         Diag(MemberLoc, diag::warn_direct_ivar_access) << IV->getDeclName();
     }
 
     ObjCIvarRefExpr *Result = new (Context) ObjCIvarRefExpr(IV, IV->getType(),
-                                                            MemberLoc,
+                                                            MemberLoc, OpLoc,
                                                             BaseExpr.take(),
                                                             IsArrow);
 
@@ -1597,27 +1618,27 @@ BuildFieldReferenceExpr(Sema &S, Expr *BaseExpr, bool IsArrow,
   } else {
     QualType BaseType = BaseExpr->getType();
     if (IsArrow) BaseType = BaseType->getAs<PointerType>()->getPointeeType();
-    
+
     Qualifiers BaseQuals = BaseType.getQualifiers();
-    
+
     // GC attributes are never picked up by members.
     BaseQuals.removeObjCGCAttr();
-    
+
     // CVR attributes from the base are picked up by members,
     // except that 'mutable' members don't pick up 'const'.
     if (Field->isMutable()) BaseQuals.removeConst();
-    
+
     Qualifiers MemberQuals
     = S.Context.getCanonicalType(MemberType).getQualifiers();
-    
-    // TR 18037 does not allow fields to be declared with address spaces.
+
     assert(!MemberQuals.hasAddressSpace());
-    
+
+
     Qualifiers Combined = BaseQuals + MemberQuals;
     if (Combined != MemberQuals)
       MemberType = S.Context.getQualifiedType(MemberType, Combined);
   }
-  
+
   S.UnusedPrivateFields.remove(Field);
 
   ExprResult Base =

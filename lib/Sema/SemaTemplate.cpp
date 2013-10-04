@@ -510,7 +510,7 @@ static TemplateArgumentLoc translateTemplateArgument(Sema &SemaRef,
     TemplateName Template = Arg.getAsTemplate().get();
     TemplateArgument TArg;
     if (Arg.getEllipsisLoc().isValid())
-      TArg = TemplateArgument(Template, llvm::Optional<unsigned int>());
+      TArg = TemplateArgument(Template, Optional<unsigned int>());
     else
       TArg = Template;
     return TemplateArgumentLoc(TArg,
@@ -3023,7 +3023,7 @@ static bool diagnoseArityMismatch(Sema &S, TemplateDecl *Template,
 ///
 /// In \c A<int,int>::B, \c NTs and \c TTs have expanded pack size 2, and \c Us
 /// is not a pack expansion, so returns an empty Optional.
-static llvm::Optional<unsigned> getExpandedPackSize(NamedDecl *Param) {
+static Optional<unsigned> getExpandedPackSize(NamedDecl *Param) {
   if (NonTypeTemplateParmDecl *NTTP
         = dyn_cast<NonTypeTemplateParmDecl>(Param)) {
     if (NTTP->isExpandedParameterPack())
@@ -3036,7 +3036,7 @@ static llvm::Optional<unsigned> getExpandedPackSize(NamedDecl *Param) {
       return TTP->getNumExpansionTemplateParameters();
   }
 
-  return llvm::Optional<unsigned>();
+  return None;
 }
 
 /// \brief Check that the given template argument list is well-formed
@@ -3068,7 +3068,7 @@ bool Sema::CheckTemplateArgumentList(TemplateDecl *Template,
        Param != ParamEnd; /* increment in loop */) {
     // If we have an expanded parameter pack, make sure we don't have too
     // many arguments.
-    if (llvm::Optional<unsigned> Expansions = getExpandedPackSize(*Param)) {
+    if (Optional<unsigned> Expansions = getExpandedPackSize(*Param)) {
       if (*Expansions == ArgumentPack.size()) {
         // We're done with this parameter pack. Pack up its arguments and add
         // them to the list.
@@ -3502,7 +3502,7 @@ bool UnnamedLocalNoLinkageFinder::VisitTagDecl(const TagDecl *Tag) {
     return true;
   }
 
-  if (!Tag->getDeclName() && !Tag->getTypedefNameForAnonDecl()) {
+  if (!Tag->hasNameForLinkage()) {
     S.Diag(SR.getBegin(),
            S.getLangOpts().CPlusPlus11 ?
              diag::warn_cxx98_compat_template_arg_unnamed_type :
@@ -3851,8 +3851,7 @@ CheckTemplateArgumentAddressOfObjectOrFunction(Sema &S,
     }
 
     // A template argument must have static storage duration.
-    // FIXME: Ensure this works for thread_local as well as __thread.
-    if (Var->isThreadSpecified()) {
+    if (Var->getTLSKind()) {
       S.Diag(Arg->getLocStart(), diag::err_template_arg_thread_local)
         << Arg->getSourceRange();
       S.Diag(Var->getLocation(), diag::note_template_arg_refers_here);
@@ -4504,6 +4503,16 @@ ExprResult
 Sema::BuildExpressionFromDeclTemplateArgument(const TemplateArgument &Arg,
                                               QualType ParamType,
                                               SourceLocation Loc) {
+  // C++ [temp.param]p8:
+  //
+  //   A non-type template-parameter of type "array of T" or
+  //   "function returning T" is adjusted to be of type "pointer to
+  //   T" or "pointer to function returning T", respectively.
+  if (ParamType->isArrayType())
+    ParamType = Context.getArrayDecayedType(ParamType);
+  else if (ParamType->isFunctionType())
+    ParamType = Context.getPointerType(ParamType);
+
   // For a NULL non-type template argument, return nullptr casted to the
   // parameter's type.
   if (Arg.getKind() == TemplateArgument::NullPtr) {
@@ -4569,15 +4578,6 @@ Sema::BuildExpressionFromDeclTemplateArgument(const TemplateArgument &Arg,
   }
 
   QualType T = VD->getType().getNonReferenceType();
-  // C++ [temp.param]p8:
-  //
-  //   A non-type template-parameter of type "array of T" or
-  //   "function returning T" is adjusted to be of type "pointer to
-  //   T" or "pointer to function returning T", respectively.
-  if (ParamType->isArrayType())
-    ParamType = Context.getArrayDecayedType(ParamType);
-  else if (ParamType->isFunctionType())
-    ParamType = Context.getPointerType(ParamType);
 
   if (ParamType->isPointerType()) {
     // When the non-type template parameter is a pointer, take the
@@ -5656,11 +5656,15 @@ Decl *Sema::ActOnStartOfFunctionTemplateDef(Scope *FnBodyScope,
 /// \brief Strips various properties off an implicit instantiation
 /// that has just been explicitly specialized.
 static void StripImplicitInstantiation(NamedDecl *D) {
-  // FIXME: "make check" is clean if the call to dropAttrs() is commented out.
   D->dropAttrs();
 
   if (FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
     FD->setInlineSpecified(false);
+
+    for (FunctionDecl::param_iterator I = FD->param_begin(),
+                                      E = FD->param_end();
+         I != E; ++I)
+      (*I)->dropAttrs();
   }
 }
 
@@ -5954,8 +5958,9 @@ Sema::CheckFunctionTemplateSpecialization(FunctionDecl *FD,
           FunctionProtoType::ExtProtoInfo EPI = FPT->getExtProtoInfo();
           EPI.TypeQuals |= Qualifiers::Const;
           FT = Context.getFunctionType(FPT->getResultType(),
-                                       FPT->arg_type_begin(),
-                                       FPT->getNumArgs(), EPI);
+                                       ArrayRef<QualType>(FPT->arg_type_begin(),
+                                                          FPT->getNumArgs()),
+                                       EPI);
         }
       }
 
@@ -6060,8 +6065,7 @@ Sema::CheckFunctionTemplateSpecialization(FunctionDecl *FD,
                                         TemplArgs, /*InsertPos=*/0,
                                     SpecInfo->getTemplateSpecializationKind(),
                                         ExplicitTemplateArgs);
-  FD->setStorageClass(Specialization->getStorageClass());
-  
+
   // The "previous declaration" for this function template specialization is
   // the prior function template specialization.
   Previous.clear();
@@ -6465,6 +6469,7 @@ Sema::ActOnExplicitInstantiation(Scope *S,
   // Set source locations for keywords.
   Specialization->setExternLoc(ExternLoc);
   Specialization->setTemplateKeywordLoc(TemplateLoc);
+  Specialization->setRBraceLoc(SourceLocation());
 
   if (Attr)
     ProcessDeclAttributeList(S, Specialization, Attr);
@@ -6965,15 +6970,15 @@ Sema::ActOnTypenameType(Scope *S, SourceLocation TypenameLoc,
 
   TypeSourceInfo *TSI = Context.CreateTypeSourceInfo(T);
   if (isa<DependentNameType>(T)) {
-    DependentNameTypeLoc TL = cast<DependentNameTypeLoc>(TSI->getTypeLoc());
+    DependentNameTypeLoc TL = TSI->getTypeLoc().castAs<DependentNameTypeLoc>();
     TL.setElaboratedKeywordLoc(TypenameLoc);
     TL.setQualifierLoc(QualifierLoc);
     TL.setNameLoc(IdLoc);
   } else {
-    ElaboratedTypeLoc TL = cast<ElaboratedTypeLoc>(TSI->getTypeLoc());
+    ElaboratedTypeLoc TL = TSI->getTypeLoc().castAs<ElaboratedTypeLoc>();
     TL.setElaboratedKeywordLoc(TypenameLoc);
     TL.setQualifierLoc(QualifierLoc);
-    cast<TypeSpecTypeLoc>(TL.getNamedTypeLoc()).setNameLoc(IdLoc);
+    TL.getNamedTypeLoc().castAs<TypeSpecTypeLoc>().setNameLoc(IdLoc);
   }
 
   return CreateParsedType(T, TSI);
@@ -7063,12 +7068,12 @@ static bool isEnableIf(NestedNameSpecifierLoc NNS, const IdentifierInfo &II,
   if (!NNS || !NNS.getNestedNameSpecifier()->getAsType())
     return false;
   TypeLoc EnableIfTy = NNS.getTypeLoc();
-  TemplateSpecializationTypeLoc *EnableIfTSTLoc =
-    dyn_cast<TemplateSpecializationTypeLoc>(&EnableIfTy);
-  if (!EnableIfTSTLoc || EnableIfTSTLoc->getNumArgs() == 0)
+  TemplateSpecializationTypeLoc EnableIfTSTLoc =
+      EnableIfTy.getAs<TemplateSpecializationTypeLoc>();
+  if (!EnableIfTSTLoc || EnableIfTSTLoc.getNumArgs() == 0)
     return false;
   const TemplateSpecializationType *EnableIfTST =
-    cast<TemplateSpecializationType>(EnableIfTSTLoc->getTypePtr());
+    cast<TemplateSpecializationType>(EnableIfTSTLoc.getTypePtr());
 
   // ... which names a complete class template declaration...
   const TemplateDecl *EnableIfDecl =
@@ -7083,7 +7088,7 @@ static bool isEnableIf(NestedNameSpecifierLoc NNS, const IdentifierInfo &II,
     return false;
 
   // Assume the first template argument is the condition.
-  CondRange = EnableIfTSTLoc->getArgLoc(0).getSourceRange();
+  CondRange = EnableIfTSTLoc.getArgLoc(0).getSourceRange();
   return true;
 }
 

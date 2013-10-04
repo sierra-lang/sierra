@@ -108,6 +108,22 @@
 // CHECK010-NEXT: "{{.*}}/Inputs/hexagon_tree/qc/bin/../../gnu/bin/hexagon-as"{{.*}} "-march=v4"
 // CHECK010-NEXT: "{{.*}}/Inputs/hexagon_tree/qc/bin/../../gnu/bin/hexagon-ld"{{.*}} "-mv4"
 
+// RUN: %clang -march=hexagonv2 -target hexagon-unknown-linux \
+// RUN:   %s 2>&1 | FileCheck -check-prefix=CHECK-UNKNOWN-V2 %s
+// RUN: %clang -mcpu=hexagonv2  -target hexagon-unknown-linux \
+// RUN:   %s 2>&1 | FileCheck -check-prefix=CHECK-UNKNOWN-V2 %s
+// RUN: %clang -mv2             -target hexagon-unknown-linux \
+// RUN:   %s 2>&1 | FileCheck -check-prefix=CHECK-UNKNOWN-V2 %s
+// CHECK-UNKNOWN-V2: error: unknown target CPU 'hexagonv2'
+
+// RUN: %clang -march=hexagonv3 -target hexagon-unknown-linux \
+// RUN:   %s 2>&1 | FileCheck -check-prefix=CHECK-UNKNOWN-V3 %s
+// RUN: %clang -mcpu=hexagonv3  -target hexagon-unknown-linux \
+// RUN:   %s 2>&1 | FileCheck -check-prefix=CHECK-UNKNOWN-V3 %s
+// RUN: %clang -mv3             -target hexagon-unknown-linux \
+// RUN:   %s 2>&1 | FileCheck -check-prefix=CHECK-UNKNOWN-V3 %s
+// CHECK-UNKNOWN-V3: error: unknown target CPU 'hexagonv3'
+
 // -----------------------------------------------------------------------------
 // Test Linker related args
 // -----------------------------------------------------------------------------
@@ -544,5 +560,5 @@
 // RUN:   | FileCheck -check-prefix=CHECK029 %s
 // CHECK029:      "{{.*}}clang{{.*}}" "-cc1"
 // CHECK029-NEXT: "{{.*}}/bin/hexagon-as"
-// CHECK029:        "-gdwarf-2" "--noexecstack" "--trap" "--keep-locals"
+// CHECK029:      "--noexecstack" "--trap" "--keep-locals"
 // CHECK029-NEXT: "{{.*}}/bin/hexagon-ld"

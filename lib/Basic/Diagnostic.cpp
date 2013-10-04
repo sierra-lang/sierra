@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/Basic/CharInfo.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/IdentifierTable.h"
@@ -19,7 +20,6 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/CrashRecoveryContext.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cctype>
 
 using namespace clang;
 
@@ -457,8 +457,8 @@ static const char *ScanFormat(const char *I, const char *E, char Target) {
       // Escaped characters get implicitly skipped here.
 
       // Format specifier.
-      if (!isdigit(*I) && !ispunct(*I)) {
-        for (I++; I != E && !isdigit(*I) && *I != '{'; I++) ;
+      if (!isDigit(*I) && !isPunctuation(*I)) {
+        for (I++; I != E && !isDigit(*I) && *I != '{'; I++) ;
         if (I == E) break;
         if (*I == '{')
           Depth++;
@@ -682,7 +682,7 @@ FormatDiagnostic(const char *DiagStr, const char *DiagEnd,
       OutStr.append(DiagStr, StrEnd);
       DiagStr = StrEnd;
       continue;
-    } else if (ispunct(DiagStr[1])) {
+    } else if (isPunctuation(DiagStr[1])) {
       OutStr.push_back(DiagStr[1]);  // %% -> %.
       DiagStr += 2;
       continue;
@@ -700,7 +700,7 @@ FormatDiagnostic(const char *DiagStr, const char *DiagEnd,
     unsigned ModifierLen = 0, ArgumentLen = 0;
 
     // Check to see if we have a modifier.  If so eat it.
-    if (!isdigit(DiagStr[0])) {
+    if (!isDigit(DiagStr[0])) {
       Modifier = DiagStr;
       while (DiagStr[0] == '-' ||
              (DiagStr[0] >= 'a' && DiagStr[0] <= 'z'))
@@ -719,7 +719,7 @@ FormatDiagnostic(const char *DiagStr, const char *DiagEnd,
       }
     }
 
-    assert(isdigit(*DiagStr) && "Invalid format for argument in diagnostic");
+    assert(isDigit(*DiagStr) && "Invalid format for argument in diagnostic");
     unsigned ArgNo = *DiagStr++ - '0';
 
     // Only used for type diffing.
@@ -727,7 +727,7 @@ FormatDiagnostic(const char *DiagStr, const char *DiagEnd,
 
     DiagnosticsEngine::ArgumentKind Kind = getArgKind(ArgNo);
     if (ModifierIs(Modifier, ModifierLen, "diff")) {
-      assert(*DiagStr == ',' && isdigit(*(DiagStr + 1)) &&
+      assert(*DiagStr == ',' && isDigit(*(DiagStr + 1)) &&
              "Invalid format for diff modifier");
       ++DiagStr;  // Comma.
       ArgNo2 = *DiagStr++ - '0';
@@ -955,11 +955,10 @@ StoredDiagnostic::StoredDiagnostic(DiagnosticsEngine::Level Level,
 StoredDiagnostic::StoredDiagnostic(DiagnosticsEngine::Level Level, unsigned ID,
                                    StringRef Message, FullSourceLoc Loc,
                                    ArrayRef<CharSourceRange> Ranges,
-                                   ArrayRef<FixItHint> Fixits)
-  : ID(ID), Level(Level), Loc(Loc), Message(Message) 
+                                   ArrayRef<FixItHint> FixIts)
+  : ID(ID), Level(Level), Loc(Loc), Message(Message), 
+    Ranges(Ranges.begin(), Ranges.end()), FixIts(FixIts.begin(), FixIts.end())
 {
-  this->Ranges.assign(Ranges.begin(), Ranges.end());
-  this->FixIts.assign(FixIts.begin(), FixIts.end());
 }
 
 StoredDiagnostic::~StoredDiagnostic() { }
@@ -971,6 +970,23 @@ StoredDiagnostic::~StoredDiagnostic() { }
 bool DiagnosticConsumer::IncludeInDiagnosticCounts() const { return true; }
 
 void IgnoringDiagConsumer::anchor() { }
+
+ForwardingDiagnosticConsumer::~ForwardingDiagnosticConsumer() {}
+
+void ForwardingDiagnosticConsumer::HandleDiagnostic(
+       DiagnosticsEngine::Level DiagLevel,
+       const Diagnostic &Info) {
+  Target.HandleDiagnostic(DiagLevel, Info);
+}
+
+void ForwardingDiagnosticConsumer::clear() {
+  DiagnosticConsumer::clear();
+  Target.clear();
+}
+
+bool ForwardingDiagnosticConsumer::IncludeInDiagnosticCounts() const {
+  return Target.IncludeInDiagnosticCounts();
+}
 
 PartialDiagnostic::StorageAllocator::StorageAllocator() {
   for (unsigned I = 0; I != NumCached; ++I)

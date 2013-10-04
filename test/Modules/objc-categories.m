@@ -1,18 +1,15 @@
 // RUN: rm -rf %t
-// RUN: %clang_cc1 -fmodules -fmodule-cache-path %t -x objective-c -fmodule-name=category_top -emit-module %S/Inputs/module.map
-// RUN: %clang_cc1 -fmodules -fmodule-cache-path %t -x objective-c -fmodule-name=category_left -emit-module %S/Inputs/module.map
-// RUN: %clang_cc1 -fmodules -fmodule-cache-path %t -x objective-c -fmodule-name=category_right -emit-module %S/Inputs/module.map
-// RUN: %clang_cc1 -fmodules -fmodule-cache-path %t -x objective-c -fmodule-name=category_bottom -emit-module %S/Inputs/module.map
-// RUN: %clang_cc1 -fmodules -fmodule-cache-path %t -x objective-c -fmodule-name=category_other -emit-module %S/Inputs/module.map
-// RUN: %clang_cc1 -fmodules -fmodule-cache-path %t %s -verify
+// RUN: %clang_cc1 -fmodules -fmodules-cache-path=%t -x objective-c -fmodule-name=category_top -emit-module %S/Inputs/module.map
+// RUN: %clang_cc1 -fmodules -fmodules-cache-path=%t -x objective-c -fmodule-name=category_left -emit-module %S/Inputs/module.map
+// RUN: %clang_cc1 -fmodules -fmodules-cache-path=%t -x objective-c -fmodule-name=category_right -emit-module %S/Inputs/module.map
+// RUN: %clang_cc1 -fmodules -fmodules-cache-path=%t -x objective-c -fmodule-name=category_bottom -emit-module %S/Inputs/module.map
+// RUN: %clang_cc1 -fmodules -fmodules-cache-path=%t -x objective-c -fmodule-name=category_other -emit-module %S/Inputs/module.map
+// RUN: %clang_cc1 -fmodules -fmodules-cache-path=%t %s -verify
 
 @import category_bottom;
 
-
-
-
-// in category_left.h: expected-note {{previous definition}}
-// in category_right.h: expected-warning@11 {{duplicate definition of category}}
+// expected-note@Inputs/category_left.h:14 {{previous definition}}
+// expected-warning@Inputs/category_right.h:11 {{duplicate definition of category}}
 
 @interface Foo(Source)
 -(void)source; 
@@ -75,7 +72,7 @@ void test_hidden_right_errors(Foo *foo) {
   [p4 p4_method]; // expected-warning{{instance method '-p4_method' not found (return type defaults to 'id')}}
   id p4p = p4.p4_prop; // expected-error{{property 'p4_prop' not found on object of type 'id<P4>'}}
   p4p = foo.p4_prop; // expected-error{{property 'p4_prop' not found on object of type 'Foo *'; did you mean 'p3_prop'?}}
-  // expected-note@7{{'p3_prop' declared here}}
+  // expected-note@Inputs/category_left_sub.h:7{{'p3_prop' declared here}}
 }
 
 @import category_right.sub;

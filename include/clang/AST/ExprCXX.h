@@ -29,6 +29,7 @@ class CXXConstructorDecl;
 class CXXDestructorDecl;
 class CXXMethodDecl;
 class CXXTemporary;
+class MSPropertyDecl;
 class TemplateArgumentListInfo;
 class UuidAttr;
 
@@ -179,14 +180,16 @@ class CXXNamedCastExpr : public ExplicitCastExpr {
 private:
   SourceLocation Loc; // the location of the casting op
   SourceLocation RParenLoc; // the location of the right parenthesis
+  SourceRange AngleBrackets; // range for '<' '>'
 
 protected:
   CXXNamedCastExpr(StmtClass SC, QualType ty, ExprValueKind VK,
                    CastKind kind, Expr *op, unsigned PathSize,
                    TypeSourceInfo *writtenTy, SourceLocation l,
-                   SourceLocation RParenLoc)
+                   SourceLocation RParenLoc,
+                   SourceRange AngleBrackets)
     : ExplicitCastExpr(SC, ty, VK, kind, op, PathSize, writtenTy), Loc(l),
-      RParenLoc(RParenLoc) {}
+      RParenLoc(RParenLoc), AngleBrackets(AngleBrackets) {}
 
   explicit CXXNamedCastExpr(StmtClass SC, EmptyShell Shell, unsigned PathSize)
     : ExplicitCastExpr(SC, Shell, PathSize) { }
@@ -205,6 +208,7 @@ public:
 
   SourceLocation getLocStart() const LLVM_READONLY { return Loc; }
   SourceLocation getLocEnd() const LLVM_READONLY { return RParenLoc; }
+  SourceRange getAngleBrackets() const LLVM_READONLY { return AngleBrackets; }
 
   static bool classof(const Stmt *T) {
     switch (T->getStmtClass()) {
@@ -227,9 +231,10 @@ public:
 class CXXStaticCastExpr : public CXXNamedCastExpr {
   CXXStaticCastExpr(QualType ty, ExprValueKind vk, CastKind kind, Expr *op,
                     unsigned pathSize, TypeSourceInfo *writtenTy,
-                    SourceLocation l, SourceLocation RParenLoc)
+                    SourceLocation l, SourceLocation RParenLoc,
+                    SourceRange AngleBrackets)
     : CXXNamedCastExpr(CXXStaticCastExprClass, ty, vk, kind, op, pathSize,
-                       writtenTy, l, RParenLoc) {}
+                       writtenTy, l, RParenLoc, AngleBrackets) {}
 
   explicit CXXStaticCastExpr(EmptyShell Empty, unsigned PathSize)
     : CXXNamedCastExpr(CXXStaticCastExprClass, Empty, PathSize) { }
@@ -239,7 +244,8 @@ public:
                                    ExprValueKind VK, CastKind K, Expr *Op,
                                    const CXXCastPath *Path,
                                    TypeSourceInfo *Written, SourceLocation L,
-                                   SourceLocation RParenLoc);
+                                   SourceLocation RParenLoc,
+                                   SourceRange AngleBrackets);
   static CXXStaticCastExpr *CreateEmpty(ASTContext &Context,
                                         unsigned PathSize);
 
@@ -257,9 +263,10 @@ public:
 class CXXDynamicCastExpr : public CXXNamedCastExpr {
   CXXDynamicCastExpr(QualType ty, ExprValueKind VK, CastKind kind,
                      Expr *op, unsigned pathSize, TypeSourceInfo *writtenTy,
-                     SourceLocation l, SourceLocation RParenLoc)
+                     SourceLocation l, SourceLocation RParenLoc,
+                     SourceRange AngleBrackets)
     : CXXNamedCastExpr(CXXDynamicCastExprClass, ty, VK, kind, op, pathSize,
-                       writtenTy, l, RParenLoc) {}
+                       writtenTy, l, RParenLoc, AngleBrackets) {}
 
   explicit CXXDynamicCastExpr(EmptyShell Empty, unsigned pathSize)
     : CXXNamedCastExpr(CXXDynamicCastExprClass, Empty, pathSize) { }
@@ -269,7 +276,8 @@ public:
                                     ExprValueKind VK, CastKind Kind, Expr *Op,
                                     const CXXCastPath *Path,
                                     TypeSourceInfo *Written, SourceLocation L,
-                                    SourceLocation RParenLoc);
+                                    SourceLocation RParenLoc,
+                                    SourceRange AngleBrackets);
 
   static CXXDynamicCastExpr *CreateEmpty(ASTContext &Context,
                                          unsigned pathSize);
@@ -291,9 +299,10 @@ class CXXReinterpretCastExpr : public CXXNamedCastExpr {
   CXXReinterpretCastExpr(QualType ty, ExprValueKind vk, CastKind kind,
                          Expr *op, unsigned pathSize,
                          TypeSourceInfo *writtenTy, SourceLocation l,
-                         SourceLocation RParenLoc)
+                         SourceLocation RParenLoc,
+                         SourceRange AngleBrackets)
     : CXXNamedCastExpr(CXXReinterpretCastExprClass, ty, vk, kind, op,
-                       pathSize, writtenTy, l, RParenLoc) {}
+                       pathSize, writtenTy, l, RParenLoc, AngleBrackets) {}
 
   CXXReinterpretCastExpr(EmptyShell Empty, unsigned pathSize)
     : CXXNamedCastExpr(CXXReinterpretCastExprClass, Empty, pathSize) { }
@@ -303,7 +312,8 @@ public:
                                         ExprValueKind VK, CastKind Kind,
                                         Expr *Op, const CXXCastPath *Path,
                                  TypeSourceInfo *WrittenTy, SourceLocation L,
-                                        SourceLocation RParenLoc);
+                                        SourceLocation RParenLoc,
+                                        SourceRange AngleBrackets);
   static CXXReinterpretCastExpr *CreateEmpty(ASTContext &Context,
                                              unsigned pathSize);
 
@@ -320,9 +330,9 @@ public:
 class CXXConstCastExpr : public CXXNamedCastExpr {
   CXXConstCastExpr(QualType ty, ExprValueKind VK, Expr *op,
                    TypeSourceInfo *writtenTy, SourceLocation l,
-                   SourceLocation RParenLoc)
+                   SourceLocation RParenLoc, SourceRange AngleBrackets)
     : CXXNamedCastExpr(CXXConstCastExprClass, ty, VK, CK_NoOp, op,
-                       0, writtenTy, l, RParenLoc) {}
+                       0, writtenTy, l, RParenLoc, AngleBrackets) {}
 
   explicit CXXConstCastExpr(EmptyShell Empty)
     : CXXNamedCastExpr(CXXConstCastExprClass, Empty, 0) { }
@@ -331,7 +341,8 @@ public:
   static CXXConstCastExpr *Create(ASTContext &Context, QualType T,
                                   ExprValueKind VK, Expr *Op,
                                   TypeSourceInfo *WrittenTy, SourceLocation L,
-                                  SourceLocation RParenLoc);
+                                  SourceLocation RParenLoc,
+                                  SourceRange AngleBrackets);
   static CXXConstCastExpr *CreateEmpty(ASTContext &Context);
 
   static bool classof(const Stmt *T) {
@@ -548,6 +559,64 @@ public:
     Stmt **begin = reinterpret_cast<Stmt**>(&Operand);
     return child_range(begin, begin + 1);
   }
+};
+
+/// A member reference to an MSPropertyDecl.  This expression always
+/// has pseudo-object type, and therefore it is typically not
+/// encountered in a fully-typechecked expression except within the
+/// syntactic form of a PseudoObjectExpr.
+class MSPropertyRefExpr : public Expr {
+  Expr *BaseExpr;
+  MSPropertyDecl *TheDecl;
+  SourceLocation MemberLoc;
+  bool IsArrow;
+  NestedNameSpecifierLoc QualifierLoc;
+
+public:
+  MSPropertyRefExpr(Expr *baseExpr, MSPropertyDecl *decl, bool isArrow,
+                    QualType ty, ExprValueKind VK,
+                    NestedNameSpecifierLoc qualifierLoc,
+                    SourceLocation nameLoc)
+  : Expr(MSPropertyRefExprClass, ty, VK, OK_Ordinary,
+         /*type-dependent*/ false, baseExpr->isValueDependent(),
+         baseExpr->isInstantiationDependent(),
+         baseExpr->containsUnexpandedParameterPack()),
+    BaseExpr(baseExpr), TheDecl(decl),
+    MemberLoc(nameLoc), IsArrow(isArrow),
+    QualifierLoc(qualifierLoc) {}
+
+  MSPropertyRefExpr(EmptyShell Empty) : Expr(MSPropertyRefExprClass, Empty) {}
+
+  SourceRange getSourceRange() const LLVM_READONLY {
+    return SourceRange(getLocStart(), getLocEnd());
+  }
+  bool isImplicitAccess() const {
+    return getBaseExpr() && getBaseExpr()->isImplicitCXXThis();
+  }
+  SourceLocation getLocStart() const {
+    if (!isImplicitAccess())
+      return BaseExpr->getLocStart();
+    else if (QualifierLoc)
+      return QualifierLoc.getBeginLoc();
+    else
+        return MemberLoc;
+  }
+  SourceLocation getLocEnd() const { return getMemberLoc(); }
+
+  child_range children() {
+    return child_range((Stmt**)&BaseExpr, (Stmt**)&BaseExpr + 1);
+  }
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == MSPropertyRefExprClass;
+  }
+
+  Expr *getBaseExpr() const { return BaseExpr; }
+  MSPropertyDecl *getPropertyDecl() const { return TheDecl; }
+  bool isArrow() const { return IsArrow; }
+  SourceLocation getMemberLoc() const { return MemberLoc; }
+  NestedNameSpecifierLoc getQualifierLoc() const { return QualifierLoc; }
+
+  friend class ASTStmtReader;
 };
 
 /// CXXUuidofExpr - A microsoft C++ @c __uuidof expression, which gets
@@ -813,6 +882,53 @@ public:
 
   friend class ASTStmtReader;
   friend class ASTStmtWriter;
+};
+
+/// \brief This wraps a use of a C++ default initializer (technically,
+/// a brace-or-equal-initializer for a non-static data member) when it
+/// is implicitly used in a mem-initializer-list in a constructor
+/// (C++11 [class.base.init]p8) or in aggregate initialization
+/// (C++1y [dcl.init.aggr]p7).
+class CXXDefaultInitExpr : public Expr {
+  /// \brief The field whose default is being used.
+  FieldDecl *Field;
+
+  /// \brief The location where the default initializer expression was used.
+  SourceLocation Loc;
+
+  CXXDefaultInitExpr(ASTContext &C, SourceLocation Loc, FieldDecl *Field,
+                     QualType T);
+
+  CXXDefaultInitExpr(EmptyShell Empty) : Expr(CXXDefaultInitExprClass, Empty) {}
+
+public:
+  // Field is the non-static data member whose default initializer is used
+  // by this expression.
+  static CXXDefaultInitExpr *Create(ASTContext &C, SourceLocation Loc,
+                                    FieldDecl *Field) {
+    return new (C) CXXDefaultInitExpr(C, Loc, Field, Field->getType());
+  }
+
+  // Get the field whose initializer will be used.
+  FieldDecl *getField() { return Field; }
+  const FieldDecl *getField() const { return Field; }
+
+  // Get the initialization expression that will be used.
+  const Expr *getExpr() const { return Field->getInClassInitializer(); }
+  Expr *getExpr() { return Field->getInClassInitializer(); }
+
+  SourceLocation getLocStart() const LLVM_READONLY { return Loc; }
+  SourceLocation getLocEnd() const LLVM_READONLY { return Loc; }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == CXXDefaultInitExprClass;
+  }
+
+  // Iterators
+  child_range children() { return child_range(); }
+
+  friend class ASTReader;
+  friend class ASTStmtReader;
 };
 
 /// CXXTemporary - Represents a C++ temporary.
@@ -3346,7 +3462,7 @@ class PackExpansionExpr : public Expr {
 
 public:
   PackExpansionExpr(QualType T, Expr *Pattern, SourceLocation EllipsisLoc,
-                    llvm::Optional<unsigned> NumExpansions)
+                    Optional<unsigned> NumExpansions)
     : Expr(PackExpansionExprClass, T, Pattern->getValueKind(),
            Pattern->getObjectKind(), /*TypeDependent=*/true,
            /*ValueDependent=*/true, /*InstantiationDependent=*/true,
@@ -3369,11 +3485,11 @@ public:
 
   /// \brief Determine the number of expansions that will be produced when
   /// this pack expansion is instantiated, if already known.
-  llvm::Optional<unsigned> getNumExpansions() const {
+  Optional<unsigned> getNumExpansions() const {
     if (NumExpansions)
       return NumExpansions - 1;
 
-    return llvm::Optional<unsigned>();
+    return None;
   }
 
   SourceLocation getLocStart() const LLVM_READONLY {
