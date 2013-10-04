@@ -694,18 +694,8 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
   /*
    * We need to find out the type of the outmost operator and use the necessary
    * mask.
-   * For LAND ( && ) we use an all ones vector, since LAND will flip bits from
-   * TRUE to FALSE, but not vice versa. Therefore, we need to start with a
-   * vector that is all TRUE.
    *
-   * For LOR ( || ) we use an all zeros vector, since LOR will flip bits from
-   * FALSE to TRUE, but not vice versa. Therefore, we need to start with a
-   * vector that is all FALSE.
-   *
-   * The falseFirst flag denotes which are the special cases and how to react.
-   * We have two special cases, namely all bits of the mask are TRUE and the
-   * binary operator is LOR, or all bits of the mask are FALSE and the binary
-   * operator is LAND. (see above)
+   * TODO add documentation
    */
 
   llvm::LLVMContext &Context = Builder.getContext();
@@ -984,12 +974,58 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     }
   }
 
-  if (const ConditionalOperator *CondOp = dyn_cast<ConditionalOperator>(Cond)) {
-    // TODO Sierra Vector Type
-
+  if (const ConditionalOperator *CondOp = dyn_cast<ConditionalOperator>(Cond))
+	{
     // br(c ? x : y, t, f) -> br(c, br(x, t, f), br(y, t, f))
     llvm::BasicBlock *LHSBlock = createBasicBlock("cond.true");
     llvm::BasicBlock *RHSBlock = createBasicBlock("cond.false");
+
+		if ( Cond->getType()->isSierraVectorType() )
+		{
+			llvm::PHINode *LHSPhi;
+			llvm::PHINode *RHSPhi;
+      llvm::Value *OldMask;
+
+			ConditionalEvaluation cond( *this );
+      llvm::Value mask = EmitBranchOnBoolExpr( CondOp->getCond(), LHSBlock,
+                                               RHSBlock, false, &LHSPhi, &RHSPhi );
+
+      /*
+       * Emit code for the LHS
+       */
+      OldMask = getCurrentMask();
+      setCurrentMask( mask );
+
+      cond.begin( *this );
+      EmitBlock( LHSBlock );
+      llvm::Value *LHSResult = EmitBranchOnBoolExpr( CondOp->getLHS(),
+                                                     TrueBlock, FalseBlock );
+      cond.end( *this );
+
+      Builder.GetInsertBlock()->getTerminator()->eraseFromParent();
+
+      /*
+       * Emit code for the RHS
+       */
+      setCurrentMask( Builder.CreateAnd( OldMask, Builder.CreateNot( mask ) ) );
+
+      cond.begin( *this );
+      EmitBlock( RHSBlock );
+      llvm::Value *RHSResult = EmitBranchOnBoolExpr( CondOp->getRHS(),
+                                                     TrueBlock, FalseBlock );
+      cond.end( *this );
+
+      Builder.GetInsertBlock()->getTerminator()->eraseFromParent();
+
+
+      /*
+       * Merge results of LHS and RHS.
+       */
+      setCurrentMask( OldMask );
+
+      return Builder.CreateOr( LHSResult, RHSResult );
+
+		} // End Sierra Vector
 
     ConditionalEvaluation cond(*this);
     EmitBranchOnBoolExpr(CondOp->getCond(), LHSBlock, RHSBlock);
