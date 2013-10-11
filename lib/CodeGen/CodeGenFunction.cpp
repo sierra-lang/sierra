@@ -829,9 +829,9 @@ ConstantFoldsToSimpleInteger(const Expr *Cond, llvm::APSInt &ResultInt) {
 llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                            llvm::BasicBlock *TrueBlock,
                                            llvm::BasicBlock *FalseBlock,
-                                           bool falseFirst,
-                                           llvm::PHINode **TruePhi,
-                                           llvm::PHINode **FalsePhi) {
+                                           bool falseFirst/*= false*/,
+                                           llvm::PHINode **TruePhi/*= NULL*/,
+                                           llvm::PHINode **FalsePhi/*= NULL*/) {
   /*
    * We need to find out the type of the outmost operator and use the necessary
    * mask.
@@ -849,13 +849,15 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     llvm::VectorType* MaskTy = llvm::VectorType::get(
       llvm::IntegerType::getInt1Ty( Context ), NumElems );
 
+    if ( TruePhi == NULL && FalsePhi == NULL )
+    {
+      llvm::PHINode *tphi, *fphi;
+      TruePhi = &tphi;
+      FalsePhi = &fphi;
+    }
+
     /*
-     * Creates the phi nodes, all leafs of the condition tree will add edges to.
-     *
-     * TODO Find a way to create the PHI object without emitting llvm code and
-     * return the object so the caller can decide where to emit the necessary
-     * code. This is necessary if we want to allow the caller to decide in which
-     * order the True/False block are connected.
+     * Creates the phi nodes all leafs of the condition tree will add edges to.
      */
     *TruePhi = llvm::PHINode::Create( MaskTy, 0, "phi-true_block" );
     *FalsePhi = llvm::PHINode::Create( MaskTy, 0, "phi-false_block" );
@@ -1121,52 +1123,61 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     llvm::BasicBlock *LHSBlock = createBasicBlock("cond.true");
     llvm::BasicBlock *RHSBlock = createBasicBlock("cond.false");
 
-		//if ( Cond->getType()->isSierraVectorType() )
-		//{
-			//llvm::PHINode *LHSPhi;
-			//llvm::PHINode *RHSPhi;
-      //llvm::Value *OldMask;
+    if ( Cond->getType()->isSierraVectorType() )
+    {
+      llvm::PHINode *LHSPhi; // PHI Node for the LHS Block
+      llvm::PHINode *RHSPhi; // PHI Node for the RHS Block
 
-			//ConditionalEvaluation cond( *this );
-      //llvm::Value *mask = EmitBranchOnBoolExpr( CondOp->getCond(), LHSBlock,
-                                               //RHSBlock, false, &LHSPhi, &RHSPhi );
+      llvm::Value *LHSResult; // Result of the evaluation of the LHS Block
+      llvm::Value *RHSResult; // Result of the evaluation of the RHS Block
 
-      ///*
-       //* Emit code for the LHS
-       //*/
-      //OldMask = getCurrentMask();
-      //setCurrentMask( mask );
+      ConditionalEvaluation cond( *this );
+      llvm::Value *mask = EmitBranchOnBoolExpr( CondOp->getCond(),
+                                                LHSBlock,
+                                                RHSBlock,
+                                                false, // eval LHS before RHS
+                                                &LHSPhi,
+                                                &RHSPhi );
 
-      //cond.begin( *this );
-      //EmitBlock( LHSBlock );
-      //llvm::Value *LHSResult = EmitBranchOnBoolExpr( CondOp->getLHS(),
-                                                     //TrueBlock, FalseBlock );
-      //cond.end( *this );
+      LHSPhi->addIncoming( mask, Builder.GetInsertBlock() );
+      RHSPhi->addIncoming( mask, Builder.GetInsertBlock() );
 
-      //Builder.GetInsertBlock()->getTerminator()->eraseFromParent();
+      /*
+       * Emit code for the LHS
+       */
 
-      ///*
-       //* Emit code for the RHS
-       //*/
-      //setCurrentMask( Builder.CreateAnd( OldMask, Builder.CreateNot( mask ) ) );
+      cond.begin( *this );
+      EmitBlock( LHSBlock );
 
-      //cond.begin( *this );
-      //EmitBlock( RHSBlock );
-      //llvm::Value *RHSResult = EmitBranchOnBoolExpr( CondOp->getRHS(),
-                                                     //TrueBlock, FalseBlock );
-      //cond.end( *this );
+      Builder.Insert( LHSPhi );
 
-      //Builder.GetInsertBlock()->getTerminator()->eraseFromParent();
+      LHSResult = EmitBranchOnBoolExpr( CondOp->getLHS(),
+          true, // force short-circuit eval for the True Block
+          LHSPhi, TrueBlock, RHSBlock, TruePhi, RHSPhi );
 
+      RHSPhi->addIncoming( LHSResult, Builder.GetInsertBlock() );
+      TruePhi->addIncoming( LHSResult, Builder.GetInsertBlock() );
 
-      ///*
-       //* Merge results of LHS and RHS.
-       //*/
-      //setCurrentMask( OldMask );
+      cond.end( *this );
 
-      //return Builder.CreateOr( LHSResult, RHSResult );
+      cond.begin( *this );
+      EmitBlock( RHSBlock );
 
-		//} // End Sierra Vector
+      Builder.Insert( RHSPhi );
+      llvm::Value *RHSMask = Builder.CreateAnd( getCurrentMask(),
+          Builder.CreateNot( RHSPhi ) );
+
+      RHSResult = EmitBranchOnBoolExpr( CondOp->getRHS(),
+          false, // force short-circuit eval for the False Block
+          RHSMask, TrueBlock, FalseBlock, TruePhi, FalsePhi );
+
+      TruePhi->addIncoming( RHSResult, Builder.GetInsertBlock() );
+      FalsePhi->addIncoming( RHSResult, Builder.GetInsertBlock() );
+
+      cond.end( *this );
+
+      return Builder.CreateOr( LHSResult, RHSResult );
+    } // End Sierra Vector
 
     ConditionalEvaluation cond(*this);
     EmitBranchOnBoolExpr(CondOp->getCond(), LHSBlock, RHSBlock);
@@ -1202,6 +1213,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     setCurrentMask( mask );
 
     // Evaluate the condition
+    // FIXME If the condition is a complex sub expression, this won't work.
     llvm::Value *CondV = EmitScalarExpr( Cond );
 
     /*
