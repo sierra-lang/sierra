@@ -4985,6 +4985,7 @@ ExprResult Sema::ActOnParenListExpr(SourceLocation L,
 /// emitted.
 bool Sema::DiagnoseConditionalForNull(Expr *LHSExpr, Expr *RHSExpr,
                                       SourceLocation QuestionLoc) {
+
   Expr *NullExpr = LHSExpr;
   Expr *NonPointerExpr = RHSExpr;
   Expr::NullPointerConstantKind NullKind =
@@ -5028,6 +5029,10 @@ static bool checkCondition(Sema &S, Expr *Cond) {
   // C99 6.5.15p2
   if (CondTy->isScalarType()) return false;
 
+  // Accept SierraVector type
+  if (CondTy->isSierraVectorType())
+    return false;
+
   // OpenCL v1.1 s6.3.i says the condition is allowed to be a vector or scalar.
   if (S.getLangOpts().OpenCL && CondTy->isVectorType())
     return false;
@@ -5045,6 +5050,7 @@ static bool checkCondition(Sema &S, Expr *Cond) {
 static bool checkConditionalConvertScalarsToVectors(Sema &S, ExprResult &LHS,
                                                     ExprResult &RHS,
                                                     QualType CondTy) {
+
   // Both operands should be of scalar type.
   if (!LHS.get()->getType()->isScalarType()) {
     S.Diag(LHS.get()->getLocStart(), diag::err_typecheck_cond_expect_scalar)
@@ -5602,6 +5608,7 @@ static void DiagnoseConditionalPrecedence(Sema &Self,
                                           Expr *Condition,
                                           Expr *LHSExpr,
                                           Expr *RHSExpr) {
+
   BinaryOperatorKind CondOpcode;
   Expr *CondRHS;
 
@@ -5633,6 +5640,7 @@ ExprResult Sema::ActOnConditionalOp(SourceLocation QuestionLoc,
                                     SourceLocation ColonLoc,
                                     Expr *CondExpr, Expr *LHSExpr,
                                     Expr *RHSExpr) {
+
   // If this is the gnu "x ?: y" extension, analyze the types as though the LHS
   // was the condition.
   OpaqueValueExpr *opaqueValue = 0;

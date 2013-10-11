@@ -22,6 +22,7 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/TypeLoc.h"
+#include "clang/AST/Type.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Lex/Preprocessor.h"
@@ -2740,7 +2741,7 @@ Sema::PerformImplicitConversion(Expr *From, QualType ToType,
       FromType = Context.FloatTy;
     }
 
-    From = ImpCastExprToType(From, Context.BoolTy,
+    From = ImpCastExprToType(From, ToType,
                              ScalarTypeToBooleanCastKind(FromType), 
                              VK_RValue, /*BasePath=*/0, CCK).take();
     break;
@@ -4209,7 +4210,11 @@ QualType Sema::CXXCheckConditionalOperands(ExprResult &Cond, ExprResult &LHS,
   // C++11 [expr.cond]p1
   //   The first expression is contextually converted to bool.
   if (!Cond.get()->isTypeDependent()) {
-    ExprResult CondRes = CheckCXXBooleanCondition(Cond.take());
+    int AllowedVectorLenght = 1;
+    if ( Cond.get()->getType()->isSierraVectorType() )
+      AllowedVectorLenght = Cond.get()->getType()->getSierraVectorLength();
+    ExprResult CondRes = CheckCXXBooleanCondition(Cond.take(),
+        AllowedVectorLenght);
     if (CondRes.isInvalid())
       return QualType();
     Cond = CondRes;

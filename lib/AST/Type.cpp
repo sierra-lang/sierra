@@ -874,7 +874,8 @@ Type::ScalarTypeKind Type::getScalarTypeKind() const {
          || (isSierraVectorType() 
              && getAs<SierraVectorType>()->getElementType()->isScalarType()));
 
-  const Type *T = CanonicalType.getTypePtr();
+  const Type *T = ( isSierraVectorType() ?
+    getAs<SierraVectorType>()->getElementType() : CanonicalType ).getTypePtr();
   if (const BuiltinType *BT = dyn_cast<BuiltinType>(T)) {
     if (BT->getKind() == BuiltinType::Bool) return STK_Bool;
     if (BT->getKind() == BuiltinType::NullPtr) return STK_CPointer;
