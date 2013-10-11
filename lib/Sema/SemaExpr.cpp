@@ -6201,6 +6201,7 @@ ExprResult Sema::ActOnParenListExpr(SourceLocation L,
 /// emitted.
 bool Sema::DiagnoseConditionalForNull(Expr *LHSExpr, Expr *RHSExpr,
                                       SourceLocation QuestionLoc) {
+
   Expr *NullExpr = LHSExpr;
   Expr *NonPointerExpr = RHSExpr;
   Expr::NullPointerConstantKind NullKind =
@@ -6240,6 +6241,10 @@ bool Sema::DiagnoseConditionalForNull(Expr *LHSExpr, Expr *RHSExpr,
 /// \brief Return false if the condition expression is valid, true otherwise.
 static bool checkCondition(Sema &S, Expr *Cond, SourceLocation QuestionLoc) {
   QualType CondTy = Cond->getType();
+
+  // Accept SierraVector type
+  if (CondTy->isSierraVectorType())
+    return false;
 
   // OpenCL v1.1 s6.3.i says the condition cannot be a floating point type.
   if (S.getLangOpts().OpenCL && CondTy->isFloatingType()) {
@@ -7062,6 +7067,7 @@ static void DiagnoseConditionalPrecedence(Sema &Self,
                                           Expr *Condition,
                                           Expr *LHSExpr,
                                           Expr *RHSExpr) {
+
   BinaryOperatorKind CondOpcode;
   Expr *CondRHS;
 

@@ -24,6 +24,7 @@
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/TypeLoc.h"
+#include "clang/AST/Type.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Lex/Preprocessor.h"
@@ -5305,7 +5306,11 @@ QualType Sema::CXXCheckConditionalOperands(ExprResult &Cond, ExprResult &LHS,
   // C++11 [expr.cond]p1
   //   The first expression is contextually converted to bool.
   if (!Cond.get()->isTypeDependent()) {
-    ExprResult CondRes = CheckCXXBooleanCondition(Cond.get());
+    int AllowedVectorLenght = 1;
+    if ( Cond.get()->getType()->isSierraVectorType() )
+      AllowedVectorLenght = Cond.get()->getType()->getSierraVectorLength();
+    ExprResult CondRes = CheckCXXBooleanCondition(Cond.get(),
+        AllowedVectorLenght);
     if (CondRes.isInvalid())
       return QualType();
     Cond = CondRes;
