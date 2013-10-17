@@ -2767,7 +2767,7 @@ public:
 	llvm::Value* EmitBranchOnBoolExpr(const Expr *Cond,
                             llvm::BasicBlock *TrueBlock,
                             llvm::BasicBlock *FalseBlock,
-														bool falseFirst = true,
+														bool falseFirst = false,
 														llvm::PHINode **TruePhi = NULL,
 														llvm::PHINode **FalsePhi = NULL);
 

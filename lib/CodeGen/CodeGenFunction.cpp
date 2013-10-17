@@ -1213,38 +1213,38 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     setCurrentMask( mask );
 
     // Evaluate the condition
-    // FIXME If the condition is a complex sub expression, this won't work.
+    // FIXME It seems like if the sub expression is again of Sierra Vector type,
+    // this does not work. Still needs more testing...
     llvm::Value *CondV = EmitScalarExpr( Cond );
 
     /*
      * Mask the result.
      */
     CondV = Builder.CreateAnd( CondV, mask );
+    llvm::Value *Cond8 = EmitMask1ToMask8( Builder, CondV );
+    llvm::Value *CondI = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(
+          Context, NumElems*8));
 
     /*
-     * Emit the code for the falseFirst / allFalse cases.
+     * Emit the code for either the falseFirst case or the regular case.
+     *
+     * falseFirst schedules the evaluation of the FalseBlock before the
+     * TrueBlock
      */
     llvm::Value *ScalarCond;
     if ( falseFirst )
     {
-      /*
-       * Xor the mask with the condition value. If they are the same it will
-       * result in a vector of all zeros.
-       */
-      llvm::Value *CondMasked = Builder.CreateXor( CondV, mask );
-      llvm::Value *Cond8 = EmitMask1ToMask8( Builder, CondMasked );
-      llvm::Value *CondI = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(
-          Context, NumElems*8));
-      // Check whether the vector is all zero
+      // Check whether the vector is some false (equals NOT all true)
+      //
+      // NOTE: Since we use Builder.CreateCondBr later, we have to negate the
+      // result of the check.
+      // In fact, we can test if the vector is all true.
       ScalarCond = Builder.CreateICmpEQ(
         CondI, llvm::ConstantInt::get(llvm::IntegerType::get( Context,
-                                                              NumElems*8), 0));
+                                                              NumElems*8), 1));
     }
     else
     {
-      llvm::Value *Cond8 = EmitMask1ToMask8( Builder, CondV );
-      llvm::Value *CondI = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(
-          Context, NumElems*8));
       // Check whether the vector is some true
       ScalarCond = Builder.CreateICmpNE(
         CondI, llvm::ConstantInt::get(llvm::IntegerType::get( Context,
