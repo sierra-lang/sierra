@@ -1119,12 +1119,13 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 
   if (const ConditionalOperator *CondOp = dyn_cast<ConditionalOperator>(Cond))
 	{
-    // br(c ? x : y, t, f) -> br(c, br(x, t, f), br(y, t, f))
-    llvm::BasicBlock *LHSBlock = createBasicBlock("cond.true");
-    llvm::BasicBlock *RHSBlock = createBasicBlock("cond.false");
+    Cond->getType()->dump();
 
     if ( Cond->getType()->isSierraVectorType() )
     {
+      llvm::BasicBlock *LHSBlock = createBasicBlock("sierra-cond.true");
+      llvm::BasicBlock *RHSBlock = createBasicBlock("sierra-cond.false");
+
       llvm::PHINode *LHSPhi; // PHI Node for the LHS Block
       llvm::PHINode *RHSPhi; // PHI Node for the RHS Block
 
@@ -1145,12 +1146,11 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       /*
        * Emit code for the LHS
        */
-
       cond.begin( *this );
+
       EmitBlock( LHSBlock );
 
       Builder.Insert( LHSPhi );
-
       LHSResult = EmitBranchOnBoolExpr( CondOp->getLHS(),
           true, // force short-circuit eval for the True Block
           LHSPhi, TrueBlock, RHSBlock, TruePhi, RHSPhi );
@@ -1158,9 +1158,15 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       RHSPhi->addIncoming( LHSResult, Builder.GetInsertBlock() );
       TruePhi->addIncoming( LHSResult, Builder.GetInsertBlock() );
 
+      EmitBranch( RHSBlock );
+
       cond.end( *this );
 
+      /*
+       * Emit code for the RHS
+       */
       cond.begin( *this );
+
       EmitBlock( RHSBlock );
 
       Builder.Insert( RHSPhi );
@@ -1178,6 +1184,10 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 
       return Builder.CreateOr( LHSResult, RHSResult );
     } // End Sierra Vector
+
+    // br(c ? x : y, t, f) -> br(c, br(x, t, f), br(y, t, f))
+    llvm::BasicBlock *LHSBlock = createBasicBlock("cond.true");
+    llvm::BasicBlock *RHSBlock = createBasicBlock("cond.false");
 
     ConditionalEvaluation cond(*this);
     EmitBranchOnBoolExpr(CondOp->getCond(), LHSBlock, RHSBlock);
