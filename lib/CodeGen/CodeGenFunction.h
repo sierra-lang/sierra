@@ -3404,7 +3404,6 @@ public:
 														bool falseFirst = true,
 														llvm::PHINode **TruePhi = NULL,
 														llvm::PHINode **FalsePhi = NULL);
->>>>>>> changed the recursive EmitBranchOnBoolExpr algorithm:
 
   // Extends the previous EmitBranchOnBoolExpr function by two arguments to
   // allow short-circuit evaluation for Sierra Vector Expressions
