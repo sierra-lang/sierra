@@ -155,34 +155,6 @@ llvm::Value *EmitAnyTrue(CGBuilderTy &Builder, llvm::Value *Mask) {
 
 //------------------------------------------------------------------------------
 
-#if 0
-
-static llvm::Constant *CreateAllOnesVectorPTest(llvm::LLVMContext &Context, unsigned NumElems) {
-  llvm::Constant** ones = new llvm::Constant*[NumElems];
-  for (unsigned i = 0; i < NumElems; ++i)
-    ones[i] = llvm::ConstantInt::getIntegerValue(
-      llvm::IntegerType::get(Context, 64), 
-      llvm::APInt::getAllOnesValue(64));
-
-  llvm::ArrayRef<llvm::Constant*> values(ones, NumElems);
-  llvm::Constant *result = llvm::ConstantVector::get(values);
-  delete[] ones;
-  return result;
-}
-
-static llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context, unsigned NumElems) {
-  llvm::Constant** zeros = new llvm::Constant*[NumElems];
-  for (unsigned i = 0; i < NumElems; ++i)
-    zeros[i] = llvm::ConstantInt::getFalse(Context);
-
-  llvm::ArrayRef<llvm::Constant*> values(zeros, NumElems);
-  llvm::Constant *result = llvm::ConstantVector::get(values);
-  delete[] zeros;
-  return result;
-}
-
-#endif
-
 llvm::Constant *CreateAllOnesVector(llvm::LLVMContext &Context,
                                            unsigned NumElems) {
   llvm::Constant** ones = new llvm::Constant*[NumElems];
@@ -238,24 +210,8 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
     CodeGenFunction::RunCleanupsScope ThenScope(CGF);
     CGF.EmitStmt(S.getThen());
     ElseMask->addIncoming( ThenMask, Builder.GetInsertBlock() );
-
     CGF.setCurrentMask(OldMask);
-
-    /*
-     * Check whether the ThenMask is the current mask
-     */
-    llvm::Value *CondXor = Builder.CreateXor( ThenMask, CGF.getCurrentMask() );
-    llvm::Value *Cond8 = EmitMask1ToMask8( Builder, CondXor );
-    llvm::Value *CondI = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(
-        Context, NumElems*8));
-    llvm::Value *ScalarCond = Builder.CreateICmpEQ(
-      CondI, llvm::ConstantInt::get(llvm::IntegerType::get( Context,
-                                                            NumElems*8), 0));
-
-		/*
-		 * Emit the branch from the Then block to the Else block
-		 */
-		Builder.CreateCondBr( ScalarCond, ContBlock, ElseBlock );
+    Builder.CreateCondBr( EmitAllTrue(Builder, ThenMask), ContBlock, ElseBlock );
   }
 
   // Emit the 'else' code if present.
