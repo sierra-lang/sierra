@@ -115,6 +115,40 @@ llvm::Value *EmitMask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8) {
   return Builder.CreateTrunc(Mask8, Mask1Ty);
 }
 
+static llvm::Value *AllTrueInt(CGBuilderTy &Builder, llvm::Type *Type) {
+  return llvm::ConstantInt::get(Type, uint64_t(-1));
+}
+
+static llvm::Value *AllFalseInt(CGBuilderTy &Builder, llvm::Type *Type) {
+  return llvm::ConstantInt::get(Type, uint64_t(0));
+}
+
+static llvm::Value *EmitToInt(CGBuilderTy &Builder, llvm::Value *Mask) {
+  llvm::VectorType *MaskTy = llvm::cast<llvm::VectorType>(Mask->getType());
+  unsigned NumElems = MaskTy->getNumElements();
+  return Builder.CreateBitCast(Mask, llvm::IntegerType::get(Builder.getContext(), NumElems));
+}
+
+llvm::Value *EmitAllTrue(CGBuilderTy &Builder, llvm::Value *Mask) {
+  llvm::Value *Int = EmitToInt(Builder, Mask);
+  return Builder.CreateICmpEQ(Int, AllTrueInt(Builder, Int->getType()));
+}
+
+llvm::Value *EmitAllFalse(CGBuilderTy &Builder, llvm::Value *Mask) {
+  llvm::Value *Int = EmitToInt(Builder, Mask);
+  return Builder.CreateICmpEQ(Int, AllFalseInt(Builder, Int->getType()));
+}
+
+llvm::Value *EmitAnyFalse(CGBuilderTy &Builder, llvm::Value *Mask) {
+  llvm::Value *Int = EmitToInt(Builder, Mask);
+  return Builder.CreateICmpNE(Int, AllTrueInt(Builder, Int->getType()));
+}
+
+llvm::Value *EmitAnyTrue(CGBuilderTy &Builder, llvm::Value *Mask) {
+  llvm::Value *Int = EmitToInt(Builder, Mask);
+  return Builder.CreateICmpNE(Int, AllFalseInt(Builder, Int->getType()));
+}
+
 //------------------------------------------------------------------------------
 
 #if 0

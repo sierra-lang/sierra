@@ -41,6 +41,11 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, llvm::Value *Src, QualTy
 llvm::StoreInst *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask, 
                                  llvm::Value *Val, llvm::Value *Ptr, bool Volatile);
 
+llvm::Value *EmitAllTrue(CGBuilderTy &Builder, llvm::Value *Mask);
+llvm::Value *EmitAllFalse(CGBuilderTy &Builder, llvm::Value *Mask);
+llvm::Value *EmitAnyTrue(CGBuilderTy &Builder, llvm::Value *Mask);
+llvm::Value *EmitAnyFalse(CGBuilderTy &Builder, llvm::Value *Mask);
+
 
 llvm::Value *EmitMask1ToMask8(CGBuilderTy &Builder, llvm::Value *Mask1);
 llvm::Value *EmitMask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8);
