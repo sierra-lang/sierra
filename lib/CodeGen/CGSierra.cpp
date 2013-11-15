@@ -116,17 +116,25 @@ llvm::Value *EmitMask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8) {
 }
 
 static llvm::Value *AllTrueInt(CGBuilderTy &Builder, llvm::Type *Type) {
-  return llvm::ConstantInt::get(Type, uint64_t(-1));
+  llvm::Value* val = llvm::ConstantInt::get(Type, uint64_t(-1));
+  val->dump();
+  return val;
 }
 
 static llvm::Value *AllFalseInt(CGBuilderTy &Builder, llvm::Type *Type) {
-  return llvm::ConstantInt::get(Type, uint64_t(0));
+  llvm::Value* val = llvm::ConstantInt::get(Type, uint64_t(0));
+  val->dump();
+  return val;
 }
 
 static llvm::Value *EmitToInt(CGBuilderTy &Builder, llvm::Value *Mask) {
   llvm::VectorType *MaskTy = llvm::cast<llvm::VectorType>(Mask->getType());
   unsigned NumElems = MaskTy->getNumElements();
-  return Builder.CreateBitCast(Mask, llvm::IntegerType::get(Builder.getContext(), NumElems));
+  //return Builder.CreateBitCast(Mask, llvm::IntegerType::get(Builder.getContext(), NumElems));
+
+  llvm::VectorType *Mask8Ty = llvm::VectorType::get(llvm::IntegerType::get(Builder.getContext(), 8), NumElems);
+  llvm::Value *SExt = Builder.CreateSExt(Mask, Mask8Ty);
+  return Builder.CreateBitCast(SExt, llvm::IntegerType::get(Builder.getContext(), NumElems*8));
 }
 
 llvm::Value *EmitAllTrue(CGBuilderTy &Builder, llvm::Value *Mask) {

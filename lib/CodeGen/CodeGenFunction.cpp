@@ -1220,8 +1220,8 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
    */
   if ( Cond->getType()->isSierraVectorType() )
   {
-    llvm::LLVMContext &Context = Builder.getContext();
-    int NumElems = Cond->getType()->getSierraVectorLength();
+    //llvm::LLVMContext &Context = Builder.getContext();
+    //int NumElems = Cond->getType()->getSierraVectorLength();
 
     // Save old mask.
     llvm::Value *OldMask = getCurrentMask();
@@ -1237,46 +1237,18 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     llvm::Value * CondV;
 
     CondV = EmitScalarExpr( Cond );
-    //if ( _CondV.isScalar() )
-      //CondV = _CondV.getScalarVal();
-    //else if ( _CondV.isAggregate() )
-      //CondV = _CondV.getAggregateAddr();
-    //else
-      //assert( 0 && "complex type not imp" );
 
     /*
      * Mask the result.
      */
     CondV = Builder.CreateAnd( CondV, mask );
-    llvm::Value *Cond8 = EmitMask1ToMask8( Builder, CondV );
-    llvm::Value *CondI = Builder.CreateBitCast(Cond8, llvm::IntegerType::get(
-          Context, NumElems*8));
-
     /*
      * Emit the code for either the falseFirst case or the regular case.
      *
      * falseFirst schedules the evaluation of the FalseBlock before the
      * TrueBlock
      */
-    llvm::Value *ScalarCond;
-    if ( falseFirst )
-    {
-      // Check whether the vector is some false (equals NOT all true)
-      //
-      // NOTE: Since we use Builder.CreateCondBr later, we have to negate the
-      // result of the check.
-      // In fact, we can test if the vector is all true.
-      ScalarCond = Builder.CreateICmpEQ(
-        CondI, llvm::ConstantInt::get(llvm::IntegerType::get( Context,
-                                                              NumElems*8), 1));
-    }
-    else
-    {
-      // Check whether the vector is some true
-      ScalarCond = Builder.CreateICmpNE(
-        CondI, llvm::ConstantInt::get(llvm::IntegerType::get( Context,
-                                                              NumElems*8), 0));
-    }
+    llvm::Value *ScalarCond = falseFirst ? EmitAllTrue(Builder, CondV) : EmitAnyTrue(Builder, CondV);
 
     // Create the branch
     Builder.CreateCondBr( ScalarCond, TrueBlock, FalseBlock );
