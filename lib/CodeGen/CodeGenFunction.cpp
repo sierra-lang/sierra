@@ -849,26 +849,29 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     llvm::VectorType* MaskTy = llvm::VectorType::get(
       llvm::IntegerType::getInt1Ty( Context ), NumElems );
 
+    llvm::PHINode *AltTruePhi;
     if ( TruePhi == NULL )
-    {
-      llvm::PHINode *phi;
-      TruePhi = &phi;
-    }
+      TruePhi = &AltTruePhi;
+
+    llvm::PHINode *AltFalsePhi;
     if ( FalsePhi == NULL )
-    {
-      llvm::PHINode *phi;
-      FalsePhi = &phi;
-    }
+      FalsePhi = &AltFalsePhi;
 
     /*
      * Creates the phi nodes all leafs of the condition tree will add edges to.
      */
-    *TruePhi = llvm::PHINode::Create( MaskTy, 0, "phi-true_block" );
-    *FalsePhi = llvm::PHINode::Create( MaskTy, 0, "phi-false_block" );
+    *TruePhi = llvm::PHINode::Create( MaskTy, 0, "phi-true_block", TrueBlock );
+    *FalsePhi = llvm::PHINode::Create( MaskTy, 0, "phi-false_block", FalseBlock );
 
-    return EmitBranchOnBoolExpr( Cond, falseFirst, getCurrentMask(),
+    llvm::Value *Result = EmitBranchOnBoolExpr( Cond, falseFirst, getCurrentMask(),
                                  TrueBlock, FalseBlock,
                                  *TruePhi, *FalsePhi );
+
+    (*TruePhi)->addIncoming(Result, Builder.GetInsertBlock());
+    (*FalsePhi)->addIncoming(Result, Builder.GetInsertBlock());
+
+    return Result;
+
   } // End Sierra Vector Type
 
   return EmitBranchOnBoolExpr( Cond, falseFirst, NULL /* mask */,
