@@ -225,20 +225,11 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
 
   llvm::PHINode *ThenMask, *ElseMask;
 
-	llvm::Value *result = CGF.EmitBranchOnBoolExpr( S.getCond(),
-                            ThenBlock,
-                            ElseBlock,
-                            false,
-                            &ThenMask,
+  CGF.EmitBranchOnBoolExpr( S.getCond(), ThenBlock, ElseBlock, false, &ThenMask,
                             &ElseMask );
-
-	ThenMask->addIncoming( result, Builder.GetInsertBlock() );
-	ElseMask->addIncoming( result, Builder.GetInsertBlock() );
 
   CGF.EmitBlock(ThenBlock); 
   {
-    Builder.Insert( ThenMask );
-
     CGF.setCurrentMask(ThenMask);
     CodeGenFunction::RunCleanupsScope ThenScope(CGF);
     CGF.EmitStmt(S.getThen());
@@ -266,7 +257,6 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
   // Emit the 'else' code if present.
 	CGF.EmitBlock(ElseBlock);
 	{
-		Builder.Insert( ElseMask );
 		if ( const Stmt *Else = S.getElse() )
 		{
 			CGF.setCurrentMask( Builder.CreateAnd( CGF.getCurrentMask(),
