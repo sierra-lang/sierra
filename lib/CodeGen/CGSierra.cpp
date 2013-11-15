@@ -116,15 +116,11 @@ llvm::Value *EmitMask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8) {
 }
 
 static llvm::Value *AllTrueInt(CGBuilderTy &Builder, llvm::Type *Type) {
-  llvm::Value* val = llvm::ConstantInt::get(Type, uint64_t(-1));
-  val->dump();
-  return val;
+  return llvm::ConstantInt::get(Type, uint64_t(-1));
 }
 
 static llvm::Value *AllFalseInt(CGBuilderTy &Builder, llvm::Type *Type) {
-  llvm::Value* val = llvm::ConstantInt::get(Type, uint64_t(0));
-  val->dump();
-  return val;
+  return llvm::ConstantInt::get(Type, uint64_t(0));
 }
 
 static llvm::Value *EmitToInt(CGBuilderTy &Builder, llvm::Value *Mask) {
