@@ -849,11 +849,15 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     llvm::VectorType* MaskTy = llvm::VectorType::get(
       llvm::IntegerType::getInt1Ty( Context ), NumElems );
 
-    if ( TruePhi == NULL && FalsePhi == NULL )
+    if ( TruePhi == NULL )
     {
-      llvm::PHINode *tphi, *fphi;
-      TruePhi = &tphi;
-      FalsePhi = &fphi;
+      llvm::PHINode *phi;
+      TruePhi = &phi;
+    }
+    if ( FalsePhi == NULL )
+    {
+      llvm::PHINode *phi;
+      FalsePhi = &phi;
     }
 
     /*
@@ -1224,8 +1228,18 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 
     // Evaluate the condition
     // FIXME It seems like if the sub expression is again of Sierra Vector type,
-    // this does not work. Still needs more testing...
-    llvm::Value *CondV = EmitScalarExpr( Cond );
+    // and we have a cast expression in between, this does not work.
+    // Still needs more testing...
+    //clang::CodeGen::RValue _CondV = EmitAnyExpr( Cond );
+    llvm::Value * CondV;
+
+    CondV = EmitScalarExpr( Cond );
+    //if ( _CondV.isScalar() )
+      //CondV = _CondV.getScalarVal();
+    //else if ( _CondV.isAggregate() )
+      //CondV = _CondV.getAggregateAddr();
+    //else
+      //assert( 0 && "complex type not imp" );
 
     /*
      * Mask the result.
