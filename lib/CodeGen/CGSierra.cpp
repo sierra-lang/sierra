@@ -305,12 +305,16 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
 
   //BreakContinueStack.pop_back();
 
+
+  // Add incoming edge from the current basic block with the loop mask
+  // The current basic block is either the Body Block or the Increment Block
+  phi->addIncoming( LoopMask, Builder.GetInsertBlock() );
+
   // Immediately force cleanup.
   ConditionScope.ForceCleanup();
 
   // Branch to the loop header again.
   CGF.EmitBranch(LoopHeader.getBlock());
-  phi->addIncoming( LoopMask, Builder.GetInsertBlock() );
 
   CGF.setCurrentMask(OldMask);
 
@@ -513,6 +517,7 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   // Immediately force cleanup.
   ConditionScope.ForceCleanup();
 
+  // Branch to the loop header again.
   CGF.EmitBranch( CondBlock );
 
   // Emit the exit block
