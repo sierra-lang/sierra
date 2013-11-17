@@ -851,17 +851,27 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 
     llvm::PHINode *AltTruePhi;
     if ( TruePhi == NULL )
+    {
       TruePhi = &AltTruePhi;
+      *TruePhi = NULL;
+    }
 
     llvm::PHINode *AltFalsePhi;
     if ( FalsePhi == NULL )
+    {
       FalsePhi = &AltFalsePhi;
+      *FalsePhi = NULL;
+    }
 
     /*
      * Creates the phi nodes all leafs of the condition tree will add edges to.
      */
-    *TruePhi = llvm::PHINode::Create( MaskTy, 0, "phi-true_block", TrueBlock );
-    *FalsePhi = llvm::PHINode::Create( MaskTy, 0, "phi-false_block", FalseBlock );
+    if ( ! *TruePhi )
+      *TruePhi = llvm::PHINode::Create( MaskTy, 0, "phi-true_block",
+          TrueBlock );
+    if ( ! *FalsePhi )
+      *FalsePhi = llvm::PHINode::Create( MaskTy, 0, "phi-false_block",
+          FalseBlock );
 
     llvm::Value *Result = EmitBranchOnBoolExpr( Cond, falseFirst, getCurrentMask(),
                                  TrueBlock, FalseBlock,
