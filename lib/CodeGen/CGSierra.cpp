@@ -389,15 +389,11 @@ void EmitSierraDoStmt( CodeGenFunction &CGF, const DoStmt &S )
   CodeGenFunction::RunCleanupsScope ConditionScope( CGF );
   CGF.EmitBlock( LoopCond.getBlock() );
 
-  Builder.GetInsertBlock()->getParent()->dump();
-
   if( ConditionScope.requiresCleanups() )
     ExitBlock = CGF.createBasicBlock("vectorized-do.exit");
 
   CGF.EmitBranchOnBoolExpr( S.getCond(), LoopBody, ExitBlock, false,
       &LoopMask );
-
-  Builder.GetInsertBlock()->getParent()->dump();
 
   if ( ExitBlock != LoopExit.getBlock() )
   {
