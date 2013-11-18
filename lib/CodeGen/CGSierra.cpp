@@ -97,24 +97,6 @@ llvm::StoreInst *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask,
   return Builder.CreateStore(NewVal, Ptr, Volatile);
 }
 
-llvm::Value *EmitMask1ToMask8(CGBuilderTy &Builder, llvm::Value *Mask1) {
-  llvm::LLVMContext& Context = Builder.getContext();
-  llvm::VectorType *Mask1Ty = llvm::cast<llvm::VectorType>(Mask1->getType());
-  assert(Mask1Ty->getElementType()->isIntegerTy(1) && "wrong mask type");
-  unsigned NumElems = Mask1Ty->getNumElements();
-  llvm::VectorType *Mask8Ty = llvm::VectorType::get(llvm::IntegerType::get(Context, 8), NumElems);
-  return Builder.CreateSExt(Mask1, Mask8Ty);
-}
-
-llvm::Value *EmitMask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8) {
-  llvm::LLVMContext& Context = Builder.getContext();
-  llvm::VectorType *Mask8Ty = llvm::cast<llvm::VectorType>(Mask8->getType());
-  assert(Mask8Ty->getElementType()->isIntegerTy(8) && "wrong mask type");
-  unsigned NumElems = Mask8Ty->getNumElements();
-  llvm::VectorType *Mask1Ty = llvm::VectorType::get(llvm::IntegerType::get(Context, 1), NumElems);
-  return Builder.CreateTrunc(Mask8, Mask1Ty);
-}
-
 static llvm::Value *AllTrueInt(CGBuilderTy &Builder, llvm::Type *Type) {
   return llvm::ConstantInt::get(Type, uint64_t(-1));
 }
