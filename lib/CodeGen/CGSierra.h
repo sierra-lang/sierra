@@ -46,10 +46,6 @@ llvm::Value *EmitAllFalse(CGBuilderTy &Builder, llvm::Value *Mask);
 llvm::Value *EmitAnyTrue(CGBuilderTy &Builder, llvm::Value *Mask);
 llvm::Value *EmitAnyFalse(CGBuilderTy &Builder, llvm::Value *Mask);
 
-
-llvm::Value *EmitMask1ToMask8(CGBuilderTy &Builder, llvm::Value *Mask1);
-llvm::Value *EmitMask8ToMask1(CGBuilderTy &Builder, llvm::Value *Mask8);
-
 void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S);
 void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S);
 void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S);
