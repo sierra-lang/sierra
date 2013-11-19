@@ -404,6 +404,12 @@ bool DeclSpec::hasTagDefinition() const {
   return cast<TagDecl>(getRepAsDecl())->isCompleteDefinition();
 }
 
+bool DeclSpec::hasTagDefinition() const {
+  if (!TypeSpecOwned)
+    return false;
+  return cast<TagDecl>(getRepAsDecl())->isCompleteDefinition();
+}
+
 /// getParsedSpecifiers - Return a bitmask of which flavors of specifiers this
 /// declaration specifier includes.
 ///
