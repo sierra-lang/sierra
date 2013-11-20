@@ -256,12 +256,13 @@ QualType CheckSierraVectorLogicalOperands(Sema &S, ExprResult &LHS, ExprResult &
 
 /// getSierraVectorType - Return the unique reference to an extended vector type of
 /// the specified element type and size. VectorType must be a built-in type.
-QualType ASTContext::getSierraVectorType(QualType vecType, unsigned NumElts) const {
-  //assert(vecType->isBuiltinType() || vecType->isDependentType());
+QualType ASTContext::getSierraVectorType(QualType T, unsigned NumElements) const {
+  // TODO Put those types into a set similar to ASTContext::VectorTypes.
+  // Maybe have one set for all sierra types.
 
   // Check if we've already instantiated a vector of this type.
   llvm::FoldingSetNodeID ID;
-  VectorType::Profile(ID, vecType, NumElts, Type::SierraVector,
+  VectorType::Profile(ID, T, NumElements, Type::SierraVector,
                       VectorType::GenericVector);
   void *InsertPos = 0;
   if (VectorType *VTP = VectorTypes.FindNodeOrInsertPos(ID, InsertPos))
@@ -270,15 +271,38 @@ QualType ASTContext::getSierraVectorType(QualType vecType, unsigned NumElts) con
   // If the element type isn't canonical, this won't be a canonical type either,
   // so fill in the canonical type field.
   QualType Canonical;
-  if (!vecType.isCanonical()) {
-    Canonical = getSierraVectorType(getCanonicalType(vecType), NumElts);
+  if (!T.isCanonical()) {
+    Canonical = getSierraVectorType(getCanonicalType(T), NumElements);
 
     // Get the new insert position for the node we care about.
     VectorType *NewIP = VectorTypes.FindNodeOrInsertPos(ID, InsertPos);
     assert(NewIP == 0 && "Shouldn't be in the map!"); (void)NewIP;
   }
+
+  // Propagate varying into record fields
+  if (const RecordType *RT = dyn_cast<RecordType>(T)) {
+    // TODO this does not work for recursive types
+    CXXRecordDecl *OldR = cast<CXXRecordDecl>(RT->getDecl());
+    CXXRecordDecl *NewR = CXXRecordDecl::Create(*this, OldR->getTagKind(), OldR->getDeclContext(), 
+                                                OldR->getLocStart(), OldR->getLocation(), OldR->getIdentifier(), 
+                                                OldR->getPreviousDecl());
+    NewR->startDefinition();
+    for (RecordDecl::field_iterator i = OldR->field_begin(), e = OldR->field_end(); i != e; ++i) {
+      QualType NewT = getSierraVectorType(i->getType(), NumElements);
+      FieldDecl *NewF = FieldDecl::Create(*this, NewR, //i->getDeclContext(), 
+                                          i->getLocStart(), i->getLocation(), i->getIdentifier(), NewT, 
+                                          i->getTypeSourceInfo(), i->getBitWidth(), i->isMutable(), i->getInClassInitStyle());
+      NewF->setAccess(i->getAccess());
+      NewR->addDecl(NewF);
+    }
+    NewR->completeDefinition();
+
+    RecordType *New = new (*this, TypeAlignment) RecordType(NewR);
+    return QualType(New, 0);
+  }
+
   SierraVectorType *New = new (*this, TypeAlignment)
-    SierraVectorType(vecType, NumElts, Canonical);
+    SierraVectorType(T, NumElements, Canonical);
   VectorTypes.InsertNode(New, InsertPos);
   Types.push_back(New);
   return QualType(New, 0);
@@ -291,12 +315,13 @@ QualType ASTContext::getSierraVectorType(QualType vecType, unsigned NumElts) con
 /// Run the required checks for the sierra vector type.
 QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize,
                                      SourceLocation AttrLoc) {
-  // TODO allow more types
+#if 0
   if (!T->isDependentType() &&
       !T->isIntegerType() && !T->isRealFloatingType() && !T->isPointerType()) {
     S.Diag(AttrLoc, diag::err_attribute_invalid_vector_type) << T;
     return QualType();
   }
+#endif
 
   if (!ArraySize->isTypeDependent() && !ArraySize->isValueDependent()) {
     llvm::APSInt vecSize(32);
@@ -308,33 +333,33 @@ QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize,
 
     // unlike gcc's vector_size attribute, the size is specified as the
     // number of elements, not the number of bytes.
-    unsigned VecS = static_cast<unsigned>(vecSize.getZExtValue());
+    unsigned NumElements = static_cast<unsigned>(vecSize.getZExtValue());
 
-    if (VecS == 0) {
+    if (NumElements == 0) {
       S.Diag(AttrLoc, diag::err_attribute_zero_size)
       << ArraySize->getSourceRange();
       return QualType();
     }
-    if (!llvm::isPowerOf2_32(VecS)){
-      S.Diag(AttrLoc, diag::err_sierra_non_pow2) << VecS;
+    if (!llvm::isPowerOf2_32(NumElements)){
+      S.Diag(AttrLoc, diag::err_sierra_non_pow2) << NumElements;
       return QualType();
     }
 
     // uniform special case
-    if (VecS == 1)
+    if (NumElements == 1)
       return T;
 
 #if 0
     unsigned CurS = S.getCurScope()->getCurrentVectorLength();
     // TODO polymorphism
-    if (CurS != 1 && CurS != VecS) {
+    if (CurS != 1 && CurS != NumElements) {
       S.Diag(AttrLoc, diag::err_sierra_incompatible_vector_lengths_in_decl)
-        << CurS << VecS;
+        << CurS << NumElements;
       return QualType();
     }
 #endif
 
-    QualType res = S.Context.getSierraVectorType(T, VecS);
+    QualType res = S.Context.getSierraVectorType(T, NumElements);
     return res;
   }
 
