@@ -127,6 +127,24 @@ class ASTContext : public RefCountedBase<ASTContext> {
                                      ASTContext&> 
     SubstTemplateTemplateParmPacks;
   
+  struct SierraKey {
+    SierraKey() {}
+    SierraKey(const Type *Type, unsigned NumElements)
+      : Type(Type), NumElements(NumElements) {}
+
+    const Type *getType() const { return Type; }
+    unsigned getNumElements() const { return NumElements; }
+    bool operator < (SierraKey other) const {
+      return this->Type < other.Type && this->NumElements < other.NumElements;
+    }
+
+  private:
+    const Type *Type;
+    unsigned NumElements;
+  };
+  typedef std::map<SierraKey, const Type*> SierraTypeMap;
+  mutable SierraTypeMap SierraKey2Type;
+
   /// \brief The set of nested name specifiers.
   ///
   /// This set is managed by the NestedNameSpecifier class.

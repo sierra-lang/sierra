@@ -261,52 +261,46 @@ QualType ASTContext::getSierraVectorType(QualType T, unsigned NumElements) const
   // Maybe have one set for all sierra types.
 
   // Check if we've already instantiated a vector of this type.
-  llvm::FoldingSetNodeID ID;
-  VectorType::Profile(ID, T, NumElements, Type::SierraVector,
-                      VectorType::GenericVector);
-  void *InsertPos = 0;
-  if (VectorType *VTP = VectorTypes.FindNodeOrInsertPos(ID, InsertPos))
-    return QualType(VTP, 0);
+  SierraTypeMap::const_iterator i = SierraKey2Type.find(SierraKey(T.getTypePtr(), NumElements));
+  if (i != SierraKey2Type.end())
+    return QualType(i->second, 0);
 
   // If the element type isn't canonical, this won't be a canonical type either,
   // so fill in the canonical type field.
   QualType Canonical;
   if (!T.isCanonical()) {
     Canonical = getSierraVectorType(getCanonicalType(T), NumElements);
-
-    // Get the new insert position for the node we care about.
-    VectorType *NewIP = VectorTypes.FindNodeOrInsertPos(ID, InsertPos);
-    assert(NewIP == 0 && "Shouldn't be in the map!"); (void)NewIP;
   }
 
+  Type *New;
   // Propagate varying into record fields
   if (const RecordType *RT = dyn_cast<RecordType>(T)) {
     // TODO this does not work for recursive types
-    CXXRecordDecl *OldR = cast<CXXRecordDecl>(RT->getDecl());
-    CXXRecordDecl *NewR = CXXRecordDecl::Create(*this, OldR->getTagKind(), OldR->getDeclContext(), 
-                                                OldR->getLocStart(), OldR->getLocation(), OldR->getIdentifier(), 
-                                                OldR->getPreviousDecl());
-    NewR->startDefinition();
-    for (RecordDecl::field_iterator i = OldR->field_begin(), e = OldR->field_end(); i != e; ++i) {
+    CXXRecordDecl *OldRD = cast<CXXRecordDecl>(RT->getDecl());
+    // TODO new name for varying version
+    CXXRecordDecl *NewRD = CXXRecordDecl::Create(*this, OldRD->getTagKind(), OldRD->getDeclContext(), 
+                                                 OldRD->getLocStart(), OldRD->getLocation(), OldRD->getIdentifier(), 
+                                                 OldRD->getPreviousDecl());
+    NewRD->startDefinition();
+    for (RecordDecl::field_iterator i = OldRD->field_begin(), e = OldRD->field_end(); i != e; ++i) {
       QualType NewT = getSierraVectorType(i->getType(), NumElements);
-      FieldDecl *NewF = FieldDecl::Create(*this, NewR,
+      FieldDecl *NewFD = FieldDecl::Create(*this, NewRD,
                                           i->getLocStart(), i->getLocation(), i->getIdentifier(), NewT, 
                                           i->getTypeSourceInfo(), i->getBitWidth(), i->isMutable(), i->getInClassInitStyle());
-      NewF->setAccess(i->getAccess());
-      NewR->addDecl(NewF);
+      NewFD->setAccess(i->getAccess());
+      NewRD->addDecl(NewFD);
     }
-    NewR->completeDefinition();
+    NewRD->completeDefinition();
 
-    RecordType *New = new (*this, TypeAlignment) RecordType(NewR);
-    NewR->TypeForDecl = New;
-    Types.push_back(New);
-    return QualType(New, 0);
+    RecordType *NewRT = new (*this, TypeAlignment) RecordType(NewRD);
+    NewRD->TypeForDecl = NewRT;
+    New = NewRT;
+  } else {
+    New = new (*this, TypeAlignment) SierraVectorType(T, NumElements, Canonical);
   }
 
-  SierraVectorType *New = new (*this, TypeAlignment)
-    SierraVectorType(T, NumElements, Canonical);
-  VectorTypes.InsertNode(New, InsertPos);
   Types.push_back(New);
+  SierraKey2Type[SierraKey(T.getTypePtr(), NumElements)] = New;
   return QualType(New, 0);
 }
 
