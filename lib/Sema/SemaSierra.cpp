@@ -289,7 +289,7 @@ QualType ASTContext::getSierraVectorType(QualType T, unsigned NumElements) const
     NewR->startDefinition();
     for (RecordDecl::field_iterator i = OldR->field_begin(), e = OldR->field_end(); i != e; ++i) {
       QualType NewT = getSierraVectorType(i->getType(), NumElements);
-      FieldDecl *NewF = FieldDecl::Create(*this, NewR, //i->getDeclContext(), 
+      FieldDecl *NewF = FieldDecl::Create(*this, NewR,
                                           i->getLocStart(), i->getLocation(), i->getIdentifier(), NewT, 
                                           i->getTypeSourceInfo(), i->getBitWidth(), i->isMutable(), i->getInClassInitStyle());
       NewF->setAccess(i->getAccess());
@@ -298,6 +298,8 @@ QualType ASTContext::getSierraVectorType(QualType T, unsigned NumElements) const
     NewR->completeDefinition();
 
     RecordType *New = new (*this, TypeAlignment) RecordType(NewR);
+    NewR->TypeForDecl = New;
+    Types.push_back(New);
     return QualType(New, 0);
   }
 
