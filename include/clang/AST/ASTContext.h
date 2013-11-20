@@ -135,7 +135,8 @@ class ASTContext : public RefCountedBase<ASTContext> {
     const Type *getType() const { return Type; }
     unsigned getNumElements() const { return NumElements; }
     bool operator < (SierraKey other) const {
-      return this->Type < other.Type && this->NumElements < other.NumElements;
+      return this->Type < other.Type 
+        || (this->Type == other.Type && this->NumElements < other.NumElements);
     }
 
   private:
