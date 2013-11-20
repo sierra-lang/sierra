@@ -257,9 +257,6 @@ QualType CheckSierraVectorLogicalOperands(Sema &S, ExprResult &LHS, ExprResult &
 /// getSierraVectorType - Return the unique reference to an extended vector type of
 /// the specified element type and size. VectorType must be a built-in type.
 QualType ASTContext::getSierraVectorType(QualType T, unsigned NumElements) const {
-  // TODO Put those types into a set similar to ASTContext::VectorTypes.
-  // Maybe have one set for all sierra types.
-
   // Check if we've already instantiated a vector of this type.
   SierraTypeMap::const_iterator i = SierraKey2Type.find(SierraKey(T.getTypePtr(), NumElements));
   if (i != SierraKey2Type.end())
@@ -268,39 +265,83 @@ QualType ASTContext::getSierraVectorType(QualType T, unsigned NumElements) const
   // If the element type isn't canonical, this won't be a canonical type either,
   // so fill in the canonical type field.
   QualType Canonical;
-  if (!T.isCanonical()) {
+  if (!T.isCanonical())
     Canonical = getSierraVectorType(getCanonicalType(T), NumElements);
-  }
 
+  std::pair<SierraTypeMap::iterator, bool> pair = SierraKey2Type.insert(
+    std::make_pair(SierraKey(T.getTypePtr(), NumElements), (const Type*) 0));
+  assert(pair.second);
   Type *New;
+
   // Propagate varying into record fields
   if (const RecordType *RT = dyn_cast<RecordType>(T)) {
-    // TODO this does not work for recursive types
     CXXRecordDecl *OldRD = cast<CXXRecordDecl>(RT->getDecl());
     // TODO new name for varying version
-    CXXRecordDecl *NewRD = CXXRecordDecl::Create(*this, OldRD->getTagKind(), OldRD->getDeclContext(), 
-                                                 OldRD->getLocStart(), OldRD->getLocation(), OldRD->getIdentifier(), 
-                                                 OldRD->getPreviousDecl());
+    CXXRecordDecl *NewRD = CXXRecordDecl::Create(
+      *this, OldRD->getTagKind(), OldRD->getDeclContext(), 
+      OldRD->getLocStart(), OldRD->getLocation(), OldRD->getIdentifier(), OldRD->getPreviousDecl());
+    RecordType *NewRT = new (*this, TypeAlignment) RecordType(NewRD);
+    pair.first->second = New = NewRT;
     NewRD->startDefinition();
     for (RecordDecl::field_iterator i = OldRD->field_begin(), e = OldRD->field_end(); i != e; ++i) {
       QualType NewT = getSierraVectorType(i->getType(), NumElements);
-      FieldDecl *NewFD = FieldDecl::Create(*this, NewRD,
-                                          i->getLocStart(), i->getLocation(), i->getIdentifier(), NewT, 
-                                          i->getTypeSourceInfo(), i->getBitWidth(), i->isMutable(), i->getInClassInitStyle());
+      FieldDecl *NewFD = FieldDecl::Create(
+        *this, NewRD, i->getLocStart(), i->getLocation(), i->getIdentifier(), NewT, 
+        i->getTypeSourceInfo(), i->getBitWidth(), i->isMutable(), i->getInClassInitStyle());
       NewFD->setAccess(i->getAccess());
       NewRD->addDecl(NewFD);
     }
-    NewRD->completeDefinition();
 
-    RecordType *NewRT = new (*this, TypeAlignment) RecordType(NewRD);
+    NewRD->completeDefinition();
     NewRD->TypeForDecl = NewRT;
     New = NewRT;
   } else {
     New = new (*this, TypeAlignment) SierraVectorType(T, NumElements, Canonical);
+    pair.first->second = New;
   }
 
   Types.push_back(New);
-  SierraKey2Type[SierraKey(T.getTypePtr(), NumElements)] = New;
+  return QualType(New, 0);
+}
+
+QualType ASTContext::getDependentSizedSierraVectorType(QualType vecType,
+                                                       Expr *SizeExpr,
+                                                       SourceLocation AttrLoc) const {
+  llvm::FoldingSetNodeID ID;
+  DependentSizedSierraVectorType::Profile(ID, *this, getCanonicalType(vecType),
+                                          SizeExpr);
+
+  void *InsertPos = 0;
+  DependentSizedSierraVectorType *Canon
+    = DependentSizedSierraVectorTypes.FindNodeOrInsertPos(ID, InsertPos);
+  DependentSizedSierraVectorType *New;
+  if (Canon) {
+    // We already have a canonical version of this array type; use it as
+    // the canonical type for a newly-built type.
+    New = new (*this, TypeAlignment)
+      DependentSizedSierraVectorType(*this, vecType, QualType(Canon, 0),
+                                     SizeExpr, AttrLoc);
+  } else {
+    QualType CanonVecTy = getCanonicalType(vecType);
+    if (CanonVecTy == vecType) {
+      New = new (*this, TypeAlignment)
+        DependentSizedSierraVectorType(*this, vecType, QualType(), SizeExpr,
+                                       AttrLoc);
+
+      DependentSizedSierraVectorType *CanonCheck
+        = DependentSizedSierraVectorTypes.FindNodeOrInsertPos(ID, InsertPos);
+      assert(!CanonCheck && "Dependent-sized ext_vector canonical type broken");
+      (void)CanonCheck;
+      DependentSizedSierraVectorTypes.InsertNode(New, InsertPos);
+    } else {
+      QualType Canon = getDependentSizedSierraVectorType(CanonVecTy, SizeExpr,
+                                                         SourceLocation());
+      New = new (*this, TypeAlignment) 
+        DependentSizedSierraVectorType(*this, vecType, Canon, SizeExpr, AttrLoc);
+    }
+  }
+
+  Types.push_back(New);
   return QualType(New, 0);
 }
 

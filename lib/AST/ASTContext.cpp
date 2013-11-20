@@ -2633,48 +2633,6 @@ ASTContext::getExtVectorType(QualType vecType, unsigned NumElts) const {
 }
 
 QualType
-ASTContext::getDependentSizedSierraVectorType(QualType vecType,
-                                              Expr *SizeExpr,
-                                              SourceLocation AttrLoc) const {
-  llvm::FoldingSetNodeID ID;
-  DependentSizedSierraVectorType::Profile(ID, *this, getCanonicalType(vecType),
-                                          SizeExpr);
-
-  void *InsertPos = 0;
-  DependentSizedSierraVectorType *Canon
-    = DependentSizedSierraVectorTypes.FindNodeOrInsertPos(ID, InsertPos);
-  DependentSizedSierraVectorType *New;
-  if (Canon) {
-    // We already have a canonical version of this array type; use it as
-    // the canonical type for a newly-built type.
-    New = new (*this, TypeAlignment)
-      DependentSizedSierraVectorType(*this, vecType, QualType(Canon, 0),
-                                     SizeExpr, AttrLoc);
-  } else {
-    QualType CanonVecTy = getCanonicalType(vecType);
-    if (CanonVecTy == vecType) {
-      New = new (*this, TypeAlignment)
-        DependentSizedSierraVectorType(*this, vecType, QualType(), SizeExpr,
-                                       AttrLoc);
-
-      DependentSizedSierraVectorType *CanonCheck
-        = DependentSizedSierraVectorTypes.FindNodeOrInsertPos(ID, InsertPos);
-      assert(!CanonCheck && "Dependent-sized ext_vector canonical type broken");
-      (void)CanonCheck;
-      DependentSizedSierraVectorTypes.InsertNode(New, InsertPos);
-    } else {
-      QualType Canon = getDependentSizedSierraVectorType(CanonVecTy, SizeExpr,
-                                                         SourceLocation());
-      New = new (*this, TypeAlignment) 
-        DependentSizedSierraVectorType(*this, vecType, Canon, SizeExpr, AttrLoc);
-    }
-  }
-
-  Types.push_back(New);
-  return QualType(New, 0);
-}
-
-QualType
 ASTContext::getDependentSizedExtVectorType(QualType vecType,
                                            Expr *SizeExpr,
                                            SourceLocation AttrLoc) const {
