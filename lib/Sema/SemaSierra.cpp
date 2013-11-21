@@ -479,7 +479,8 @@ bool HandleSierraSpmdAttr(Sema &S, const FunctionType *FunT,
     SizeExpr = Attr.getArg(0);
 
   if (SizeExpr->isTypeDependent() || SizeExpr->isValueDependent())
-    result = false;
+    return true;
+    //result = false;
 
   if (!result)
     return false;
