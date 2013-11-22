@@ -559,9 +559,15 @@ void CodeGenFunction::EmitScalarInit(const Expr *init,
   Qualifiers::ObjCLifetime lifetime = lvalue.getObjCLifetime();
   if (!lifetime) {
     llvm::Value *value = EmitScalarExpr(init);
+
+    // Always write all lanes in an initalization.
+    // Inactive lanes are undefined anyway.
+    llvm::Value* OldMask = CurrentMask;
+    CurrentMask = 0;
     if (capturedByInit)
       drillIntoBlockVariable(*this, lvalue, cast<VarDecl>(D));
     EmitStoreThroughLValue(RValue::get(value), lvalue, true);
+    CurrentMask = OldMask;
     return;
   }
 
@@ -811,14 +817,7 @@ static bool shouldUseLifetimeMarkers(CodeGenFunction &CGF, const VarDecl &D,
 /// These turn into simple stack objects, or GlobalValues depending on target.
 void CodeGenFunction::EmitAutoVarDecl(const VarDecl &D) {
   AutoVarEmission emission = EmitAutoVarAlloca(D);
-
-  // Always write all lanes in an initalization; 
-  // the inactive lanes are undefined.
-  // Thus, it is safe to write active value there anyway.
-  llvm::Value* OldMask = CurrentMask;
-  if (CurrentMask) CurrentMask = 0;
   EmitAutoVarInit(emission);
-  CurrentMask = OldMask;
   EmitAutoVarCleanups(emission);
 }
 

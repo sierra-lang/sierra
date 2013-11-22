@@ -2420,6 +2420,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
     Args.push_back(llvm::ConstantVector::get(values));
 #endif
     Args.push_back(CurrentMask);
+    assert(CurrentMask);
 
     //delete[] undefs;
   }
