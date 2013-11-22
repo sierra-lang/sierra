@@ -2790,7 +2790,7 @@ public:
   /// type.
   bool getNoReturnAttr() const { return getExtInfo().getNoReturn(); }
   CallingConv getCallConv() const { return getExtInfo().getCC(); }
-  ExtInfo getExtInfo() const { return ExtInfo(FunctionTypeBits.ExtInfo); }
+  ExtInfo getExtInfo() const { return ExtInfo(FunctionTypeBits.ExtInfo, FunctionTypeBits.SierraSpmd); }
   bool isConst() const { return getTypeQuals() & Qualifiers::Const; }
   bool isVolatile() const { return getTypeQuals() & Qualifiers::Volatile; }
   bool isRestrict() const { return getTypeQuals() & Qualifiers::Restrict; }
