@@ -3951,7 +3951,10 @@ QualType TreeTransform<Derived>::TransformDependentSizedSierraVectorType(
   } else if (isa<BuiltinType>(Result)) {
     BuiltinTypeLoc NewTL = TLB.push<BuiltinTypeLoc>(Result);
     NewTL.setBuiltinLoc(TL.getNameLoc());
-  } else {
+  } else if (isa<RecordType>(Result)) {
+    RecordTypeLoc NewTL = TLB.push<RecordTypeLoc>(Result);
+    NewTL.setNameLoc(TL.getNameLoc());
+  } else if (isa<SierraVectorType>(Result)){
     SierraVectorTypeLoc NewTL = TLB.push<SierraVectorTypeLoc>(Result);
     NewTL.setNameLoc(TL.getNameLoc());
   }
