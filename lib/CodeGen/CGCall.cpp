@@ -27,6 +27,7 @@
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/InlineAsm.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/MC/SubtargetFeature.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/Transforms/Utils/Local.h"
@@ -2423,6 +2424,60 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
     assert(CurrentMask);
 
     //delete[] undefs;
+  }
+
+  // HACK for sierra built-in math functions
+  if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(TargetDecl)) {
+    if (const NamespaceDecl *ND = dyn_cast<NamespaceDecl>(FD->getParent())) {
+      if (ND->getNameAsString() == "sierra") {
+        llvm::Function* Fun = 0;
+        llvm::Module* Module = Builder.GetInsertBlock()->getParent()->getParent();
+
+        std::vector<llvm::Type*> ArgTypes;
+        for (size_t i = 0, e = Args.size(); i != e; ++i)
+          ArgTypes.push_back(Args[i]->getType());
+
+        if (FD->getNameAsString() == "exp")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp, ArgTypes);
+        else if (FD->getNameAsString() == "exp2")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp2, ArgTypes);
+        else if (FD->getNameAsString() == "log")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log, ArgTypes);
+        else if (FD->getNameAsString() == "log2")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log2, ArgTypes);
+        else if (FD->getNameAsString() == "log10")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log10, ArgTypes);
+        else if (FD->getNameAsString() == "pow")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::pow, ArgTypes);
+        else if (FD->getNameAsString() == "powi")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::powi, ArgTypes);
+        else if (FD->getNameAsString() == "sqrt")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::sqrt, ArgTypes);
+        else if (FD->getNameAsString() == "sin")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::sin, ArgTypes);
+        else if (FD->getNameAsString() == "cos")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::cos, ArgTypes);
+        else if (FD->getNameAsString() == "fma")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::fma, ArgTypes);
+        else if (FD->getNameAsString() == "fabs")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::fabs, ArgTypes);
+        else if (FD->getNameAsString() == "floor")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::floor, ArgTypes);
+        else if (FD->getNameAsString() == "ceil")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::ceil, ArgTypes);
+        else if (FD->getNameAsString() == "trunc")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::trunc, ArgTypes);
+        else if (FD->getNameAsString() == "rint")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::rint, ArgTypes);
+        else if (FD->getNameAsString() == "nearbyint")
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::nearbyint, ArgTypes);
+        //else if (FD->getNameAsString() == "round")
+          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::round, ArgTypes);
+
+        if (Fun)
+          return RValue::get(Builder.CreateCall(Fun, Args));
+      }
+    }
   }
 
   // If the callee is a bitcast of a function to a varargs pointer to function
