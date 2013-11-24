@@ -6367,8 +6367,12 @@ QualType Sema::CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
     return LHSType;
 
   // Handle Sierra vectors -- be sure to do this before the swap-trick below
-  if (LHSType->isSierraVectorType() || RHSType->isSierraVectorType())
+  bool lsierra = LHSType->isSierraVectorType();
+  bool rsierra = RHSType->isSierraVectorType();
+  if ((lsierra || rsierra) && (lsierra || LHSType->isScalarType()) 
+                           && (rsierra || RHSType->isScalarType())) {
     return CheckSierraVectorOperands(*this, LHS, RHS, Loc, IsCompAssign);
+  }
 
   // Handle the case of equivalent AltiVec and GCC vector types
   if (LHSType->isVectorType() && RHSType->isVectorType() &&
