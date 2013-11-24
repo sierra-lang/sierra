@@ -8039,7 +8039,7 @@ QualType Sema::CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
   // Handle Sierra vectors -- be sure to do this before the swap-trick below
   bool lsierra = LHSType->isSierraVectorType();
   bool rsierra = RHSType->isSierraVectorType();
-  if ((lsierra || rsierra) && (lsierra || LHSType->isScalarType())
+  if ((lsierra || rsierra) && (lsierra || LHSType->isScalarType()) 
                            && (rsierra || RHSType->isScalarType())) {
     return CheckSierraVectorOperands(*this, LHS, RHS, Loc, IsCompAssign);
   }
