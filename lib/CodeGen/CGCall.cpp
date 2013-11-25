@@ -2432,47 +2432,44 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       if (ND->getNameAsString() == "sierra") {
         llvm::Function* Fun = 0;
         llvm::Module* Module = Builder.GetInsertBlock()->getParent()->getParent();
-
-        std::vector<llvm::Type*> ArgTypes;
-        for (size_t i = 0, e = Args.size(); i != e; ++i)
-          ArgTypes.push_back(Args[i]->getType());
+        llvm::Type* ArgType = Args[0]->getType();
 
         if (FD->getNameAsString() == "exp")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp, ArgType);
         else if (FD->getNameAsString() == "exp2")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp2, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp2, ArgType);
         else if (FD->getNameAsString() == "log")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log, ArgType);
         else if (FD->getNameAsString() == "log2")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log2, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log2, ArgType);
         else if (FD->getNameAsString() == "log10")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log10, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log10, ArgType);
         else if (FD->getNameAsString() == "pow")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::pow, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::pow, ArgType);
         else if (FD->getNameAsString() == "powi")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::powi, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::powi, ArgType);
         else if (FD->getNameAsString() == "sqrt")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::sqrt, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::sqrt, ArgType);
         else if (FD->getNameAsString() == "sin")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::sin, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::sin, ArgType);
         else if (FD->getNameAsString() == "cos")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::cos, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::cos, ArgType);
         else if (FD->getNameAsString() == "fma")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::fma, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::fma, ArgType);
         else if (FD->getNameAsString() == "fabs")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::fabs, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::fabs, ArgType);
         else if (FD->getNameAsString() == "floor")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::floor, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::floor, ArgType);
         else if (FD->getNameAsString() == "ceil")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::ceil, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::ceil, ArgType);
         else if (FD->getNameAsString() == "trunc")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::trunc, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::trunc, ArgType);
         else if (FD->getNameAsString() == "rint")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::rint, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::rint, ArgType);
         else if (FD->getNameAsString() == "nearbyint")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::nearbyint, ArgTypes);
+          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::nearbyint, ArgType);
         //else if (FD->getNameAsString() == "round")
-          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::round, ArgTypes);
+          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::round, ArgType);
 
         if (Fun)
           return RValue::get(Builder.CreateCall(Fun, Args));
