@@ -2432,7 +2432,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       if (ND->getNameAsString() == "sierra") {
         llvm::Function* Fun = 0;
         llvm::Module* Module = Builder.GetInsertBlock()->getParent()->getParent();
-        llvm::Type* ArgType = Args[0]->getType();
+        llvm::Type* ArgType = !Args.empty() ? Args[0]->getType() : 0;
 
         if (FD->getNameAsString() == "exp")
           Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp, ArgType);
