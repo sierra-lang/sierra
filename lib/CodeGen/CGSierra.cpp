@@ -59,7 +59,7 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src, QualType Src
       Res = CGF.Builder.CreateSIToFP(Src, DstV, "conv");
     else
       Res = CGF.Builder.CreateUIToFP(Src, DstV, "conv");
-  } else if (isa<llvm::IntegerType>(DstV)) {
+  } else if (isa<llvm::IntegerType>(DstTy)) {
     assert(SrcTy->isFloatingPointTy() && "Unknown real conversion");
     if (DstE->isSignedIntegerOrEnumerationType())
       Res = CGF.Builder.CreateFPToSI(Src, DstV, "conv");
