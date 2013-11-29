@@ -2430,9 +2430,18 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(TargetDecl)) {
     if (const NamespaceDecl *ND = dyn_cast<NamespaceDecl>(FD->getParent())) {
       if (ND->getNameAsString() == "sierra") {
+        // HACK to work around stupid ABI implemented in Clang
+        std::vector<llvm::Value*> NewArgs(Args.size());
+
+        for (size_t i = 0, e = Args.size(); i != e; ++i) {
+          if (Args[i]->getType()->isPointerTy())
+            NewArgs[i] = Builder.CreateLoad(Args[i]);
+          else
+            NewArgs[i] = Args[i];
+        }
         llvm::Function* Fun = 0;
         llvm::Module* Module = Builder.GetInsertBlock()->getParent()->getParent();
-        llvm::Type* ArgType = !Args.empty() ? Args[0]->getType() : 0;
+        llvm::Type* ArgType = !NewArgs.empty() ? NewArgs[0]->getType() : 0;
 
         if (FD->getNameAsString() == "exp")
           Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp, ArgType);
@@ -2472,7 +2481,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
           //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::round, ArgType);
 
         if (Fun)
-          return RValue::get(Builder.CreateCall(Fun, Args));
+          return RValue::get(Builder.CreateCall(Fun, NewArgs));
       }
     }
   }
