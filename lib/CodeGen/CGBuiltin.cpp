@@ -4041,6 +4041,11 @@ Value *CodeGenFunction::EmitCommonNeonBuiltinExpr(
   case AArch64::BI__builtin_neon_vabsd_s64:
     Int = Intrinsic::aarch64_neon_vabs;
     s = "vabs"; OverloadInt = false; break;
+  // Scalar Absolute Difference
+  case AArch64::BI__builtin_neon_vabds_f32:
+  case AArch64::BI__builtin_neon_vabdd_f64:
+    Int = Intrinsic::aarch64_neon_vabd;
+    s = "vabd"; OverloadInt = true; break;
   // Scalar Signed Saturating Absolute Value
   case AArch64::BI__builtin_neon_vqabsb_s8:
   case AArch64::BI__builtin_neon_vqabsh_s16:
