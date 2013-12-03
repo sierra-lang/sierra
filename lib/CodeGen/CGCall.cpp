@@ -2420,8 +2420,13 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
     llvm::ArrayRef<llvm::Constant*> values(undefs, SierraSpmd);
     Args.push_back(llvm::ConstantVector::get(values));
 #endif
-    Args.push_back(CurrentMask);
-    assert(CurrentMask);
+
+    if (CurrentMask)
+      Args.push_back(CurrentMask);
+    else {
+      llvm::VectorType *VTy = cast<llvm::VectorType>(IRFuncTy->getParamType(IRFuncTy->getNumParams()-1));
+      Args.push_back(llvm::ConstantVector::getSplat(VTy->getNumElements(), Builder.getTrue()));
+    }
 
     //delete[] undefs;
   }
