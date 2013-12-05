@@ -790,6 +790,7 @@ VarDecl *Sema::createLambdaInitCaptureVarDecl(SourceLocation Loc,
   NewVD->markUsed(Context);
   NewVD->setInit(Init);
   return NewVD;
+
 }
 
 FieldDecl *Sema::buildInitCaptureField(LambdaScopeInfo *LSI, VarDecl *Var) {

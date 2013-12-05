@@ -638,7 +638,6 @@ public:
 
   StmtResult TransformCompoundStmt(CompoundStmt *S, bool IsStmtExpr);
   ExprResult TransformCXXNamedCastExpr(CXXNamedCastExpr *E);
-
   TemplateParameterList *TransformTemplateParameterList(
         TemplateParameterList *TPL) {
     return TPL;
