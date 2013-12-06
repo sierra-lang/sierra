@@ -87,14 +87,36 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src, QualType Src
 
 //------------------------------------------------------------------------------
 
-llvm::StoreInst *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask, 
+llvm::Value *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask, 
                                  llvm::Value *Val, llvm::Value *Ptr, bool Volatile) {
-  llvm::VectorType *VMask = llvm::cast<llvm::VectorType>(Mask->getType());
-  llvm::VectorType *VVal  = llvm::cast<llvm::VectorType>( Val->getType());
-  assert(VMask->getNumElements() == VVal->getNumElements());
+  llvm::VectorType *MaskTy = llvm::cast<llvm::VectorType>(Mask->getType());
+  llvm::VectorType *ValTy  = llvm::cast<llvm::VectorType>( Val->getType());
+  assert(MaskTy->getNumElements() == ValTy->getNumElements());
   llvm::Value *OldVal = Builder.CreateLoad(Ptr);
+
+#if 0
+  llvm::Module* Module = Builder.GetInsertBlock()->getParent()->getParent();
+  llvm::Function *Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_avx_blendv_ps_256);
+  unsigned NumElems = MaskTy->getNumElements();
+  MaskTy = llvm::VectorType::get(Builder.getInt32Ty(), NumElems);
+  Mask   = Builder.CreateSExt(Mask, MaskTy);
+  MaskTy = llvm::VectorType::get(Builder.getFloatTy(), NumElems);
+  Mask   = Builder.CreateBitCast(Mask, MaskTy);
+  llvm::Value *NewVal;
+  if (ValTy->getElementType()->isFloatingPointTy()) {
+    NewVal = Builder.CreateCall3(Fun, OldVal, Val, Mask);
+  } else {
+    llvm::Type* NewValTy  = llvm::VectorType::get(Builder.getFloatTy(), NumElems);
+    Val    = Builder.CreateBitCast(Val, NewValTy);
+    OldVal = Builder.CreateBitCast(OldVal, NewValTy);
+    NewVal = Builder.CreateCall3(Fun, OldVal, Val, Mask);
+    NewVal = Builder.CreateBitCast(NewVal, ValTy);
+  }
+#else
   llvm::Value *NewVal = Builder.CreateSelect(Mask, Val, OldVal);
+#endif
   return Builder.CreateStore(NewVal, Ptr, Volatile);
+
 }
 
 static llvm::Value *AllTrueInt(CGBuilderTy &Builder, llvm::Type *Type) {
@@ -108,11 +130,20 @@ static llvm::Value *AllFalseInt(CGBuilderTy &Builder, llvm::Type *Type) {
 static llvm::Value *EmitToInt(CGBuilderTy &Builder, llvm::Value *Mask) {
   llvm::VectorType *MaskTy = llvm::cast<llvm::VectorType>(Mask->getType());
   unsigned NumElems = MaskTy->getNumElements();
-  //return Builder.CreateBitCast(Mask, llvm::IntegerType::get(Builder.getContext(), NumElems));
+#if 0
+  llvm::Module* Module = Builder.GetInsertBlock()->getParent()->getParent();
+  llvm::Function *Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_avx_movmsk_ps_256);
+  MaskTy = llvm::VectorType::get(Builder.getInt32Ty(), NumElems);
+  Mask = Builder.CreateSExt(Mask, MaskTy);
+  MaskTy = llvm::VectorType::get(Builder.getFloatTy(), NumElems);
+  Mask = Builder.CreateBitCast(Mask, MaskTy);
 
+  return Builder.CreateCall(Fun, Mask);
+#else
   llvm::VectorType *Mask8Ty = llvm::VectorType::get(llvm::IntegerType::get(Builder.getContext(), 8), NumElems);
   llvm::Value *SExt = Builder.CreateSExt(Mask, Mask8Ty);
   return Builder.CreateBitCast(SExt, llvm::IntegerType::get(Builder.getContext(), NumElems*8));
+#endif
 }
 
 llvm::Value *EmitAllTrue(CGBuilderTy &Builder, llvm::Value *Mask) {
