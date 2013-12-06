@@ -2453,26 +2453,26 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
         llvm::Module* Module = Builder.GetInsertBlock()->getParent()->getParent();
         llvm::Type* ArgType = !NewArgs.empty() ? NewArgs[0]->getType() : 0;
 
-        if (FD->getNameAsString() == "exp")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp, ArgType);
-        else if (FD->getNameAsString() == "exp2")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp2, ArgType);
-        else if (FD->getNameAsString() == "log")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log, ArgType);
-        else if (FD->getNameAsString() == "log2")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log2, ArgType);
-        else if (FD->getNameAsString() == "log10")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log10, ArgType);
-        else if (FD->getNameAsString() == "pow")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::pow, ArgType);
-        else if (FD->getNameAsString() == "powi")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::powi, ArgType);
-        else if (FD->getNameAsString() == "sqrt")
+        //if (FD->getNameAsString() == "exp")
+          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp, ArgType);
+        //else if (FD->getNameAsString() == "exp2")
+          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp2, ArgType);
+        //else if (FD->getNameAsString() == "log")
+          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log, ArgType);
+        //else if (FD->getNameAsString() == "log2")
+          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log2, ArgType);
+        //else if (FD->getNameAsString() == "log10")
+          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log10, ArgType);
+        //else if (FD->getNameAsString() == "pow")
+          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::pow, ArgType);
+        //else if (FD->getNameAsString() == "powi")
+          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::powi, ArgType);
+        /*else*/ if (FD->getNameAsString() == "sqrt")
           Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::sqrt, ArgType);
-        else if (FD->getNameAsString() == "sin")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::sin, ArgType);
-        else if (FD->getNameAsString() == "cos")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::cos, ArgType);
+        //else if (FD->getNameAsString() == "sin")
+          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::sin, ArgType);
+        //else if (FD->getNameAsString() == "cos")
+          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::cos, ArgType);
         else if (FD->getNameAsString() == "fma")
           Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::fma, ArgType);
         else if (FD->getNameAsString() == "fabs")
