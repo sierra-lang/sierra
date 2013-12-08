@@ -1666,4 +1666,7 @@ def SCALAR_SQRDMLSH_LANEQ : SOpInst<"vqrdmlsh_laneq", "sssji", "SsSi", OP_SCALAR
 
 def SCALAR_VDUP_LANE : IInst<"vdup_lane", "sdi", "ScSsSiSlSfSdSUcSUsSUiSUlSPcSPs">;
 def SCALAR_VDUP_LANEQ : IInst<"vdup_laneq", "sji", "ScSsSiSlSfSdSUcSUsSUiSUlSPcSPs">;
+
+def SCALAR_GET_LANE : IOpInst<"vget_lane", "sdi", "hQh", OP_SCALAR_GET_LN>;
+def SCALAR_SET_LANE : IOpInst<"vset_lane", "dsdi", "hQh", OP_SCALAR_SET_LN>;
 }
