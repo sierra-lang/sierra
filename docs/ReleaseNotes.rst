@@ -68,7 +68,7 @@ Improvements to ThinLTO (-flto=thin)
 - Significant build-time and binary-size improvements when compiling with debug
   info (``-g``).
 
-- `LeakSanitizer <LeakSanitizer.rst>`_ is an experimental memory leak detector
+- `LeakSanitizer <LeakSanitizer.html>`_ is an experimental memory leak detector
   which can be combined with AddressSanitizer.
 
 New Compiler Flags
