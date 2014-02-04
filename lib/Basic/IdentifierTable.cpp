@@ -103,9 +103,9 @@ namespace {
     KEYOPENCL = 0x200,
     KEYC11 = 0x400,
     KEYARC = 0x800,
-    KEYSIERRA = 0x2000,
     KEYNOMS = 0x01000,
     WCHARSUPPORT = 0x02000,
+    KEYSIERRA = 0x4000,
     KEYALL = (0xffff & ~KEYNOMS) // Because KEYNOMS is used to exclude.
   };
 }

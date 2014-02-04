@@ -105,11 +105,6 @@ improvements since the 3.3 release include:
 - -Wloop-analysis now warns on for-loops which have the same increment or
   decrement in the loop header as the last statement in the loop.
 
--  ...
-
-Extended Identifiers: Unicode Support and Universal Character Names
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-=======
   .. code-block:: c
 
     void foo(char *a, char *b, unsigned c) {
@@ -163,12 +158,6 @@ Extended Identifiers: Unicode Support and Universal Character Names
 New Compiler Flags
 ------------------
 
--  ...
-
-=======
-New Compiler Flags
-------------------
-
 - Clang no longer special cases -O4 to enable lto. Explicitly pass -flto to
   enable it.
 - Clang no longer fails on >= -O5. These flags are mapped to -O3 instead.
@@ -181,12 +170,6 @@ New Compiler Flags
 C Language Changes in Clang
 ---------------------------
 
-C11 Feature Support
-^^^^^^^^^^^^^^^^^^^
-
-...
-
-=======
 - Added new checked arithmetic builtins for security critical applications.
 
 C++ Language Changes in Clang
@@ -196,19 +179,6 @@ C++ Language Changes in Clang
   member offsets for classes inheriting from certain classes with tail padding.
   See `PR16537 <http://llvm.org/PR16537>`_.
 
-C++11 Feature Support
-^^^^^^^^^^^^^^^^^^^^^
-
-...
-
-Objective-C Language Changes in Clang
--------------------------------------
-
-...
-
-Internal API Changes
---------------------
-=======
 - Clang 3.4 supports the 2013-08-28 draft of the ISO WG21 SG10 feature test
   macro recommendations. These aim to provide a portable method to determine
   whether a compiler supports a language feature, much like Clang's
@@ -243,13 +213,6 @@ OpenCL C Language Changes in Clang
   types are aligned as specified in the OpenCL C standard. Also,
   "char" is now always signed.
 
-For each variable and function Clang used to keep the storage class as written
-in the source, the linkage and a semantic storage class. This was a bit
-redundant and the semantic storage class has been removed. The method
-getStorageClass now returns what is written it the source code for that decl.
-
-...
-=======
 Internal API Changes
 --------------------
 
@@ -314,5 +277,6 @@ the source code. You can access versions of these documents specific to
 this release by going into the "``clang/docs/``" directory in the Clang
 tree.
 
-If you have any questions or comments about Clang, please feel free to contact
-us via the `mailing list <http://lists.cs.uiuc.edu/mailman/listinfo/cfe-dev>`_.
+If you have any questions or comments about Clang, please feel free to
+contact us via the `mailing
+list <http://lists.cs.uiuc.edu/mailman/listinfo/cfe-dev>`_.

@@ -1919,6 +1919,8 @@ bool AttributedType::isCallingConv() const {
   case attr_sysv_abi:
   case attr_pnaclcall:
   case attr_inteloclbicc:
+  case attr_sierra_spmd:
+  case attr_sierra_vector:
     return true;
   }
   llvm_unreachable("invalid attr kind");

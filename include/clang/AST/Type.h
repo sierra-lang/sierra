@@ -102,7 +102,7 @@ namespace clang {
   typedef CanQual<Type> CanQualType;
 
   // Provide forward declarations for all of the *Type classes
-#define TYPE(Class, bAse) class Class##Type;
+#define TYPE(Class, Base) class Class##Type;
 #include "clang/AST/TypeNodes.def"
 
 /// Qualifiers - The collection of all-type qualifiers we support.
@@ -2545,6 +2545,7 @@ public:
                       QualType ElementType, Expr *SizeExpr);
 };
 
+
 /// VectorType - GCC generic vector type. This type is created using
 /// __attribute__((vector_size(n)), where "n" specifies the vector size in
 /// bytes; or from an Altivec __vector or vector declaration.
@@ -2753,7 +2754,7 @@ class FunctionType : public Type {
 
     // Constructor with all defaults. Use when for example creating a
     // function know to use defaults.
-    ExtInfo() : Bits(CC_C) { }
+    ExtInfo() : Bits(CC_C), SierraSpmd(1) { }
 
     // Constructor with just the calling convention, which is an important part
     // of the canonical type.
@@ -2811,6 +2812,7 @@ class FunctionType : public Type {
 
     void Profile(llvm::FoldingSetNodeID &ID) const {
       ID.AddInteger(Bits);
+      ID.AddInteger(SierraSpmd);
     }
   };
 

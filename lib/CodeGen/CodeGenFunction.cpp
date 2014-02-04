@@ -1328,7 +1328,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     // Fold this to:
     //   br(c, throw x, br(y, t, f))
     EmitCXXThrowExpr(Throw, /*KeepInsertionPoint*/false);
-    return;
+    return NULL;
   }
 
   // Emit the code with the fully general case.
@@ -1424,8 +1424,9 @@ CodeGenFunction::EmitNullInitialization(llvm::Value *DestPtr, QualType Ty) {
   if (Size.isZero()) {
     // But note that getTypeInfo returns 0 for a VLA.
     if (const VariableArrayType *vlaType =
-        dyn_cast_or_null<VariableArrayType>(
-          getContext().getAsArrayType(Ty))) {
+          dyn_cast_or_null<VariableArrayType>(
+                                          getContext().getAsArrayType(Ty))) {
+
       QualType eltType;
       llvm::Value *numElts;
       llvm::tie(numElts, eltType) = getVLASize(vlaType);
@@ -1550,7 +1551,7 @@ llvm::Value *CodeGenFunction::emitArrayLength(const ArrayType *origArrayType,
   while (llvmArrayType) {
     assert(isa<ConstantArrayType>(arrayType));
     assert(cast<ConstantArrayType>(arrayType)->getSize().getZExtValue()
-           == llvmArrayType->getNumElements());
+             == llvmArrayType->getNumElements());
 
     gepIndices.push_back(zero);
     countFromCLAs *= llvmArrayType->getNumElements();
@@ -1569,7 +1570,7 @@ llvm::Value *CodeGenFunction::emitArrayLength(const ArrayType *origArrayType,
     // size, and just emit the 'begin' expression as a bitcast.
     while (arrayType) {
       countFromCLAs *=
-        cast<ConstantArrayType>(arrayType)->getSize().getZExtValue();
+          cast<ConstantArrayType>(arrayType)->getSize().getZExtValue();
       eltType = arrayType->getElementType();
       arrayType = getContext().getAsArrayType(eltType);
     }
@@ -1647,7 +1648,7 @@ void CodeGenFunction::EmitVariablyModifiedType(QualType type) {
 #include "clang/AST/TypeNodes.def"
       llvm_unreachable("unexpected dependent type!");
 
-      // These types are never variably-modified.
+    // These types are never variably-modified.
     case Type::Builtin:
     case Type::Complex:
     case Type::Vector:

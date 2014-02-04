@@ -6698,6 +6698,16 @@ def err_wrong_sampler_addressspace: Error<
 def err_opencl_global_invalid_addr_space : Error<
   "global variables must have a constant address space qualifier">;
 def err_opencl_no_main : Error<"%select{function|kernel}0 cannot be called 'main'">;
+
+// Sierra warnings and errors.
+def err_sierra_attr_not_enabled : Error<
+  "'%0' attribute not enabled; use '-fsierra'">;
+def err_sierra_incompatible_vector_lengths_in_condition : Error<
+  "incompatible vector lengths in condition; old length %0, new length %1">;
+def err_sierra_incompatible_vector_lengths_in_decl : Error<
+  "incompatible vector lengths in declaration; current length %0, requested length %1">;
+def err_sierra_non_pow2 : Error<
+  "the length of a sierra vector must be a power of two but %0 requested">;
 } // end of sema category
 
 let CategoryName = "OpenMP Issue" in {
@@ -6717,20 +6727,6 @@ def err_omp_var_used : Error<
   "'#pragma omp %0' must precede all references to variable %q1">;
 def err_omp_var_thread_local : Error<
   "variable %0 cannot be threadprivate because it is thread-local">;
-def err_omp_incomplete_type : Error<
-  "a threadprivate variable must not have incomplete type %0">;
-
-// Sierra warnings and errors.
-def err_sierra_attr_not_enabled : Error<
-  "'%0' attribute not enabled; use '-fsierra'">;
-def err_sierra_incompatible_vector_lengths_in_condition : Error<
-  "incompatible vector lengths in condition; old length %0, new length %1">;
-def err_sierra_incompatible_vector_lengths_in_decl : Error<
-  "incompatible vector lengths in declaration; current length %0, requested length %1">;
-def err_sierra_non_pow2 : Error<
-  "the length of a sierra vector must be a power of two but %0 requested">;
-} // end of sema category
-
 def err_omp_private_incomplete_type : Error<
   "a private variable with incomplete type %0">;
 def err_omp_firstprivate_incomplete_type : Error<
@@ -6754,7 +6750,6 @@ def note_omp_explicit_dsa : Note <
 def note_omp_predetermined_dsa : Note <
   "predetermined as %0">;
 } // end of OpenMP category
->>>>>>> upstream/release_34
 
 let CategoryName = "Related Result Type Issue" in {
 // Objective-C related result type compatibility

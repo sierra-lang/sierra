@@ -131,18 +131,18 @@ class ASTContext : public RefCountedBase<ASTContext> {
   
   struct SierraKey {
     SierraKey() {}
-    SierraKey(const Type *Type, unsigned NumElements)
-      : Type(Type), NumElements(NumElements) {}
+    SierraKey(const Type *KeyType, unsigned NumElements)
+      : KeyType(KeyType), NumElements(NumElements) {}
 
-    const Type *getType() const { return Type; }
+    const Type *getType() const { return KeyType; }
     unsigned getNumElements() const { return NumElements; }
     bool operator < (SierraKey other) const {
-      return this->Type < other.Type 
-        || (this->Type == other.Type && this->NumElements < other.NumElements);
+      return this->KeyType < other.KeyType 
+        || (this->KeyType == other.KeyType && this->NumElements < other.NumElements);
     }
 
   private:
-    const Type *Type;
+    const Type *KeyType;
     unsigned NumElements;
   };
   typedef std::map<SierraKey, const Type*> SierraTypeMap;

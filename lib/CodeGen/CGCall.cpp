@@ -2494,154 +2494,156 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   }
 
   // HACK for sierra built-in math functions
-  if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(TargetDecl)) {
-    if (const NamespaceDecl *ND = dyn_cast<NamespaceDecl>(FD->getParent())) {
-      if (ND->getNameAsString() == "sierra") {
-        // HACK to work around stupid ABI implemented in Clang
-        std::vector<llvm::Value*> NewArgs(Args.size());
+  if (TargetDecl) {
+    if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(TargetDecl)) {
+      if (const NamespaceDecl *ND = dyn_cast<NamespaceDecl>(FD->getParent())) {
+        if (ND->getNameAsString() == "sierra") {
+          // HACK to work around stupid ABI implemented in Clang
+          std::vector<llvm::Value*> NewArgs(Args.size());
 
-        for (size_t i = 0, e = Args.size(); i != e; ++i) {
-          if (llvm::PointerType* P = dyn_cast<llvm::PointerType>(Args[i]->getType())) {
-            if (P->getElementType()->isVectorTy()) {
-              NewArgs[i] = Builder.CreateLoad(Args[i]);
-              continue;
-            }
-          } 
+          for (size_t i = 0, e = Args.size(); i != e; ++i) {
+            if (llvm::PointerType* P = dyn_cast<llvm::PointerType>(Args[i]->getType())) {
+              if (P->getElementType()->isVectorTy()) {
+                NewArgs[i] = Builder.CreateLoad(Args[i]);
+                continue;
+              }
+            } 
 
-          NewArgs[i] = Args[i];
-        }
+            NewArgs[i] = Args[i];
+          }
 
-        llvm::Function* Fun = 0;
-        llvm::Module* Module = Builder.GetInsertBlock()->getParent()->getParent();
-        llvm::Type* ArgType = !NewArgs.empty() ? NewArgs[0]->getType() : 0;
+          llvm::Function* Fun = 0;
+          llvm::Module* Module = Builder.GetInsertBlock()->getParent()->getParent();
+          llvm::Type* ArgType = !NewArgs.empty() ? NewArgs[0]->getType() : 0;
 
-        //if (FD->getNameAsString() == "exp")
-          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp, ArgType);
-        //else if (FD->getNameAsString() == "exp2")
-          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp2, ArgType);
-        //else if (FD->getNameAsString() == "log")
-          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log, ArgType);
-        //else if (FD->getNameAsString() == "log2")
-          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log2, ArgType);
-        //else if (FD->getNameAsString() == "log10")
-          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log10, ArgType);
-        //else if (FD->getNameAsString() == "pow")
-          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::pow, ArgType);
-        //else if (FD->getNameAsString() == "powi")
-          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::powi, ArgType);
-        /*else*/ if (FD->getNameAsString() == "sqrt")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::sqrt, ArgType);
-        //else if (FD->getNameAsString() == "sin")
-          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::sin, ArgType);
-        //else if (FD->getNameAsString() == "cos")
-          //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::cos, ArgType);
-        else if (FD->getNameAsString() == "fma")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::fma, ArgType);
-        else if (FD->getNameAsString() == "fabs")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::fabs, ArgType);
-        else if (FD->getNameAsString() == "floor")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::floor, ArgType);
-        else if (FD->getNameAsString() == "ceil")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::ceil, ArgType);
-        else if (FD->getNameAsString() == "trunc")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::trunc, ArgType);
-        else if (FD->getNameAsString() == "rint")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::rint, ArgType);
-        else if (FD->getNameAsString() == "nearbyint")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::nearbyint, ArgType);
-        else if (FD->getNameAsString() == "fmin1x4")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_sse_min_ps);
-        else if (FD->getNameAsString() == "fmin1x8")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_avx_min_ps_256);
-        else if (FD->getNameAsString() == "fmax1x4")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_sse_max_ps);
-        else if (FD->getNameAsString() == "fmax1x8")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_avx_max_ps_256);
-        else if (FD->getNameAsString() == "imin1x4")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_sse41_pminsd);
-        else if (FD->getNameAsString() == "imax1x4")
-          Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_sse41_pmaxsd);
-        else if (FD->getNameAsString() == "imin2x4" || FD->getNameAsString() == "imin1x8"
-              || FD->getNameAsString() == "imax2x4" || FD->getNameAsString() == "imax1x8") {
-          if (FD->getNameAsString() == "imin2x4" || FD->getNameAsString() == "imin1x8")
+          //if (FD->getNameAsString() == "exp")
+            //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp, ArgType);
+          //else if (FD->getNameAsString() == "exp2")
+            //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::exp2, ArgType);
+          //else if (FD->getNameAsString() == "log")
+            //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log, ArgType);
+          //else if (FD->getNameAsString() == "log2")
+            //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log2, ArgType);
+          //else if (FD->getNameAsString() == "log10")
+            //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::log10, ArgType);
+          //else if (FD->getNameAsString() == "pow")
+            //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::pow, ArgType);
+          //else if (FD->getNameAsString() == "powi")
+            //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::powi, ArgType);
+          /*else*/ if (FD->getNameAsString() == "sqrt")
+            Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::sqrt, ArgType);
+          //else if (FD->getNameAsString() == "sin")
+            //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::sin, ArgType);
+          //else if (FD->getNameAsString() == "cos")
+            //Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::cos, ArgType);
+          else if (FD->getNameAsString() == "fma")
+            Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::fma, ArgType);
+          else if (FD->getNameAsString() == "fabs")
+            Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::fabs, ArgType);
+          else if (FD->getNameAsString() == "floor")
+            Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::floor, ArgType);
+          else if (FD->getNameAsString() == "ceil")
+            Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::ceil, ArgType);
+          else if (FD->getNameAsString() == "trunc")
+            Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::trunc, ArgType);
+          else if (FD->getNameAsString() == "rint")
+            Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::rint, ArgType);
+          else if (FD->getNameAsString() == "nearbyint")
+            Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::nearbyint, ArgType);
+          else if (FD->getNameAsString() == "fmin1x4")
+            Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_sse_min_ps);
+          else if (FD->getNameAsString() == "fmin1x8")
+            Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_avx_min_ps_256);
+          else if (FD->getNameAsString() == "fmax1x4")
+            Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_sse_max_ps);
+          else if (FD->getNameAsString() == "fmax1x8")
+            Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_avx_max_ps_256);
+          else if (FD->getNameAsString() == "imin1x4")
             Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_sse41_pminsd);
-          else // FD->getNameAsString() == "imax2x4" || FD->getNameAsString() == "imax1x8"
+          else if (FD->getNameAsString() == "imax1x4")
             Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_sse41_pmaxsd);
-          llvm::Constant* lower[] = { Builder.getInt32(0), Builder.getInt32(1), Builder.getInt32(2), Builder.getInt32(3) };
-          llvm::Constant* upper[] = { Builder.getInt32(4), Builder.getInt32(5), Builder.getInt32(6), Builder.getInt32(7) };
-          llvm::Constant* all[] = { lower[0], lower[1], lower[2], lower[3], upper[0], upper[1], upper[2], upper[3] };
-          llvm::Value* vl = llvm::ConstantVector::get(lower);
-          llvm::Value* vu = llvm::ConstantVector::get(upper);
-          llvm::Value* va = llvm::ConstantVector::get(all);
-          llvm::Value* al = Builder.CreateShuffleVector(NewArgs[0], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl);
-          llvm::Value* au = Builder.CreateShuffleVector(NewArgs[0], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vu);
-          llvm::Value* bl = Builder.CreateShuffleVector(NewArgs[1], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl);
-          llvm::Value* bu = Builder.CreateShuffleVector(NewArgs[1], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vu);
-          llvm::Value* resl = Builder.CreateCall2(Fun, al, bl);
-          llvm::Value* resu = Builder.CreateCall2(Fun, au, bu);
-          return RValue::get(Builder.CreateShuffleVector(resl, resu, va));
-        } else if (FD->getNameAsString() == "imin2x8" || FD->getNameAsString() == "imax2x8") {
-          if (FD->getNameAsString() == "imin2x8")
-            Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_sse41_pminsd);
-          else // FD->getNameAsString() == "imax2x8"
-            Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_sse41_pmaxsd);
-          llvm::Constant* lower1[] = { Builder.getInt32(0),  Builder.getInt32(1),  Builder.getInt32(2),  Builder.getInt32(3) };
-          llvm::Constant* lower2[] = { Builder.getInt32(4),  Builder.getInt32(5),  Builder.getInt32(6),  Builder.getInt32(7) };
-          llvm::Constant* upper1[] = { Builder.getInt32(8),  Builder.getInt32(9),  Builder.getInt32(10), Builder.getInt32(11) };
-          llvm::Constant* upper2[] = { Builder.getInt32(12), Builder.getInt32(13), Builder.getInt32(14), Builder.getInt32(15) };
-          llvm::Constant* all_l1l2[] = { lower1[0], lower1[1], lower1[2], lower1[3], lower2[0], lower2[1], lower2[2], lower2[3] };
-          llvm::Constant* all_u1u2[] = { upper1[0], upper1[1], upper1[2], upper1[3], upper2[0], upper2[1], upper2[2], upper2[3] };
-          llvm::Constant* all[]      = { all_l1l2[0], all_l1l2[1], all_l1l2[2], all_l1l2[3], all_l1l2[4], all_l1l2[5], all_l1l2[6], all_l1l2[7],
-                                         all_u1u2[0], all_u1u2[1], all_u1u2[2], all_u1u2[3], all_u1u2[4], all_u1u2[5], all_u1u2[6], all_u1u2[7] };
+          else if (FD->getNameAsString() == "imin2x4" || FD->getNameAsString() == "imin1x8"
+                || FD->getNameAsString() == "imax2x4" || FD->getNameAsString() == "imax1x8") {
+            if (FD->getNameAsString() == "imin2x4" || FD->getNameAsString() == "imin1x8")
+              Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_sse41_pminsd);
+            else // FD->getNameAsString() == "imax2x4" || FD->getNameAsString() == "imax1x8"
+              Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_sse41_pmaxsd);
+            llvm::Constant* lower[] = { Builder.getInt32(0), Builder.getInt32(1), Builder.getInt32(2), Builder.getInt32(3) };
+            llvm::Constant* upper[] = { Builder.getInt32(4), Builder.getInt32(5), Builder.getInt32(6), Builder.getInt32(7) };
+            llvm::Constant* all[] = { lower[0], lower[1], lower[2], lower[3], upper[0], upper[1], upper[2], upper[3] };
+            llvm::Value* vl = llvm::ConstantVector::get(lower);
+            llvm::Value* vu = llvm::ConstantVector::get(upper);
+            llvm::Value* va = llvm::ConstantVector::get(all);
+            llvm::Value* al = Builder.CreateShuffleVector(NewArgs[0], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl);
+            llvm::Value* au = Builder.CreateShuffleVector(NewArgs[0], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vu);
+            llvm::Value* bl = Builder.CreateShuffleVector(NewArgs[1], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl);
+            llvm::Value* bu = Builder.CreateShuffleVector(NewArgs[1], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vu);
+            llvm::Value* resl = Builder.CreateCall2(Fun, al, bl);
+            llvm::Value* resu = Builder.CreateCall2(Fun, au, bu);
+            return RValue::get(Builder.CreateShuffleVector(resl, resu, va));
+          } else if (FD->getNameAsString() == "imin2x8" || FD->getNameAsString() == "imax2x8") {
+            if (FD->getNameAsString() == "imin2x8")
+              Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_sse41_pminsd);
+            else // FD->getNameAsString() == "imax2x8"
+              Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_sse41_pmaxsd);
+            llvm::Constant* lower1[] = { Builder.getInt32(0),  Builder.getInt32(1),  Builder.getInt32(2),  Builder.getInt32(3) };
+            llvm::Constant* lower2[] = { Builder.getInt32(4),  Builder.getInt32(5),  Builder.getInt32(6),  Builder.getInt32(7) };
+            llvm::Constant* upper1[] = { Builder.getInt32(8),  Builder.getInt32(9),  Builder.getInt32(10), Builder.getInt32(11) };
+            llvm::Constant* upper2[] = { Builder.getInt32(12), Builder.getInt32(13), Builder.getInt32(14), Builder.getInt32(15) };
+            llvm::Constant* all_l1l2[] = { lower1[0], lower1[1], lower1[2], lower1[3], lower2[0], lower2[1], lower2[2], lower2[3] };
+            llvm::Constant* all_u1u2[] = { upper1[0], upper1[1], upper1[2], upper1[3], upper2[0], upper2[1], upper2[2], upper2[3] };
+            llvm::Constant* all[]      = { all_l1l2[0], all_l1l2[1], all_l1l2[2], all_l1l2[3], all_l1l2[4], all_l1l2[5], all_l1l2[6], all_l1l2[7],
+                                          all_u1u2[0], all_u1u2[1], all_u1u2[2], all_u1u2[3], all_u1u2[4], all_u1u2[5], all_u1u2[6], all_u1u2[7] };
 
-          llvm::Value* vl1 = llvm::ConstantVector::get(lower1);
-          llvm::Value* vl2 = llvm::ConstantVector::get(lower2);
-          //llvm::Value* vu1 = llvm::ConstantVector::get(upper1);
-          //llvm::Value* vu2 = llvm::ConstantVector::get(upper2);
-          llvm::Value* vl12 = llvm::ConstantVector::get(all_l1l2);
-          llvm::Value* vu12 = llvm::ConstantVector::get(all_u1u2);
-          llvm::Value* vl12u12  = llvm::ConstantVector::get(all);
+            llvm::Value* vl1 = llvm::ConstantVector::get(lower1);
+            llvm::Value* vl2 = llvm::ConstantVector::get(lower2);
+            //llvm::Value* vu1 = llvm::ConstantVector::get(upper1);
+            //llvm::Value* vu2 = llvm::ConstantVector::get(upper2);
+            llvm::Value* vl12 = llvm::ConstantVector::get(all_l1l2);
+            llvm::Value* vu12 = llvm::ConstantVector::get(all_u1u2);
+            llvm::Value* vl12u12  = llvm::ConstantVector::get(all);
 
-          llvm::Value* al12 = Builder.CreateShuffleVector(NewArgs[0], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 16)), vl12);
-            llvm::Value* al1  = Builder.CreateShuffleVector(al12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl1);
-            llvm::Value* al2  = Builder.CreateShuffleVector(al12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl2);
-          llvm::Value* au12 = Builder.CreateShuffleVector(NewArgs[0], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 16)), vu12);
-            llvm::Value* au1  = Builder.CreateShuffleVector(au12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl1);
-            llvm::Value* au2  = Builder.CreateShuffleVector(au12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl2);
+            llvm::Value* al12 = Builder.CreateShuffleVector(NewArgs[0], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 16)), vl12);
+              llvm::Value* al1  = Builder.CreateShuffleVector(al12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl1);
+              llvm::Value* al2  = Builder.CreateShuffleVector(al12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl2);
+            llvm::Value* au12 = Builder.CreateShuffleVector(NewArgs[0], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 16)), vu12);
+              llvm::Value* au1  = Builder.CreateShuffleVector(au12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl1);
+              llvm::Value* au2  = Builder.CreateShuffleVector(au12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl2);
 
-          llvm::Value* bl12 = Builder.CreateShuffleVector(NewArgs[1], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 16)), vl12);
-            llvm::Value* bl1  = Builder.CreateShuffleVector(bl12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl1);
-            llvm::Value* bl2  = Builder.CreateShuffleVector(bl12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl2);
-          llvm::Value* bu12 = Builder.CreateShuffleVector(NewArgs[1], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 16)), vu12);
-            llvm::Value* bu1  = Builder.CreateShuffleVector(bu12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl1);
-            llvm::Value* bu2  = Builder.CreateShuffleVector(bu12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl2);
+            llvm::Value* bl12 = Builder.CreateShuffleVector(NewArgs[1], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 16)), vl12);
+              llvm::Value* bl1  = Builder.CreateShuffleVector(bl12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl1);
+              llvm::Value* bl2  = Builder.CreateShuffleVector(bl12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl2);
+            llvm::Value* bu12 = Builder.CreateShuffleVector(NewArgs[1], llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 16)), vu12);
+              llvm::Value* bu1  = Builder.CreateShuffleVector(bu12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl1);
+              llvm::Value* bu2  = Builder.CreateShuffleVector(bu12,     llvm::UndefValue::get(llvm::VectorType::get(Builder.getInt32Ty(), 8)), vl2);
 
-          llvm::Value* resl1 = Builder.CreateCall2(Fun, al1, bl1);
-          llvm::Value* resl2 = Builder.CreateCall2(Fun, al2, bl2);
-          llvm::Value* resu1 = Builder.CreateCall2(Fun, au1, bu1);
-          llvm::Value* resu2 = Builder.CreateCall2(Fun, au2, bu2);
+            llvm::Value* resl1 = Builder.CreateCall2(Fun, al1, bl1);
+            llvm::Value* resl2 = Builder.CreateCall2(Fun, al2, bl2);
+            llvm::Value* resu1 = Builder.CreateCall2(Fun, au1, bu1);
+            llvm::Value* resu2 = Builder.CreateCall2(Fun, au2, bu2);
 
-          llvm::Value* resl12 = Builder.CreateShuffleVector(resl1, resl2, vl12);
-          llvm::Value* resu12 = Builder.CreateShuffleVector(resu1, resu2, vl12);
-          return RValue::get(Builder.CreateShuffleVector(resl12, resu12, vl12u12));
-        } else if (FD->getNameAsString() == "fgather") {
-          if (llvm::VectorType* V = dyn_cast<llvm::VectorType>(NewArgs[1]->getType())) {
-            int n = V->getNumElements();
+            llvm::Value* resl12 = Builder.CreateShuffleVector(resl1, resl2, vl12);
+            llvm::Value* resu12 = Builder.CreateShuffleVector(resu1, resu2, vl12);
+            return RValue::get(Builder.CreateShuffleVector(resl12, resu12, vl12u12));
+          } else if (FD->getNameAsString() == "fgather") {
+            if (llvm::VectorType* V = dyn_cast<llvm::VectorType>(NewArgs[1]->getType())) {
+              int n = V->getNumElements();
 
-            llvm::Value* res = llvm::UndefValue::get(llvm::VectorType::get(Builder.getFloatTy(), n));
-            for (int i = 0; i < n; ++i) {
-              llvm::Value *Index = Builder.CreateExtractElement(NewArgs[1], Builder.getInt32(i));
-              llvm::Value *Val  = Builder.CreateLoad(Builder.CreateInBoundsGEP(Args[0], Index));
-              res = Builder.CreateInsertElement(res, Val, Builder.getInt32(i));
-            }
+              llvm::Value* res = llvm::UndefValue::get(llvm::VectorType::get(Builder.getFloatTy(), n));
+              for (int i = 0; i < n; ++i) {
+                llvm::Value *Index = Builder.CreateExtractElement(NewArgs[1], Builder.getInt32(i));
+                llvm::Value *Val  = Builder.CreateLoad(Builder.CreateInBoundsGEP(Args[0], Index));
+                res = Builder.CreateInsertElement(res, Val, Builder.getInt32(i));
+              }
 
-            return RValue::get(res);
-          } else 
-              return RValue::get(Builder.CreateLoad(Builder.CreateInBoundsGEP(Args[0], NewArgs[1])));
+              return RValue::get(res);
+            } else 
+                return RValue::get(Builder.CreateLoad(Builder.CreateInBoundsGEP(Args[0], NewArgs[1])));
+          }
+
+          if (Fun)
+            return RValue::get(Builder.CreateCall(Fun, NewArgs));
         }
-
-        if (Fun)
-          return RValue::get(Builder.CreateCall(Fun, NewArgs));
       }
     }
   }

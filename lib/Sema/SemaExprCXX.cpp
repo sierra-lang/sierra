@@ -4380,11 +4380,11 @@ QualType Sema::CXXCheckConditionalOperands(ExprResult &Cond, ExprResult &LHS,
   // C++11 [expr.cond]p1
   //   The first expression is contextually converted to bool.
   if (!Cond.get()->isTypeDependent()) {
-    int AllowedVectorLenght = 1;
+    int AllowedVectorLength = 1;
     if ( Cond.get()->getType()->isSierraVectorType() )
-      AllowedVectorLenght = Cond.get()->getType()->getSierraVectorLength();
+      AllowedVectorLength = Cond.get()->getType()->getSierraVectorLength();
     ExprResult CondRes = CheckCXXBooleanCondition(Cond.take(),
-        AllowedVectorLenght);
+        AllowedVectorLength);
     if (CondRes.isInvalid())
       return QualType();
     Cond = CondRes;

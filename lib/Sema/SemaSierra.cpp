@@ -363,7 +363,7 @@ QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize,
   if (!ArraySize->isTypeDependent() && !ArraySize->isValueDependent()) {
     llvm::APSInt vecSize(32);
     if (!ArraySize->isIntegerConstantExpr(vecSize, S.Context)) {
-      S.Diag(AttrLoc, diag::err_attribute_argument_not_int)
+      S.Diag(AttrLoc, diag::err_attribute_argument_type)
         << "sierra_vector" << ArraySize->getSourceRange();
       return QualType();
     }
@@ -411,28 +411,30 @@ void HandleSierraVectorAttr(Sema &S, QualType& CurType, const AttributeList &Att
     return;
   }
 
+  // check the attribute arguments.
+  if (Attr.getNumArgs() != 1) {
+    S.Diag(Attr.getLoc(), diag::err_attribute_wrong_number_arguments)
+      << Attr.getName() << 1;
+    return;
+  }
+
   Expr *sizeExpr;
-  
+
   // Special case where the argument is a template id.
-  if (Attr.getParameterName()) {
+  if (Attr.isArgIdent(0)) {
     CXXScopeSpec SS;
     SourceLocation TemplateKWLoc;
     UnqualifiedId id;
-    id.setIdentifier(Attr.getParameterName(), Attr.getLoc());
+    id.setIdentifier(Attr.getArgAsIdent(0)->Ident, Attr.getLoc());
 
     ExprResult Size = S.ActOnIdExpression(S.getCurScope(), SS, TemplateKWLoc,
                                           id, false, false);
     if (Size.isInvalid())
       return;
-    
+
     sizeExpr = Size.get();
   } else {
-    // check the attribute arguments.
-    if (Attr.getNumArgs() != 1) {
-      S.Diag(Attr.getLoc(), diag::err_attribute_wrong_number_arguments) << 1;
-      return;
-    }
-    sizeExpr = Attr.getArg(0);
+    sizeExpr = Attr.getArgAsExpr(0);
   }
   
   // Create the vector type.
@@ -455,30 +457,33 @@ bool HandleSierraSpmdAttr(Sema &S, const FunctionType *FunT,
 
   bool result = true;
 
+  // check the attribute arguments.
   if (Attr.getNumArgs() != 1) {
-    S.Diag(Attr.getLoc(), diag::err_attribute_wrong_number_arguments) << 1;
-    result = false;
+    S.Diag(Attr.getLoc(), diag::err_attribute_wrong_number_arguments)
+      << Attr.getName() << 1;
+    return false;
   }
 
-  Expr *SizeExpr;
+  Expr *sizeExpr;
 
   // Special case where the argument is a template id.
-  if (Attr.getParameterName()) {
+  if (Attr.isArgIdent(0)) {
     CXXScopeSpec SS;
     SourceLocation TemplateKWLoc;
     UnqualifiedId id;
-    id.setIdentifier(Attr.getParameterName(), Attr.getLoc());
+    id.setIdentifier(Attr.getArgAsIdent(0)->Ident, Attr.getLoc());
 
     ExprResult Size = S.ActOnIdExpression(S.getCurScope(), SS, TemplateKWLoc,
                                           id, false, false);
     if (Size.isInvalid())
       return false;
-    
-    SizeExpr = Size.get();
-  } else
-    SizeExpr = Attr.getArg(0);
 
-  if (SizeExpr->isTypeDependent() || SizeExpr->isValueDependent())
+    sizeExpr = Size.get();
+  } else {
+    sizeExpr = Attr.getArgAsExpr(0);
+  }
+
+  if (sizeExpr->isTypeDependent() || sizeExpr->isValueDependent())
     return true;
     //result = false;
 
@@ -486,9 +491,9 @@ bool HandleSierraSpmdAttr(Sema &S, const FunctionType *FunT,
     return false;
 
   llvm::APSInt SpmdSizeAPS(32);
-  if (!SizeExpr->isIntegerConstantExpr(SpmdSizeAPS, S.Context)) {
-    S.Diag(Attr.getLoc(), diag::err_attribute_argument_not_int)
-      << "sierra_vector" << SizeExpr->getSourceRange();
+  if (!sizeExpr->isIntegerConstantExpr(SpmdSizeAPS, S.Context)) {
+    S.Diag(Attr.getLoc(), diag::err_attribute_argument_type)
+      << "sierra_vector" << sizeExpr->getSourceRange();
     return false;
   }
 

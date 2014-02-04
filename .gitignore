@@ -18,14 +18,12 @@
 # vim swap files
 .*.swp
 .sw?
-.exrc
 
 #==============================================================================#
 # Explicit files to ignore (only matches one).
 #==============================================================================#
 cscope.files
 cscope.out
-.exrc
 
 #==============================================================================#
 # Directories to ignore (do not add trailing '/'s, they skip symlinks).

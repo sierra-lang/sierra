@@ -252,6 +252,7 @@ class CGFunctionInfo : public llvm::FoldingSetNode {
   /// How many arguments to pass inreg.
   unsigned HasRegParm : 1;
   unsigned RegParm : 4;
+  unsigned SierraSpmd;
 
   RequiredArgs Required;
 
@@ -312,12 +313,13 @@ public:
 
   bool getHasRegParm() const { return HasRegParm; }
   unsigned getRegParm() const { return RegParm; }
+  unsigned getSierraSpmd() const { return SierraSpmd; }
 
   FunctionType::ExtInfo getExtInfo() const {
     return FunctionType::ExtInfo(isNoReturn(),
                                  getHasRegParm(), getRegParm(),
                                  getASTCallingConvention(),
-                                 isReturnsRetained());
+                                 isReturnsRetained(), SierraSpmd);
   }
 
   CanQualType getReturnType() const { return getArgsBuffer()[0].type; }
@@ -331,6 +333,7 @@ public:
     ID.AddBoolean(ReturnsRetained);
     ID.AddBoolean(HasRegParm);
     ID.AddInteger(RegParm);
+    ID.AddInteger(SierraSpmd);
     ID.AddInteger(Required.getOpaqueData());
     getReturnType().Profile(ID);
     for (arg_iterator it = arg_begin(), ie = arg_end(); it != ie; ++it)
@@ -346,6 +349,7 @@ public:
     ID.AddBoolean(info.getProducesResult());
     ID.AddBoolean(info.getHasRegParm());
     ID.AddInteger(info.getRegParm());
+    ID.AddInteger(info.getSierraSpmd());
     ID.AddInteger(required.getOpaqueData());
     resultType.Profile(ID);
     for (ArrayRef<CanQualType>::iterator
