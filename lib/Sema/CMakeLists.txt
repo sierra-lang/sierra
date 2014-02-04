@@ -52,6 +52,7 @@ add_clang_library(clangSema
   SemaTemplateVariadic.cpp
   SemaType.cpp
   TargetAttributesSema.cpp
+  TypeLocBuilder.cpp
   )
 
 add_dependencies(clangSema
@@ -60,6 +61,7 @@ add_dependencies(clangSema
   ClangAttrList
   ClangAttrParsedAttrList
   ClangAttrParsedAttrKinds
+  ClangAttrParsedAttrImpl
   ClangAttrSpellingListIndex
   ClangAttrTemplateInstantiate
   ClangCommentNodes
