@@ -106,7 +106,7 @@ namespace clang {
   typedef CanQual<Type> CanQualType;
 
   // Provide forward declarations for all of the *Type classes
-#define TYPE(Class, bAse) class Class##Type;
+#define TYPE(Class, Base) class Class##Type;
 #include "clang/AST/TypeNodes.def"
 
 /// The collection of all-type qualifiers we support.
@@ -3002,7 +3002,7 @@ class FunctionType : public Type {
     }
 
     // Constructor with all defaults. Use when for example creating a
-    // function known to use defaults.
+    // function know to use defaults.
     ExtInfo() : Bits(CC_C), SierraSpmd(1) { }
 
     // Constructor with just the calling convention, which is an important part
@@ -3061,6 +3061,7 @@ class FunctionType : public Type {
 
     void Profile(llvm::FoldingSetNodeID &ID) const {
       ID.AddInteger(Bits);
+      ID.AddInteger(SierraSpmd);
     }
   };
 

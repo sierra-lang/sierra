@@ -3144,6 +3144,8 @@ bool AttributedType::isCallingConv() const {
   case attr_inteloclbicc:
   case attr_preserve_most:
   case attr_preserve_all:
+  case attr_sierra_spmd:
+  case attr_sierra_vector:
     return true;
   }
   llvm_unreachable("invalid attr kind");

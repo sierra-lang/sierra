@@ -8237,13 +8237,16 @@ def err_opencl_enqueue_kernel_blocks_no_args : Error<
 def ext_opencl_ext_vector_type_rgba_selector: ExtWarn<
   "vector component name '%0' is an OpenCL version 2.2 feature">,
   InGroup<OpenCLUnsupportedRGBA>;
+
 // Sierra warnings and errors.
 def err_sierra_attr_not_enabled : Error<
   "'%0' attribute not enabled; use '-fsierra'">;
-def err_incompatible_vector_lengths_in_condition : Error<
+def err_sierra_incompatible_vector_lengths_in_condition : Error<
   "incompatible vector lengths in condition; old length %0, new length %1">;
-def err_incompatible_vector_lengths_in_decl : Error<
+def err_sierra_incompatible_vector_lengths_in_decl : Error<
   "incompatible vector lengths in declaration; current length %0, requested length %1">;
+def err_sierra_non_pow2 : Error<
+  "the length of a sierra vector must be a power of two but %0 requested">;
 } // end of sema category
 
 let CategoryName = "OpenMP Issue" in {

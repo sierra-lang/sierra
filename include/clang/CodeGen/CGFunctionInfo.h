@@ -478,6 +478,7 @@ class CGFunctionInfo final
   /// How many arguments to pass inreg.
   unsigned HasRegParm : 1;
   unsigned RegParm : 3;
+  unsigned SierraSpmd;
 
   RequiredArgs Required;
 
@@ -581,12 +582,13 @@ public:
 
   bool getHasRegParm() const { return HasRegParm; }
   unsigned getRegParm() const { return RegParm; }
+  unsigned getSierraSpmd() const { return SierraSpmd; }
 
   FunctionType::ExtInfo getExtInfo() const {
     return FunctionType::ExtInfo(isNoReturn(),
                                  getHasRegParm(), getRegParm(),
                                  getASTCallingConvention(),
-                                 isReturnsRetained());
+                                 isReturnsRetained(), SierraSpmd);
   }
 
   CanQualType getReturnType() const { return getArgsBuffer()[0].type; }
@@ -625,6 +627,7 @@ public:
     ID.AddBoolean(ReturnsRetained);
     ID.AddBoolean(HasRegParm);
     ID.AddInteger(RegParm);
+    ID.AddInteger(SierraSpmd);
     ID.AddInteger(Required.getOpaqueData());
     ID.AddBoolean(HasExtParameterInfos);
     if (HasExtParameterInfos) {
@@ -650,6 +653,7 @@ public:
     ID.AddBoolean(info.getProducesResult());
     ID.AddBoolean(info.getHasRegParm());
     ID.AddInteger(info.getRegParm());
+    ID.AddInteger(info.getSierraSpmd());
     ID.AddInteger(required.getOpaqueData());
     ID.AddBoolean(!paramInfos.empty());
     if (!paramInfos.empty()) {
