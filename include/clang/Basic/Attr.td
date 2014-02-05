@@ -382,6 +382,7 @@ def Destructor : InheritableAttr {
 
 def SierraSpmd : InheritableAttr {
   let Spellings = [GNU<"sierra_spmd">];
+  let Args = [IntArgument<"SPMD">];
   let Subjects = [Function];
 }
 
