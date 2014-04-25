@@ -4280,19 +4280,6 @@ Tool *Linux::buildAssembler() const {
   return new tools::gnutools::Assembler(*this);
 }
 
-void Linux::addClangTargetOptions(const ArgList &DriverArgs,
-                                  ArgStringList &CC1Args) const {
-  const Generic_GCC::GCCVersion &V = GCCInstallation.getVersion();
-  bool UseInitArrayDefault =
-      !V.isOlderThan(4, 7, 0) ||
-      getTriple().getArch() == llvm::Triple::aarch64 ||
-      getTriple().getEnvironment() == llvm::Triple::Android;
-  if (DriverArgs.hasFlag(options::OPT_fuse_init_array,
-                         options::OPT_fno_use_init_array,
-                         UseInitArrayDefault))
-    CC1Args.push_back("-fuse-init-array");
-}
-
 std::string Linux::computeSysRoot() const {
   if (!getDriver().SysRoot.empty())
     return getDriver().SysRoot;
