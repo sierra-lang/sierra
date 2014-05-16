@@ -1524,7 +1524,7 @@ static bool IsVectorConversion(Sema &S, QualType FromType,
     }
   }
 
-  if (Context.getLangOpts().SIERRA) {
+  if (Context.getLangOpts().Sierra) {
     const VectorType* VFrom = FromType->isSierraVectorType() 
                             ? FromType->getAs<VectorType>() 
                             : 0;

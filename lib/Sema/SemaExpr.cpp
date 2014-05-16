@@ -8072,6 +8072,17 @@ QualType Sema::CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
     return RHSType;
   }
 
+  // Not allowewd in Sierra
+  if (!getLangOpts().Sierra && getLangOpts().LaxVectorConversions &&
+      Context.getTypeSize(LHSType) == Context.getTypeSize(RHSType)) {
+    // If we are allowing lax vector conversions, and LHS and RHS are both
+    // vectors, the total size only needs to be the same. This is a
+    // bitcast; no bits are changed but the result type is different.
+    // FIXME: Should we really be allowing this?
+    RHS = ImpCastExprToType(RHS.take(), LHSType, CK_BitCast);
+    return LHSType;
+  }
+
   // AllowBoolConversions says that bool and non-bool AltiVec vectors
   // can be mixed, with the result being the non-bool type.  The non-bool
   // operand must have integer element type.
@@ -14694,7 +14705,7 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
     if (getLangOpts().CPlusPlus) {
       unsigned allowed = 1;
 
-      if (getLangOpts().SIERRA) 
+      if (getLangOpts().Sierra) 
         allowed = oldL == 1 ? 0 : oldL;
 
       allowed = 0; // HACK!!!!
@@ -14721,7 +14732,7 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
     unsigned newL = T->getSierraVectorLength();
 
     // Allow vectors as conditions in Sierra
-    if (getLangOpts().SIERRA && newL > 1) {
+    if (getLangOpts().Sierra && newL > 1) {
       Scope* scope = getCurScope();
 
       if (oldL == 1 || newL == 1 || oldL == newL) {

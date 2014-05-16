@@ -457,7 +457,7 @@ QualType BuildSierraVectorType(Sema &S, QualType T, Expr *ArraySize,
 //------------------------------------------------------------------------------
 
 void HandleSierraVectorAttr(Sema &S, QualType& CurType, const AttributeList &Attr) {
-  if (!S.getLangOpts().SIERRA) {
+  if (!S.getLangOpts().Sierra) {
     S.Diag(Attr.getLoc(), diag::err_sierra_attr_not_enabled) << "sierra_vector";
     return;
   }
@@ -498,7 +498,7 @@ void HandleSierraVectorAttr(Sema &S, QualType& CurType, const AttributeList &Att
 
 bool HandleSierraSpmdAttr(Sema &S, const FunctionType *FunT, 
                           const AttributeList &Attr, unsigned &SpmdSize) {
-  if (!S.getLangOpts().SIERRA) {
+  if (!S.getLangOpts().Sierra) {
     S.Diag(Attr.getLoc(), diag::err_sierra_attr_not_enabled) << "sierra_spmd";
     return false;
   }
