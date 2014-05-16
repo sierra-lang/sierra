@@ -6669,7 +6669,7 @@ QualType Sema::CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
   }
 
   // Not allowewd in Sierra
-  if (!getLangOpts().SIERRA && getLangOpts().LaxVectorConversions &&
+  if (!getLangOpts().Sierra && getLangOpts().LaxVectorConversions &&
       Context.getTypeSize(LHSType) == Context.getTypeSize(RHSType)) {
     // If we are allowing lax vector conversions, and LHS and RHS are both
     // vectors, the total size only needs to be the same. This is a
@@ -12616,7 +12616,7 @@ ExprResult Sema::CheckBooleanCondition(Expr *E, SourceLocation Loc) {
     if (getLangOpts().CPlusPlus) {
       unsigned allowed = 1;
 
-      if (getLangOpts().SIERRA) 
+      if (getLangOpts().Sierra) 
         allowed = oldL == 1 ? 0 : oldL;
 
       allowed = 0; // HACK!!!!
@@ -12642,7 +12642,7 @@ ExprResult Sema::CheckBooleanCondition(Expr *E, SourceLocation Loc) {
     unsigned newL = T->getSierraVectorLength();
 
     // Allow vectors as conditions in Sierra
-    if (getLangOpts().SIERRA && newL > 1) {
+    if (getLangOpts().Sierra && newL > 1) {
       Scope* scope = getCurScope();
 
       if (oldL == 1 || newL == 1 || oldL == newL) {
