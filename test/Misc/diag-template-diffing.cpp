@@ -1509,6 +1509,14 @@ T<B> t6 = T<A, A>();
 // CHECK-ELIDE-NOTREE: no viable conversion from 'T<template A, [...]>' to 'T<template B, [...]>'
 }
 
+namespace Bool {
+template <class> class A{};
+A<bool> a1 = A<int>();
+// CHECK-ELIDE-NOTREE: no viable conversion from 'A<int>' to 'A<bool>'
+A<int> a2 = A<bool>();
+// CHECK-ELIDE-NOTREE: no viable conversion from 'A<bool>' to 'A<int>'
+}
+
 // CHECK-ELIDE-NOTREE: {{[0-9]*}} errors generated.
 // CHECK-NOELIDE-NOTREE: {{[0-9]*}} errors generated.
 // CHECK-ELIDE-TREE: {{[0-9]*}} errors generated.
