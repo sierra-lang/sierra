@@ -1392,6 +1392,27 @@ class TemplateDiff {
     return QualType();
   }
 
+  /// CheckForNullPtr - returns true if the expression can be evaluated as
+  /// a null pointer
+  bool CheckForNullPtr(Expr *E) {
+    assert(E && "Expected expression");
+
+    E = E->IgnoreParenCasts();
+    if (E->isNullPointerConstant(Context, Expr::NPC_ValueDependentIsNull))
+      return true;
+
+    DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E);
+    if (!DRE)
+      return false;
+
+    VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
+    if (!VD || !VD->hasInit())
+      return false;
+
+    return VD->getInit()->IgnoreParenCasts()->isNullPointerConstant(
+        Context, Expr::NPC_ValueDependentIsNull);
+  }
+
   /// GetTemplateDecl - Retrieves the template template arguments, including
   /// default arguments.
   static TemplateDecl *GetTemplateDecl(const TSTiterator &Iter) {
@@ -1649,7 +1670,7 @@ class TemplateDiff {
     assert((FromExpr || ToExpr) &&
             "Only one template argument may be missing.");
     if (Same) {
-      PrintExpr(FromExpr);
+      PrintExpr(FromExpr, FromNullPtr);
     } else if (!PrintTree) {
       OS << (FromDefault ? "(default) " : "");
       Bold();
