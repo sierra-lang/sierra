@@ -1488,6 +1488,27 @@ void run(A_reg<float> reg, A_ptr<float> ptr, A_ref<float> ref) {
 }
 }
 
+namespace TemplateTemplateDefault {
+template <class> class A{};
+template <class> class B{};
+template <class> class C{};
+template <template <class> class, template <class> class = A>
+        class T {};
+
+T<A> t1 = T<A, C>();
+// CHECK-ELIDE-NOTREE: no viable conversion from 'T<[...], template C>' to 'T<[...], (default) template A>'
+T<A, C> t2 = T<A>();
+// CHECK-ELIDE-NOTREE: no viable conversion from 'T<[...], (default) template A>' to 'T<[...], template C>'
+T<A> t3 = T<B>();
+// CHECK-ELIDE-NOTREE: no viable conversion from 'T<template B>' to 'T<template A>'
+T<B, C> t4 = T<C, B>();
+// CHECK-ELIDE-NOTREE: no viable conversion from 'T<template C, template B>' to 'T<template B, template C>'
+T<A, A> t5 = T<B>();
+// CHECK-ELIDE-NOTREE: no viable conversion from 'T<template B, [...]>' to 'T<template A, [...]>'
+T<B> t6 = T<A, A>();
+// CHECK-ELIDE-NOTREE: no viable conversion from 'T<template A, [...]>' to 'T<template B, [...]>'
+}
+
 // CHECK-ELIDE-NOTREE: {{[0-9]*}} errors generated.
 // CHECK-NOELIDE-NOTREE: {{[0-9]*}} errors generated.
 // CHECK-ELIDE-TREE: {{[0-9]*}} errors generated.
