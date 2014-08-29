@@ -1792,36 +1792,25 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 
   // Emit the code for the fully general case.
 
-  /*
-   * If we have a Sierra Vector Type, make the evaluation depend on the current
+  /* If we have a Sierra Vector Type, make the evaluation depend on the current
    * mask.
    */
   if ( Cond->getType()->isSierraVectorType() )
   {
-    //llvm::LLVMContext &Context = Builder.getContext();
-    //int NumElems = Cond->getType()->getSierraVectorLength();
-
-    // Save old mask.
+    /* Save old mask and set the current mask. */
     llvm::Value *OldMask = getCurrentMask();
-
-    // Set the new current mask.
     setCurrentMask( mask );
 
     // Evaluate the condition
     // FIXME It seems like if the sub expression is again of Sierra Vector type,
     // and we have a cast expression in between, this does not work.
     // Still needs more testing...
-    //clang::CodeGen::RValue _CondV = EmitAnyExpr( Cond );
-    llvm::Value * CondV;
+    llvm::Value *CondV = EmitScalarExpr( Cond );
 
-    CondV = EmitScalarExpr( Cond );
-
-    /*
-     * Mask the result.
-     */
+    /* Mask the result. */
     CondV = Builder.CreateAnd( CondV, mask );
-    /*
-     * Emit the code for either the falseFirst case or the regular case.
+
+    /* Emit the code for either the falseFirst case or the regular case.
      *
      * falseFirst schedules the evaluation of the FalseBlock before the
      * TrueBlock
