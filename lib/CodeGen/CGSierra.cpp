@@ -87,7 +87,7 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src, QualType Src
 
 //------------------------------------------------------------------------------
 
-llvm::Value *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask, 
+llvm::Value *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask,
                                  llvm::Value *Val, llvm::Value *Ptr, bool Volatile) {
   llvm::VectorType *MaskTy = llvm::cast<llvm::VectorType>(Mask->getType());
   llvm::VectorType *ValTy  = llvm::cast<llvm::VectorType>( Val->getType());
@@ -206,9 +206,9 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
     CGF.setCurrentMask(CreateAllOnesVector(Context, NumElems));
   }
 
-  llvm::BasicBlock *ThenBlock = CGF.createBasicBlock("vectorized-if.then");
-  llvm::BasicBlock *ContBlock = CGF.createBasicBlock("vectorized-if.end");
-  llvm::BasicBlock *ElseBlock = CGF.createBasicBlock("vectorized-if.else");
+  llvm::BasicBlock *ThenBlock = CGF.createBasicBlock("sierra-if.then");
+  llvm::BasicBlock *ContBlock = CGF.createBasicBlock("sierra-if.end");
+  llvm::BasicBlock *ElseBlock = CGF.createBasicBlock("sierra-if.else");
 
   llvm::Value* OldMask = CGF.getCurrentMask();
 
@@ -217,7 +217,7 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
   CGF.EmitBranchOnBoolExpr( S.getCond(), ThenBlock, ElseBlock, false, &ThenMask,
                             &ElseMask );
 
-  CGF.EmitBlock(ThenBlock); 
+  CGF.EmitBlock(ThenBlock);
   {
     CGF.setCurrentMask(ThenMask);
     CodeGenFunction::RunCleanupsScope ThenScope(CGF);
@@ -267,20 +267,20 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
   // Emit the header for the loop, which will also become
   // the continue target.
   CodeGenFunction::JumpDest LoopHeader =
-    CGF.getJumpDestInCurrentScope("vectorized-while.cond");
+    CGF.getJumpDestInCurrentScope("sierra-while.cond");
   CGF.EmitBlock(LoopHeader.getBlock());
 
-  // Create a new phi node. The arguments are specified later.                                        
-  // The phi node will take either the initial loop mask,                                             
-  // or the one that is created after evaluating the condition.                                       
+  // Create a new phi node. The arguments are specified later.
+  // The phi node will take either the initial loop mask,
+  // or the one that is created after evaluating the condition.
   llvm::PHINode *phi = Builder.CreatePHI( CurrenMask->getType(), 2,
-      "vectorized-while.header-phi" );
+      "sierra-while.header-phi" );
 
   phi->addIncoming( CurrenMask, OldBlock );
 
   // Create an exit block for when the condition fails, which will
   // also become the break target.
-  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope("vectorized-while.end");
+  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope("sierra-while.end");
 
   // TODO this is not working ATM
   // Store the blocks to use for break and continue.
@@ -297,9 +297,9 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
 
   if (S.getConditionVariable())
     CGF.EmitAutoVarDecl(*S.getConditionVariable());
-  
+
   // As long as at least one lane yields true go to the loop body.
-  llvm::BasicBlock *LoopBody = CGF.createBasicBlock("vectorized-while.body");
+  llvm::BasicBlock *LoopBody = CGF.createBasicBlock("sierra-while.body");
   llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
 
   llvm::PHINode *LoopMask = NULL;
@@ -333,7 +333,7 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
 
   if (ConditionScope.requiresCleanups())
   {
-    ExitBlock = CGF.createBasicBlock("vectorized-while.exit");
+    ExitBlock = CGF.createBasicBlock("sierra-while.exit");
     CGF.EmitBlock(ExitBlock);
     CGF.EmitBranchThroughCleanup(LoopExit);
   }
@@ -358,11 +358,11 @@ void EmitSierraDoStmt( CodeGenFunction &CGF, const DoStmt &S )
   llvm::Value *CurrentMask = CGF.getCurrentMask();
 
   // Break target
-  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope( "vectorized-do.end" );
+  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope( "sierra-do.end" );
   // Continue target
-  CodeGenFunction::JumpDest LoopCond = CGF.getJumpDestInCurrentScope( "vectorized-do.cond" );
+  CodeGenFunction::JumpDest LoopCond = CGF.getJumpDestInCurrentScope( "sierra-do.cond" );
   // Body block, containing the loop body
-  llvm::BasicBlock *LoopBody = CGF.createBasicBlock( "vectorized-do.body" );
+  llvm::BasicBlock *LoopBody = CGF.createBasicBlock( "sierra-do.body" );
   // Exit block ( after the Do stmt )
   llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
 
@@ -371,30 +371,30 @@ void EmitSierraDoStmt( CodeGenFunction &CGF, const DoStmt &S )
   BreakContinueStack.push_back(BreakContinue(LoopExit, LoopCond));
 */
 
-  // Create a new phi node. The arguments are specified later.                                        
-  // The phi node will take either the initial loop mask,                                             
-  // or the one that is created after evaluating the condition.                                       
-  llvm::PHINode* LoopMask;  
+  // Create a new phi node. The arguments are specified later.
+  // The phi node will take either the initial loop mask,
+  // or the one that is created after evaluating the condition.
+  llvm::PHINode* LoopMask;
 
   {
-    // Create a new cleanups scope for the body,                                                        
-    // so declarations do not interfere with the condition.                                             
-    CodeGenFunction::RunCleanupsScope BodyScope( CGF );                                                 
+    // Create a new cleanups scope for the body,
+    // so declarations do not interfere with the condition.
+    CodeGenFunction::RunCleanupsScope BodyScope( CGF );
 
     // Create a basic block for the loop body.
     CGF.EmitBlock( LoopBody );
 
-    // Create a new phi node. The arguments are specified later.                                        
-    // The phi node will take either the initial loop mask,                                             
-    // or the one that is created after evaluating the condition.                                       
+    // Create a new phi node. The arguments are specified later.
+    // The phi node will take either the initial loop mask,
+    // or the one that is created after evaluating the condition.
     LoopMask = Builder.CreatePHI( CurrentMask->getType(), 2,
-        "vectorized-do.loop-mask");                                     
+        "sierra-do.loop-mask");
 
     LoopMask->addIncoming( CurrentMask, OldBlock );
 
     CGF.setCurrentMask( LoopMask );
 
-    // Emit the body.                                                                                   
+    // Emit the body.
     CGF.EmitStmt( S.getBody() );
   }
 
@@ -403,7 +403,7 @@ void EmitSierraDoStmt( CodeGenFunction &CGF, const DoStmt &S )
   CGF.EmitBlock( LoopCond.getBlock() );
 
   if( ConditionScope.requiresCleanups() )
-    ExitBlock = CGF.createBasicBlock("vectorized-do.exit");
+    ExitBlock = CGF.createBasicBlock("sierra-do.exit");
 
   CGF.EmitBranchOnBoolExpr( S.getCond(), LoopBody, ExitBlock, false,
       &LoopMask );
@@ -441,18 +441,18 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   CodeGenFunction::RunCleanupsScope ForScope( CGF );
 
   // Break target
-  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope( "vectorized-for.end" );
+  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope( "sierra-for.end" );
   // Continue target
   // Use the Condition Block as the default continue target.
   // If the statement has an increment block, that block will become the new Continue target.
-  CodeGenFunction::JumpDest Continue = CGF.getJumpDestInCurrentScope( "vectorized-for.cond" );
+  CodeGenFunction::JumpDest Continue = CGF.getJumpDestInCurrentScope( "sierra-for.cond" );
   // Body Block, containing the Loop Body
-  llvm::BasicBlock *LoopBody = CGF.createBasicBlock( "vectorized-for.body" );
+  llvm::BasicBlock *LoopBody = CGF.createBasicBlock( "sierra-for.body" );
   // Condition Block
   llvm::BasicBlock *CondBlock = Continue.getBlock();
   // Exit Block (after the For Statement)
   llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
-  
+
   // Create a cleanups scope for the condition variables.
   CodeGenFunction::RunCleanupsScope ConditionScope( CGF );
 
@@ -465,11 +465,11 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   // Emit the Condition Block
   CGF.EmitBlock( CondBlock );
 
-  // Create a new phi node. The arguments are specified later.                                        
-  // The phi node will take either the initial loop mask,                                             
-  // or the one that is created after evaluating the condition.                                       
+  // Create a new phi node. The arguments are specified later.
+  // The phi node will take either the initial loop mask,
+  // or the one that is created after evaluating the condition.
   llvm::PHINode *phi = Builder.CreatePHI( CurrenMask->getType(), 2,
-      "vectorized-for.header-phi" );
+      "sierra-for.header-phi" );
 
   phi->addIncoming( CurrenMask, OldBlock );
 
@@ -481,7 +481,7 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   // If there are any cleanups between here and the loop-exit scope,
   // create a block to stage a loop exit along.
   if ( ConditionScope.requiresCleanups() )
-    ExitBlock = CGF.createBasicBlock( "vectorized-for.cond.cleanup" );
+    ExitBlock = CGF.createBasicBlock( "sierra-for.cond.cleanup" );
 
   llvm::PHINode *LoopMask = NULL;
 
@@ -496,7 +496,7 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
     CGF.setCurrentMask( LoopMask );
     // Create the body block
     CGF.EmitBlock( LoopBody );
-                                                        
+
     // Emit the loop body
     CGF.EmitStmt( S.getBody() );
   }
@@ -505,7 +505,7 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   if ( S.getInc() )
   {
     // Make the increment block the new continue target
-    Continue = CGF.getJumpDestInCurrentScope( "vectorized-for.inc" );
+    Continue = CGF.getJumpDestInCurrentScope( "sierra-for.inc" );
     // Create the increment block
     CGF.EmitBlock( Continue.getBlock() );
     CGF.EmitStmt( S.getInc() );
