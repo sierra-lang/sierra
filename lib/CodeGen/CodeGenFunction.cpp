@@ -1434,13 +1434,6 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                       LHSPhi,
                                                       FalsePhi );
 
-        /* The recursive call to `EmitBranchOnBoolExpr' stops in the right-most
-         * leaf of the subexpression's condition tree.  For this block, we add
-         * incoming edges to the false-successor and the RHS.
-         */
-        FalsePhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
-        LHSPhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
-
         /* Emit the block for the RHS. */
         EmitBlock( LHSTrue );
 
@@ -1542,13 +1535,6 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                       LHSFalse,
                                                       TruePhi,
                                                       LHSPhi );
-
-        /* The recursive call to `EmitBranchOnBoolExpr' stops in the right-most
-         * leaf of the subexpression's condition tree.  For this block, we add
-         * incoming edges to the true-successor and the RHS.
-         */
-        TruePhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
-        LHSPhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
 
         /* Emit the block for the RHS. */
         EmitBlock( LHSFalse );
