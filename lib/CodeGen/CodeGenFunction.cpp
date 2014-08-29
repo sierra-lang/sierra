@@ -1287,6 +1287,17 @@ bool CodeGenFunction::ConstantFoldsToSimpleInteger(const Expr *Cond,
 /// EmitBranchOnBoolExpr - Emit a branch on a boolean condition (e.g. for an if
 /// statement) to the specified blocks.  Based on the condition, this might try
 /// to simplify the codegen of the conditional based on the branch.
+/// This function has been overloaded to allow short-circuit evaluation for
+/// vectorial expressions.
+///
+/// \param Cond the condition
+/// \param TrueBlock the ture-successor of the branch
+/// \param FalseBlock the false-successor of the branch
+/// \param falseFirst if true, the false-successor will be scheduled before the
+///         true-successor, defaults to false
+/// \param TruePHI the phi-node placed at the entrance of the true-successor
+/// \param FalsePHI the phi-node placed at the entrance of the false-successor
+/// \return the result of the short-circuit evaluation of the condition
 llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                            llvm::BasicBlock *TrueBlock,
                                            llvm::BasicBlock *FalseBlock,
@@ -1311,6 +1322,21 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     llvm::VectorType* MaskTy = llvm::VectorType::get(
       llvm::IntegerType::getInt1Ty( Context ), NumElems );
 
+    /* At this point, we have to make sure, that we have phi-nodes for the
+     * true-/false-successor.  If no phi-nodes were specified, we will create
+     * such phi-nodes now.
+     * The caller may specify **PHINode pointing to an already existing PHINode
+     * instance.  In this case, the exisitng instance is used.
+     * The caller may specify a **PHINode pointing to NULL.  *PHINode will then
+     * be assigned a pointer to a newly created PHINode instance.
+     * This way, the caller must not take care of creating phi-nodes, but has
+     * full control over them.  This is especially important when constructing
+     * vectorized control flow, where the false-successor must be scheduled
+     * after the true-successor (or vice versa).
+     * The caller may specify NULL as **PHINode, in which case a new PHINode
+     * instance is created internally, but the caller has no way to access it
+     * later on.  This is a convenience feature for scalar control flow.
+     */
     llvm::PHINode *AltTruePhi;
     if ( TruePhi == NULL )
     {
@@ -1325,8 +1351,8 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       *FalsePhi = NULL;
     }
 
-    /*
-     * Creates the phi nodes all leafs of the condition tree will add edges to.
+    /* Creates the phi nodes, to which all leafs of the condition tree will add
+     * edges to.
      */
     if ( ! *TruePhi )
       *TruePhi = llvm::PHINode::Create( MaskTy, 0, "phi-true_block",
@@ -1335,9 +1361,11 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       *FalsePhi = llvm::PHINode::Create( MaskTy, 0, "phi-false_block",
           FalseBlock );
 
-    llvm::Value *Result = EmitBranchOnBoolExpr( Cond, falseFirst, getCurrentMask(),
-                                 TrueBlock, FalseBlock,
-                                 *TruePhi, *FalsePhi );
+    llvm::Value *Result = EmitBranchOnBoolExpr( Cond,
+                                                falseFirst,
+                                                getCurrentMask(),
+                                                TrueBlock, FalseBlock,
+                                                *TruePhi, *FalsePhi );
 
     (*TruePhi)->addIncoming(Result, Builder.GetInsertBlock());
     (*FalsePhi)->addIncoming(Result, Builder.GetInsertBlock());
@@ -1353,6 +1381,16 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 
 /// EmitBranchOnBoolExpr - This method extends the regular EmitBranchOnBoolExpr
 /// with support for Sierra Vectors
+///
+/// \param Cond the condition
+/// \param falseFirst if true, the false-successor will be scheduled before the
+///         true-successor, defaults to false
+/// \param mask the current mask that is to be applied to computations
+/// \param TrueBlock the ture-successor of the branch
+/// \param FalseBlock the false-successor of the branch
+/// \param TruePHI the phi-node placed at the entrance of the true-successor
+/// \param FalsePHI the phi-node placed at the entrance of the false-successor
+/// \return the result of the short-circuit evaluation of the condition
 llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                    bool falseFirst,
                                                    llvm::Value *mask,
