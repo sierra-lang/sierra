@@ -757,7 +757,7 @@ public:
   /// block through the normal cleanup handling code (if any) and then
   /// on to \arg Dest.
   void EmitBranchThroughCleanup(JumpDest Dest);
-  
+
   /// isObviouslyBranchWithoutCleanups - Return true if a branch to the
   /// specified destination obviously has no cleanups to run.  'false' is always
   /// a conservatively correct answer for this method.
@@ -1345,16 +1345,16 @@ private:
   const bool ShouldEmitLifetimeMarkers;
 
   /// Add a kernel metadata node to the named metadata node 'opencl.kernels'.
-  /// In the kernel metadata node, reference the kernel function and metadata 
+  /// In the kernel metadata node, reference the kernel function and metadata
   /// nodes for its optional attribute qualifiers (OpenCL 1.1 6.7.2):
   /// - A node for the vec_type_hint(<type>) qualifier contains string
   ///   "vec_type_hint", an undefined value of the <type> data type,
   ///   and a Boolean that is true if the <type> is integer and signed.
-  /// - A node for the work_group_size_hint(X,Y,Z) qualifier contains string 
+  /// - A node for the work_group_size_hint(X,Y,Z) qualifier contains string
   ///   "work_group_size_hint", and three 32-bit integers X, Y and Z.
-  /// - A node for the reqd_work_group_size(X,Y,Z) qualifier contains string 
+  /// - A node for the reqd_work_group_size(X,Y,Z) qualifier contains string
   ///   "reqd_work_group_size", and three 32-bit integers X, Y and Z.
-  void EmitOpenCLKernelMetadata(const FunctionDecl *FD, 
+  void EmitOpenCLKernelMetadata(const FunctionDecl *FD,
                                 llvm::Function *Fn);
 
 public:
@@ -1363,10 +1363,10 @@ public:
 
   CodeGenTypes &getTypes() const { return CGM.getTypes(); }
   ASTContext &getContext() const { return CGM.getContext(); }
-  CGDebugInfo *getDebugInfo() { 
-    if (DisableDebugInfo) 
-      return nullptr;
-    return DebugInfo; 
+  CGDebugInfo *getDebugInfo() {
+    if (DisableDebugInfo)
+      return NULL;
+    return DebugInfo;
   }
   void disableDebugInfo() { DisableDebugInfo = true; }
   void enableDebugInfo() { DisableDebugInfo = false; }
@@ -2358,7 +2358,7 @@ public:
   };
   AutoVarEmission EmitAutoVarAlloca(const VarDecl &var);
   void EmitAutoVarInit(const AutoVarEmission &emission);
-  void EmitAutoVarCleanups(const AutoVarEmission &emission);  
+  void EmitAutoVarCleanups(const AutoVarEmission &emission);
   void emitAutoVarTypeCleanup(const AutoVarEmission &emission,
                               QualType::DestructionKind dtorKind);
 
@@ -3222,11 +3222,11 @@ public:
   static Destroyer destroyARCStrongPrecise;
   static Destroyer destroyARCWeak;
 
-  void EmitObjCAutoreleasePoolPop(llvm::Value *Ptr); 
+  void EmitObjCAutoreleasePoolPop(llvm::Value *Ptr);
   llvm::Value *EmitObjCAutoreleasePoolPush();
   llvm::Value *EmitObjCMRRAutoreleasePoolPush();
   void EmitObjCAutoreleasePoolCleanup(llvm::Value *Ptr);
-  void EmitObjCMRRAutoreleasePoolPop(llvm::Value *Ptr); 
+  void EmitObjCMRRAutoreleasePoolPop(llvm::Value *Ptr);
 
   /// \brief Emits a reference binding to the passed in expression.
   RValue EmitReferenceBindingToExpr(const Expr *E);
@@ -3332,8 +3332,9 @@ public:
                                         bool PerformInit);
 
   void EmitCXXConstructExpr(const CXXConstructExpr *E, AggValueSlot Dest);
-  
-  void EmitSynthesizedCXXCopyCtor(Address Dest, Address Src, const Expr *Exp);
+
+  void EmitSynthesizedCXXCopyCtor(llvm::Value *Dest, llvm::Value *Src,
+                                  const Expr *Exp);
 
   void enterFullExpression(const ExprWithCleanups *E) {
     if (E->getNumObjects() == 0) return;
@@ -3397,7 +3398,7 @@ public:
   /// EmitBranchOnBoolExpr - Emit a branch on a boolean condition (e.g. for an
   /// if statement) to the specified blocks.  Based on the condition, this might
   /// try to simplify the codegen of the conditional based on the branch.
-	llvm::Value* EmitBranchOnBoolExpr(const Expr *Cond,
+	void EmitBranchOnBoolExpr(const Expr *Cond,
                             llvm::BasicBlock *TrueBlock,
                             llvm::BasicBlock *FalseBlock,
                             uint64_t TrueCount,
@@ -3407,14 +3408,13 @@ public:
 
   // Extends the previous EmitBranchOnBoolExpr function by two arguments to
   // allow short-circuit evaluation for Sierra Vector Expressions
-  llvm::Value* EmitBranchOnBoolExpr(const Expr *Cond,
-                                    bool falseFirst,
-                                    llvm::Value *mask,
-                                    llvm::BasicBlock *TrueBlock,
-                                    llvm::BasicBlock *FalseBlock,
-                                    uint64_t TrueCount,
-                                    llvm::PHINode *TruePhi,
-                                    llvm::PHINode *FalsePhi);
+  llvm::Value* _EmitBranchOnBoolExpr(const Expr *Cond,
+                                     bool falseFirst,
+                                     llvm::BasicBlock *TrueBlock,
+                                     llvm::BasicBlock *FalseBlock,
+                                     uint64_t TrueCount,
+                                     llvm::PHINode *TruePhi,
+                                     llvm::PHINode *FalsePhi);
 
   /// \brief Emit a description of a type in a format suitable for passing to
   /// a runtime sanitizer handler.

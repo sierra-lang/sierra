@@ -1298,20 +1298,14 @@ bool CodeGenFunction::ConstantFoldsToSimpleInteger(const Expr *Cond,
 /// \param TruePHI the phi-node placed at the entrance of the true-successor
 /// \param FalsePHI the phi-node placed at the entrance of the false-successor
 /// \return the result of the short-circuit evaluation of the condition
-llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
-                                           llvm::BasicBlock *TrueBlock,
-                                           llvm::BasicBlock *FalseBlock,
-                                           uint64_t TrueCount,
-                                           bool falseFirst/*= false*/,
-                                           llvm::PHINode **TruePhi/*= NULL*/,
-                                           llvm::PHINode **FalsePhi/*= NULL*/) {
-  /*
-   * We need to find out the type of the outmost operator and use the necessary
-   * mask.
-   *
-   * TODO add documentation
-   */
-
+void CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
+                                            llvm::BasicBlock *TrueBlock,
+                                            llvm::BasicBlock *FalseBlock,
+                                            uint64_t TrueCount,
+                                            bool falseFirst /* = false */,
+                                            llvm::PHINode **TruePhi /* = NULL */,
+                                            llvm::PHINode **FalsePhi /* = NULL */ )
+{
   llvm::LLVMContext &Context = Builder.getContext();
 
   // Check if the condition is a Sierra Vector Type
@@ -1338,14 +1332,14 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
      * later on.  This is a convenience feature for scalar control flow.
      */
     llvm::PHINode *AltTruePhi;
-    if ( TruePhi == NULL )
+    if ( NULL == TruePhi )
     {
       TruePhi = &AltTruePhi;
       *TruePhi = NULL;
     }
 
     llvm::PHINode *AltFalsePhi;
-    if ( FalsePhi == NULL )
+    if ( NULL == FalsePhi )
     {
       FalsePhi = &AltFalsePhi;
       *FalsePhi = NULL;
@@ -1361,22 +1355,24 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       *FalsePhi = llvm::PHINode::Create( MaskTy, 0, "phi-false_block",
           FalseBlock );
 
-    llvm::Value *Result = EmitBranchOnBoolExpr( Cond,
-                                                falseFirst,
-                                                getCurrentMask(),
-                                                TrueBlock, FalseBlock,
-                                                *TruePhi, *FalsePhi );
+    llvm::Value *Result = _EmitBranchOnBoolExpr( Cond,
+                                                 TrueBlock, FalseBlock,
+                                                 *TruePhi, *FalsePhi );
 
-    (*TruePhi)->addIncoming(Result, Builder.GetInsertBlock());
-    (*FalsePhi)->addIncoming(Result, Builder.GetInsertBlock());
+    ( *TruePhi )->addIncoming( Result, Builder.GetInsertBlock() );
+    ( *FalsePhi )->addIncoming( Result, Builder.GetInsertBlock() );
 
-    return Result;
-
+    llvm::Value *ScalarCond = falseFirst ? EmitAllTrue( Builder, Result )
+                                         : EmitAnyTrue( Builder, Result );
+    Builder.CreateCondBr( ScalarCond, TrueBlock, FalseBlock );
+    return;
   } // End Sierra Vector Type
 
-  return EmitBranchOnBoolExpr( Cond, falseFirst, NULL /* mask */,
-                               TrueBlock, FalseBlock,
-                               NULL /* TruePhi */, NULL /* FalsePhi */ );
+  llvm::Value *ScalarCond = _EmitBranchOnBoolExpr( Cond,
+                                                   TrueBlock, FalseBlock,
+                                                   /* TruePhi = */ NULL ,
+                                                   /* FalsePhi = */ NULL );
+  Builder.CreateCondBr( ScalarCond, TrueBlock, FalseBlock );
 }
 
 /// EmitBranchOnBoolExpr - This method extends the regular EmitBranchOnBoolExpr
@@ -1391,20 +1387,21 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 /// \param TruePHI the phi-node placed at the entrance of the true-successor
 /// \param FalsePHI the phi-node placed at the entrance of the false-successor
 /// \return the result of the short-circuit evaluation of the condition
-llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
-                                                   bool falseFirst,
-                                                   llvm::Value *mask,
-                                                   llvm::BasicBlock *TrueBlock,
-                                                   llvm::BasicBlock *FalseBlock,
-                                                   uint64_t TrueCount,
-                                                   llvm::PHINode *TruePhi,
-                                                   llvm::PHINode *FalsePhi) {
+llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
+                                                    bool falseFirst,
+                                                    llvm::BasicBlock *TrueBlock,
+                                                    llvm::BasicBlock *FalseBlock,
+                                                    uint64_t TrueCount,
+                                                    llvm::PHINode *TruePhi,
+                                                    llvm::PHINode *FalsePhi)
+{
   Cond = Cond->IgnoreParens();
 
-  if (const BinaryOperator *CondBOp = dyn_cast<BinaryOperator>(Cond)) {
-
+  if (const BinaryOperator *CondBOp = dyn_cast<BinaryOperator>(Cond))
+  {
     // Handle X && Y in a condition.
-    if (CondBOp->getOpcode() == BO_LAnd) {
+    if ( CondBOp->getOpcode() == BO_LAnd )
+    {
       /* Check whether the type of the condition is a Sierra Vector Type. */
       if ( Cond->getType()->isSierraVectorType() )
       {
@@ -1415,40 +1412,43 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
           llvm::IntegerType::getInt1Ty( Context ), NumElems );
 
         /* Create a new basic block for the RHS of the expression, that will be
-         * evaluate iff the LHS evaluates to some true.
+         * evaluated iff the LHS evaluates to some true.
          */
-        llvm::BasicBlock *LHSTrue = createBasicBlock( "sierra-land.lhs.some-true" );
+        llvm::BasicBlock *LHSSomeTrue = createBasicBlock( "sierra-land.lhs.some-true" );
 
-        /* Create a new phi-node for the LHSTrue block. */
+        /* Create a new phi-node for the LHSSomeTrue block. */
         llvm::PHINode *LHSPhi = llvm::PHINode::Create( MaskTy, 0,
                                                        "sierra-land.lhs.some-true.phi",
-                                                       LHSTrue );
+                                                       LHSSomeTrue );
 
         /* Emit code for the LHS. */
         ConditionalEvaluation eval( *this );
-        llvm::Value *LHSValue = EmitBranchOnBoolExpr( CondBOp->getLHS(),
-                                                      false,
-                                                      mask,
-                                                      LHSTrue,
+        llvm::Value *LHSValue = _EmitBranchOnBoolExpr( CondBOp->getLHS(),
+                                                      LHSSomeTrue,
                                                       FalseBlock,
                                                       LHSPhi,
                                                       FalsePhi );
 
-        /* Emit the block for the RHS. */
-        EmitBlock( LHSTrue );
+        LHSPhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
+        FalsePhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
 
-        /* Compute the new value of the mask used for the right hand side. */
-        llvm::Value *newMask = Builder.CreateAnd( mask, LHSPhi );
+        Builder.CreateCondBr( EmitAnyTrue( Builder, LHSValue ),
+                              LHSSomeTrue, FalseBlock );
+
+        /* Emit the block for the RHS. */
+        eval.begin( *this );
+        EmitBlock( LHSSomeTrue );
+        llvm::Value *OldMask = getCurrentMask();
+        setCurrentMask( Builder.CreateAnd( OldMask, LHSPhi ));
 
         /* Invoke recursive call on the right hand side. */
-        eval.begin( *this );
-        llvm::Value *RHSValue = EmitBranchOnBoolExpr( CondBOp->getRHS(),
-                                                      falseFirst,
-                                                      newMask,
+        llvm::Value *RHSValue = _EmitBranchOnBoolExpr( CondBOp->getRHS(),
                                                       TrueBlock,
                                                       FalseBlock,
                                                       TruePhi,
                                                       FalsePhi );
+
+        setCurrentMask( OldMask );
         eval.end( *this );
 
         return llvm::BinaryOperator::Create( llvm::Instruction::And,
@@ -1464,9 +1464,9 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
           ConstantBool) {
         // br(1 && X) -> br(X).
         incrementProfileCounter(CondBOp);
-        return EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst, mask,
-                                    TrueBlock, FalseBlock, TrueCount, TruePhi,
-                                    FalsePhi );
+        return _EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst,
+                                     TrueBlock, FalseBlock, TrueCount,
+                                     TruePhi, FalsePhi );
       }
 
       // If we have "X && 1", simplify the code to use an uncond branch.
@@ -1474,9 +1474,9 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       if (ConstantFoldsToSimpleInteger(CondBOp->getRHS(), ConstantBool) &&
           ConstantBool) {
         // br(X && 1) -> br(X).
-        return EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst, mask,
-                                    TrueBlock, FalseBlock, TrueCount, TruePhi,
-                                    FalsePhi );
+        return _EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst,
+                                     TrueBlock, FalseBlock, TrueCount,
+                                     TruePhi, FalsePhi );
       }
 
       // Emit the LHS as a conditional.  If the LHS conditional is false, we
@@ -1489,9 +1489,9 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       ConditionalEvaluation eval(*this);
       {
         ApplyDebugLocation DL(*this, Cond);
-        EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst, mask,
-                             LHSTrue, FalseBlock, RHSCount,
-                             TruePhi, FalsePhi);
+        _EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst,
+                              LHSTrue, FalseBlock, RHSCount,
+                              TruePhi, FalsePhi);
         EmitBlock(LHSTrue);
       }
 
@@ -1500,9 +1500,9 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 
       // Any temporaries created here are conditional.
       eval.begin(*this);
-      EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst, mask,
-                           TrueBlock, FalseBlock, TrueCount,
-                           TruePhi, FalsePhi);
+      _EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst,
+                            TrueBlock, FalseBlock, TrueCount,
+                            TruePhi, FalsePhi);
       eval.end(*this);
 
       return NULL;
@@ -1519,39 +1519,42 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
           llvm::IntegerType::getInt1Ty( Context ), NumElems );
 
         /* Create a new basic block for the case of some false. */
-        llvm::BasicBlock *LHSFalse = createBasicBlock( "sierra-lor.lhs.some-false" );
+        llvm::BasicBlock *LHSSomeFalse = createBasicBlock( "sierra-lor.lhs.some-false" );
 
-        /* Create a new phi-node for the LHSTrue block. */
+        /* Create a new phi-node for the LHSSomeFalse block. */
         llvm::PHINode *LHSPhi = llvm::PHINode::Create( MaskTy, 0,
                                                        "sierra-lor.lhs.some-false.phi",
-                                                       LHSFalse );
+                                                       LHSSomeFalse );
 
         /* Invoke recursive call on the left hand side. */
         ConditionalEvaluation eval( *this );
-        llvm::Value *LHSValue = EmitBranchOnBoolExpr( CondBOp->getLHS(),
-                                                      true,
-                                                      mask,
+        llvm::Value *LHSValue = _EmitBranchOnBoolExpr( CondBOp->getLHS(),
                                                       TrueBlock,
-                                                      LHSFalse,
+                                                      LHSSomeFalse,
                                                       TruePhi,
                                                       LHSPhi );
 
-        /* Emit the block for the RHS. */
-        EmitBlock( LHSFalse );
+        LHSPhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
+        TruePhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
 
-        /* Compute the new value of the mask used for the right hand side. */
-        llvm::Value *newMask = Builder.CreateAnd( mask,
-                                                  Builder.CreateNot( LHSPhi ) );
+        Builder.CreateCondBr( EmitAllTrue( Builder, LHSValue ),
+                              TrueBlock, LHSSomeFalse );
+
+        /* Emit the block for the RHS. */
+        eval.begin( *this );
+        EmitBlock( LHSSomeFalse );
+        llvm::Value *OldMask = getCurrentMask();
+        setCurrentMask( Builder.CreateAnd( OldMask,
+                                           Builder.CreateNot( LHSPhi )));
 
         /* Invoke recursive call on the right hand side. */
-        eval.begin( *this );
-        llvm::Value *RHSValue = EmitBranchOnBoolExpr( CondBOp->getRHS(),
-                                                      falseFirst,
-                                                      newMask,
+        llvm::Value *RHSValue = _EmitBranchOnBoolExpr( CondBOp->getRHS(),
                                                       TrueBlock,
                                                       FalseBlock,
                                                       TruePhi,
                                                       FalsePhi );
+
+        setCurrentMask( OldMask );
         eval.end( *this );
 
         return llvm::BinaryOperator::Create( llvm::Instruction::Or,
@@ -1567,9 +1570,9 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
           !ConstantBool) {
         // br(0 || X) -> br(X).
         incrementProfileCounter(CondBOp);
-        return EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst, mask,
-                                    TrueBlock, FalseBlock, TrueCount, TruePhi,
-                                    FalsePhi);
+        return _EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst,
+                                    TrueBlock, FalseBlock, TrueCount,
+                                    TruePhi, FalsePhi );
       }
 
       // If we have "X || 0", simplify the code to use an uncond branch.
@@ -1577,9 +1580,9 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       if (ConstantFoldsToSimpleInteger(CondBOp->getRHS(), ConstantBool) &&
           !ConstantBool) {
         // br(X || 0) -> br(X).
-        return EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst, mask,
-                                    TrueBlock, FalseBlock, TrueCount, TruePhi,
-                                    FalsePhi );
+        return _EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst,
+                                    TrueBlock, FalseBlock, TrueCount,
+                                    TruePhi, FalsePhi );
       }
 
       // Emit the LHS as a conditional.  If the LHS conditional is true, we
@@ -1595,7 +1598,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       ConditionalEvaluation eval(*this);
       {
         ApplyDebugLocation DL(*this, Cond);
-        EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst, mask,
+        _EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst,
                              TrueBlock, LHSFalse, LHSCount,
                              TruePhi, FalsePhi);
         EmitBlock(LHSFalse);
@@ -1606,8 +1609,8 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 
       // Any temporaries created here are conditional.
       eval.begin(*this);
-      EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst, mask,
-                           TrueBlock, FalseBlock, RHSCount,
+      _EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst,
+                           TrueBlock, FalseBlock, TrueCount,
                            TruePhi, FalsePhi);
       eval.end(*this);
 
@@ -1624,9 +1627,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       if (Cond->getType()->isSierraVectorType()) {
         /* To negate the condition, we simply swap the phi-nodes for this
          * subexpression. */
-        llvm::Value *Value = EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
-                                                   falseFirst,
-                                                   mask,
+        llvm::Value *Value = _EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
                                                    TrueBlock,
                                                    FalseBlock,
                                                    TrueCount,
@@ -1645,10 +1646,7 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
           Builder.GetInsertBlock()->getTerminator() );
       }
 
-      assert( TruePhi == 0 && FalsePhi == 0 && mask == 0 );
-      return EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
-                                   falseFirst,
-                                   mask,
+      return _EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
                                    FalseBlock,
                                    TrueBlock,
                                    TruePhi,
@@ -1663,63 +1661,55 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       llvm::BasicBlock *LHSBlock = createBasicBlock("sierra-cond.true");
       llvm::BasicBlock *RHSBlock = createBasicBlock("sierra-cond.false");
 
-      llvm::PHINode *LHSPhi; // PHI Node for the LHS Block
-      llvm::PHINode *RHSPhi; // PHI Node for the RHS Block
-
-      llvm::Value *LHSResult; // Result of the evaluation of the LHS Block
-      llvm::Value *RHSResult; // Result of the evaluation of the RHS Block
+      llvm::PHINode *LHSPhi = NULL; // PHI Node for the LHS Block
+      llvm::PHINode *RHSPhi = NULL; // PHI Node for the RHS Block
 
       ConditionalEvaluation cond( *this );
-      llvm::Value *mask = EmitBranchOnBoolExpr( CondOp->getCond(),
-                                                LHSBlock,
-                                                RHSBlock,
-                                                false, // eval LHS before RHS
-                                                &LHSPhi,
-                                                &RHSPhi );
+      /* TODO support for falseFirst */
+      EmitBranchOnBoolExpr( CondOp->getCond(),
+                            LHSBlock,
+                            RHSBlock,
+                            false,
+                            &LHSPhi,
+                            &RHSPhi );
 
-      LHSPhi->addIncoming( mask, Builder.GetInsertBlock() );
-      RHSPhi->addIncoming( mask, Builder.GetInsertBlock() );
-
-      /*
-       * Emit code for the LHS
+      /* Emit code for the LHS.
        */
       cond.begin( *this );
-
       EmitBlock( LHSBlock );
+      llvm::Value *OldMask = getCurrentMask();
+      setCurrentMask( Builder.CreateAnd( OldMask, LHSPhi ));
 
-      Builder.Insert( LHSPhi );
-      LHSResult = EmitBranchOnBoolExpr( CondOp->getLHS(),
-          true, // force short-circuit eval for the True Block
-          LHSPhi, TrueBlock, RHSBlock, TruePhi, RHSPhi );
+      EmitBranchOnBoolExpr( CondOp->getLHS(),
+                            TrueBlock,
+                            RHSBlock,
+                            false,
+                            &TruePhi,
+                            &RHSPhi );
 
-      RHSPhi->addIncoming( LHSResult, Builder.GetInsertBlock() );
-      TruePhi->addIncoming( LHSResult, Builder.GetInsertBlock() );
-
+      setCurrentMask( OldMask );
+      cond.end( *this );
       EmitBranch( RHSBlock );
 
-      cond.end( *this );
-
-      /*
-       * Emit code for the RHS
+      /* Emit code for the RHS.
        */
       cond.begin( *this );
-
       EmitBlock( RHSBlock );
+      OldMask = getCurrentMask();
+      setCurrentMask( Builder.CreateAnd( OldMask, Builder.CreateNot( RHSPhi )));
 
-      Builder.Insert( RHSPhi );
-      llvm::Value *RHSMask = Builder.CreateAnd( getCurrentMask(),
-          Builder.CreateNot( RHSPhi ) );
+      EmitBranchOnBoolExpr( CondOp->getRHS(),
+                            TrueBlock,
+                            FalseBlock,
+                            false,
+                            &TruePhi,
+                            &FalsePhi );
 
-      RHSResult = EmitBranchOnBoolExpr( CondOp->getRHS(),
-          false, // force short-circuit eval for the False Block
-          RHSMask, TrueBlock, FalseBlock, TruePhi, FalsePhi );
-
-      TruePhi->addIncoming( RHSResult, Builder.GetInsertBlock() );
-      FalsePhi->addIncoming( RHSResult, Builder.GetInsertBlock() );
-
+      setCurrentMask( OldMask );
       cond.end( *this );
 
-      return Builder.CreateOr( LHSResult, RHSResult );
+      // TODO
+      return Builder.CreateOr( TruePhi, FalsePhi );
     } // End Sierra Vector
 
     // br(c ? x : y, t, f) -> br(c, br(x, t, f), br(y, t, f))
@@ -1797,33 +1787,12 @@ llvm::Value* CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
    */
   if ( Cond->getType()->isSierraVectorType() )
   {
-    /* Save old mask and set the current mask. */
-    llvm::Value *OldMask = getCurrentMask();
-    setCurrentMask( mask );
-
     // Evaluate the condition
     // FIXME It seems like if the sub expression is again of Sierra Vector type,
     // and we have a cast expression in between, this does not work.
     // Still needs more testing...
     llvm::Value *CondV = EmitScalarExpr( Cond );
-
-    /* Mask the result. */
-    CondV = Builder.CreateAnd( CondV, mask );
-
-    /* Emit the code for either the falseFirst case or the regular case.
-     *
-     * falseFirst schedules the evaluation of the FalseBlock before the
-     * TrueBlock
-     */
-    llvm::Value *ScalarCond = falseFirst ? EmitAllTrue(Builder, CondV) : EmitAnyTrue(Builder, CondV);
-
-    // Create the branch
-    Builder.CreateCondBr( ScalarCond, TrueBlock, FalseBlock );
-
-    // Restore the old mask
-    setCurrentMask( OldMask );
-
-    return CondV;
+    return Builder.CreateAnd( CondV, getCurrentMask() );
   } // End Sierra Vector Type
 
   llvm::Value *CondV;
