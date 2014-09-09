@@ -1362,8 +1362,11 @@ void CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
     ( *TruePhi )->addIncoming( Result, Builder.GetInsertBlock() );
     ( *FalsePhi )->addIncoming( Result, Builder.GetInsertBlock() );
 
-    llvm::Value *ScalarCond = falseFirst ? EmitAllTrue( Builder, Result )
-                                         : EmitAnyTrue( Builder, Result );
+    /* Create the branch for the right-most subexpression.  We now must consider
+     * the flaseFirst flag.
+     */
+    llvm::Value *ScalarCond = falseFirst ? EmitAllTrue( *this, Result )
+                                         : EmitAnyTrue( *this, Result );
     Builder.CreateCondBr( ScalarCond, TrueBlock, FalseBlock );
     return;
   } // End Sierra Vector Type
@@ -1424,37 +1427,34 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
         /* Emit code for the LHS. */
         ConditionalEvaluation eval( *this );
         llvm::Value *LHSValue = _EmitBranchOnBoolExpr( CondBOp->getLHS(),
-                                                      LHSSomeTrue,
-                                                      FalseBlock,
-                                                      LHSPhi,
-                                                      FalsePhi );
+                                                       LHSSomeTrue,
+                                                       FalseBlock,
+                                                       LHSPhi,
+                                                       FalsePhi );
 
         LHSPhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
         FalsePhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
 
-        Builder.CreateCondBr( EmitAnyTrue( Builder, LHSValue ),
+        /* Create the branch for the LHS under consideration of the current
+         * mask.
+         */
+        Builder.CreateCondBr( EmitAnyTrue( *this, LHSValue ),
                               LHSSomeTrue, FalseBlock );
 
         /* Emit the block for the RHS. */
         eval.begin( *this );
         EmitBlock( LHSSomeTrue );
-        llvm::Value *OldMask = getCurrentMask();
-        setCurrentMask( Builder.CreateAnd( OldMask, LHSPhi ));
 
         /* Invoke recursive call on the right hand side. */
         llvm::Value *RHSValue = _EmitBranchOnBoolExpr( CondBOp->getRHS(),
-                                                      TrueBlock,
-                                                      FalseBlock,
-                                                      TruePhi,
-                                                      FalsePhi );
+                                                       TrueBlock,
+                                                       FalseBlock,
+                                                       TruePhi,
+                                                       FalsePhi );
 
-        setCurrentMask( OldMask );
         eval.end( *this );
 
-        return llvm::BinaryOperator::Create( llvm::Instruction::And,
-                                             LHSPhi, RHSValue,
-                                             "sierra-land",
-                                             Builder.GetInsertBlock()->getTerminator() );
+        return Builder.CreateAnd( LHSPhi, RHSValue, "sierra-land" );
       } // End Sierra BO_LAnd
 
       // If we have "1 && X", simplify the code.  "0 && X" would have constant
@@ -1529,38 +1529,34 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
         /* Invoke recursive call on the left hand side. */
         ConditionalEvaluation eval( *this );
         llvm::Value *LHSValue = _EmitBranchOnBoolExpr( CondBOp->getLHS(),
-                                                      TrueBlock,
-                                                      LHSSomeFalse,
-                                                      TruePhi,
-                                                      LHSPhi );
+                                                       TrueBlock,
+                                                       LHSSomeFalse,
+                                                       TruePhi,
+                                                       LHSPhi );
 
         LHSPhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
         TruePhi->addIncoming( LHSValue, Builder.GetInsertBlock() );
 
-        Builder.CreateCondBr( EmitAllTrue( Builder, LHSValue ),
+        /* Create the branch for the LHS under consideration of the current
+         * mask.
+         */
+        Builder.CreateCondBr( EmitAllTrue( *this, LHSValue ),
                               TrueBlock, LHSSomeFalse );
 
         /* Emit the block for the RHS. */
         eval.begin( *this );
         EmitBlock( LHSSomeFalse );
-        llvm::Value *OldMask = getCurrentMask();
-        setCurrentMask( Builder.CreateAnd( OldMask,
-                                           Builder.CreateNot( LHSPhi )));
 
         /* Invoke recursive call on the right hand side. */
         llvm::Value *RHSValue = _EmitBranchOnBoolExpr( CondBOp->getRHS(),
-                                                      TrueBlock,
-                                                      FalseBlock,
-                                                      TruePhi,
-                                                      FalsePhi );
+                                                       TrueBlock,
+                                                       FalseBlock,
+                                                       TruePhi,
+                                                       FalsePhi );
 
-        setCurrentMask( OldMask );
         eval.end( *this );
 
-        return llvm::BinaryOperator::Create( llvm::Instruction::Or,
-                                             LHSPhi, RHSValue,
-                                             "sierra-lor",
-                                             Builder.GetInsertBlock()->getTerminator() );
+        return Builder.CreateOr( LHSPhi, RHSValue, "sierra-lor" );
       } // End Sierra BO_LOr
 
       // If we have "0 || X", simplify the code.  "1 || X" would have constant
