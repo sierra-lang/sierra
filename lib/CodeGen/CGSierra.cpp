@@ -253,19 +253,19 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
 
   llvm::Value* OldMask = CGF.getCurrentMask();
 
-  llvm::PHINode *ThenMask = NULL, *ElseMask = NULL;
+  llvm::PHINode *ThenPhi = NULL, *ElsePhi = NULL;
 
-  CGF.EmitBranchOnBoolExpr( S.getCond(), ThenBlock, ElseBlock, false, &ThenMask,
-                            &ElseMask );
+  CGF.EmitBranchOnBoolExpr( S.getCond(), ThenBlock, ElseBlock, false, &ThenPhi,
+                            &ElsePhi );
 
   CGF.EmitBlock(ThenBlock);
   {
-    CGF.setCurrentMask(ThenMask);
+    CGF.setCurrentMask( Builder.CreateAnd( ThenPhi, OldMask ) );
     CodeGenFunction::RunCleanupsScope ThenScope(CGF);
     CGF.EmitStmt(S.getThen());
-    ElseMask->addIncoming( ThenMask, Builder.GetInsertBlock() );
+    ElsePhi->addIncoming( ThenPhi, Builder.GetInsertBlock() );
     CGF.setCurrentMask(OldMask);
-    Builder.CreateCondBr( EmitAllTrue(Builder, ThenMask), ContBlock, ElseBlock );
+    Builder.CreateCondBr( EmitAllTrue(CGF, ThenPhi), ContBlock, ElseBlock );
   }
 
   // Emit the 'else' code if present.
@@ -273,8 +273,8 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
 	{
 		if ( const Stmt *Else = S.getElse() )
 		{
-			CGF.setCurrentMask( Builder.CreateAnd( CGF.getCurrentMask(),
-																						 Builder.CreateNot( ElseMask ) ) );
+			CGF.setCurrentMask( Builder.CreateAnd( OldMask,
+																						 Builder.CreateNot( ElsePhi ) ) );
 
 			CodeGenFunction::RunCleanupsScope ElseScope(CGF);
 			CGF.EmitStmt(Else);
