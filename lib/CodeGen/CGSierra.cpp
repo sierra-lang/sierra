@@ -119,17 +119,17 @@ llvm::Value *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask,
 
 }
 
-static llvm::Value *AllTrueInt(CGBuilderTy &Builder, llvm::Type *Type) {
+static llvm::Value *AllTrueInt(llvm::Type *Type) {
   return llvm::ConstantInt::get(Type, uint64_t(-1));
 }
 
-static llvm::Value *AllFalseInt(CGBuilderTy &Builder, llvm::Type *Type) {
+static llvm::Value *AllFalseInt(llvm::Type *Type) {
   return llvm::ConstantInt::get(Type, uint64_t(0));
 }
 
-static llvm::Value *EmitToInt(CGBuilderTy &Builder, llvm::Value *Mask) {
-  llvm::VectorType *MaskTy = llvm::cast<llvm::VectorType>(Mask->getType());
-  unsigned NumElems = MaskTy->getNumElements();
+static llvm::Value *EmitToInt(CGBuilderTy &Builder, llvm::Value *Vec) {
+  llvm::VectorType *VecTy = llvm::cast<llvm::VectorType>(Vec->getType());
+  unsigned NumElems = VecTy->getNumElements();
 #if 0
   llvm::Module* Module = Builder.GetInsertBlock()->getParent()->getParent();
   llvm::Function *Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_avx_movmsk_ps_256);
@@ -140,31 +140,72 @@ static llvm::Value *EmitToInt(CGBuilderTy &Builder, llvm::Value *Mask) {
 
   return Builder.CreateCall(Fun, Mask);
 #else
-  llvm::VectorType *Mask8Ty = llvm::VectorType::get(llvm::IntegerType::get(Builder.getContext(), 8), NumElems);
-  llvm::Value *SExt = Builder.CreateSExt(Mask, Mask8Ty);
+  llvm::VectorType *Vec8Ty = llvm::VectorType::get(llvm::IntegerType::get(Builder.getContext(), 8), NumElems);
+  llvm::Value *SExt = Builder.CreateSExt(Vec, Vec8Ty);
   return Builder.CreateBitCast(SExt, llvm::IntegerType::get(Builder.getContext(), NumElems*8));
 #endif
 }
 
-llvm::Value *EmitAllTrue(CGBuilderTy &Builder, llvm::Value *Mask) {
+#if 0
+llvm::Value *EmitAllTrue(CodeGenFunction &CGF, llvm::Value *Mask) {
+  CGBuilderTy &Builder = CGF.Builder;
   llvm::Value *Int = EmitToInt(Builder, Mask);
-  return Builder.CreateICmpEQ(Int, AllTrueInt(Builder, Int->getType()));
+  return Builder.CreateICmpEQ(Int, AllTrueInt(Int->getType()));
 }
 
-llvm::Value *EmitAllFalse(CGBuilderTy &Builder, llvm::Value *Mask) {
+llvm::Value *EmitAllFalse(CodeGenFunction &CGF, llvm::Value *Mask) {
+  CGBuilderTy &Builder = CGF.Builder;
   llvm::Value *Int = EmitToInt(Builder, Mask);
-  return Builder.CreateICmpEQ(Int, AllFalseInt(Builder, Int->getType()));
+  return Builder.CreateICmpEQ(Int, AllFalseInt(Int->getType()));
 }
 
-llvm::Value *EmitAnyFalse(CGBuilderTy &Builder, llvm::Value *Mask) {
+llvm::Value *EmitAnyFalse(CodeGenFunction &CGF, llvm::Value *Mask) {
+  CGBuilderTy &Builder = CGF.Builder;
   llvm::Value *Int = EmitToInt(Builder, Mask);
-  return Builder.CreateICmpNE(Int, AllTrueInt(Builder, Int->getType()));
+  return Builder.CreateICmpNE(Int, AllTrueInt(Int->getType()));
 }
 
-llvm::Value *EmitAnyTrue(CGBuilderTy &Builder, llvm::Value *Mask) {
+llvm::Value *EmitAnyTrue(CodeGenFunction &CGF, llvm::Value *Mask) {
+  CGBuilderTy &Builder = CGF.Builder;
   llvm::Value *Int = EmitToInt(Builder, Mask);
-  return Builder.CreateICmpNE(Int, AllFalseInt(Builder, Int->getType()));
+  return Builder.CreateICmpNE(Int, AllFalseInt(Int->getType()));
 }
+#else
+llvm::Value *EmitAnyTrue(CodeGenFunction &CGF, llvm::Value *V)
+{
+  CGBuilderTy &Builder = CGF.Builder;
+  llvm::Value *Result = EmitToInt( Builder,
+                                   Builder.CreateAnd( V,
+                                                      CGF.getCurrentMask() ) );
+  return Builder.CreateICmpNE( Result, AllFalseInt( Result->getType() ) );
+}
+
+llvm::Value *EmitAnyFalse(CodeGenFunction &CGF, llvm::Value *V)
+{
+  CGBuilderTy &Builder = CGF.Builder;
+  llvm::Value *Result = EmitToInt( Builder,
+                                   Builder.CreateAnd( Builder.CreateNot( V ),
+                                                      CGF.getCurrentMask() ) );
+  return Builder.CreateICmpNE( Result, AllFalseInt( Result->getType() ) );
+}
+
+llvm::Value *EmitAllTrue(CodeGenFunction &CGF, llvm::Value *V)
+{
+  CGBuilderTy &Builder = CGF.Builder;
+  llvm::Value *Result = EmitToInt( Builder,
+                                   Builder.CreateAnd( Builder.CreateNot( V ),
+                                                      CGF.getCurrentMask() ) );
+  return Builder.CreateICmpEQ( Result, AllFalseInt( Result->getType() ) );
+}
+
+llvm::Value *EmitAllFalse(CodeGenFunction &CGF, llvm::Value *V)
+{
+  CGBuilderTy &Builder = CGF.Builder;
+  llvm::Value *Result = EmitToInt( Builder,
+                                   Builder.CreateAnd( V, CGF.getCurrentMask() ) );
+  return Builder.CreateICmpEQ( Result, AllFalseInt( Result->getType() ) );
+}
+#endif
 
 //------------------------------------------------------------------------------
 
