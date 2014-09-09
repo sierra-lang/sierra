@@ -41,10 +41,10 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, llvm::Value *Src, QualTy
 llvm::Value *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask, 
                                  llvm::Value *Val, llvm::Value *Ptr, bool Volatile);
 
-llvm::Value *EmitAllTrue(CGBuilderTy &Builder, llvm::Value *Mask);
-llvm::Value *EmitAllFalse(CGBuilderTy &Builder, llvm::Value *Mask);
-llvm::Value *EmitAnyTrue(CGBuilderTy &Builder, llvm::Value *Mask);
-llvm::Value *EmitAnyFalse(CGBuilderTy &Builder, llvm::Value *Mask);
+llvm::Value *EmitAllTrue(CodeGenFunction &CGF, llvm::Value* V);
+llvm::Value *EmitAllFalse(CodeGenFunction &CGF, llvm::Value* V);
+llvm::Value *EmitAnyTrue(CodeGenFunction &CGF, llvm::Value* V);
+llvm::Value *EmitAnyFalse(CodeGenFunction &CGF, llvm::Value* V);
 
 void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S);
 void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S);
