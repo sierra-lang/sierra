@@ -1173,6 +1173,10 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
     // br(!x, t, f) -> br(x, f, t)
     if (CondUOp->getOpcode() == UO_LNot)
     {
+      /* TODO
+       * We may merge the Sierra case and the uniform case, by swapping the
+       * blocks and/or the phi-nodes.
+       */
       if ( Cond->getType()->isSierraVectorType() )\
       {
         /* To negate the condition, we simply swap the phi-nodes for this
@@ -1182,17 +1186,8 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
                                                    FalseBlock,
                                                    FalsePhi,
                                                    TruePhi );
-
-        llvm::Value *notValue = llvm::BinaryOperator::CreateNot(
-          Value,
-          "not",
-          Builder.GetInsertBlock()->getTerminator() );
-
-        return llvm::BinaryOperator::Create(
-          llvm::Instruction::And,
-          notValue, getCurrentMask(),
-          "and",
-          Builder.GetInsertBlock()->getTerminator() );
+        return Builder.CreateAnd( getCurrentMask(),
+                                  Builder.CreateNot( Value ) );
       }
 
       return _EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
