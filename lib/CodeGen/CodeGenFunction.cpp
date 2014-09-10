@@ -1658,7 +1658,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
 
   if (const ConditionalOperator *CondOp = dyn_cast<ConditionalOperator>(Cond))
 	{
-    if ( Cond->getType()->isSierraVectorType() )
+    if ( CondOp->getCond()->getType()->isSierraVectorType() )
     {
       llvm::BasicBlock *LHSBlock = createBasicBlock("sierra-cond.true");
       llvm::BasicBlock *RHSBlock = createBasicBlock("sierra-cond.false");
