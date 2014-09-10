@@ -1789,12 +1789,10 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
    */
   if ( Cond->getType()->isSierraVectorType() )
   {
-    // Evaluate the condition
-    // FIXME It seems like if the sub expression is again of Sierra Vector type,
-    // and we have a cast expression in between, this does not work.
-    // Still needs more testing...
-    llvm::Value *CondV = EmitScalarExpr( Cond );
-    return Builder.CreateAnd( CondV, getCurrentMask() );
+    /* Evaluate the condition.  We don't need to mask the result, as this is
+     * done by the code gen for the parent expression or statement.
+     */
+    return EvaluateExprAsBool( Cond );
   } // End Sierra Vector Type
 
   llvm::Value *CondV;
