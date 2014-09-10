@@ -1668,50 +1668,50 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
 
       ConditionalEvaluation cond( *this );
       /* TODO support for falseFirst */
-      EmitBranchOnBoolExpr( CondOp->getCond(),
-                            LHSBlock,
-                            RHSBlock,
-                            false,
-                            &LHSPhi,
-                            &RHSPhi );
+      llvm::Value *CondMask = EmitBranchOnBoolExpr( CondOp->getCond(),
+                                                    LHSBlock,
+                                                    RHSBlock,
+                                                    false,
+                                                    &LHSPhi,
+                                                    &RHSPhi );
 
       /* Emit code for the LHS.
        */
       cond.begin( *this );
       EmitBlock( LHSBlock );
-      llvm::Value *OldMask = getCurrentMask();
-      setCurrentMask( Builder.CreateAnd( OldMask, LHSPhi ));
 
-      EmitBranchOnBoolExpr( CondOp->getLHS(),
-                            TrueBlock,
-                            RHSBlock,
-                            false,
-                            &TruePhi,
-                            &RHSPhi );
+      llvm::Value *LHSValue = _EmitBranchOnBoolExpr( CondOp->getLHS(),
+                                                     TrueBlock,
+                                                     RHSBlock,
+                                                     TruePhi,
+                                                     RHSPhi );
 
-      setCurrentMask( OldMask );
       cond.end( *this );
-      EmitBranch( RHSBlock );
+
+      llvm::Value *LHSMasked = Builder.CreateAnd( CondMask, LHSValue );
+      RHSPhi->addIncoming( LHSMasked, Builder.GetInsertBlock() );
+      TruePhi->addIncoming( LHSMasked, Builder.GetInsertBlock() );
+
+      Builder.CreateCondBr( EmitAllTrue( *this, LHSMasked ),
+                            TrueBlock, RHSBlock );
 
       /* Emit code for the RHS.
        */
       cond.begin( *this );
       EmitBlock( RHSBlock );
-      OldMask = getCurrentMask();
-      setCurrentMask( Builder.CreateAnd( OldMask, Builder.CreateNot( RHSPhi )));
 
-      EmitBranchOnBoolExpr( CondOp->getRHS(),
-                            TrueBlock,
-                            FalseBlock,
-                            false,
-                            &TruePhi,
-                            &FalsePhi );
+      llvm::Value *RHSValue =_EmitBranchOnBoolExpr( CondOp->getRHS(),
+                                                    TrueBlock,
+                                                    FalseBlock,
+                                                    TruePhi,
+                                                    FalsePhi );
 
-      setCurrentMask( OldMask );
       cond.end( *this );
 
-      // TODO
-      return Builder.CreateOr( TruePhi, FalsePhi );
+      llvm::Value *RHSMasked = Builder.CreateAnd( Builder.CreateNot( CondMask ),
+                                                  RHSValue );
+
+      return Builder.CreateOr( RHSPhi, RHSMasked );
     } // End Sierra Vector
 
     // br(c ? x : y, t, f) -> br(c, br(x, t, f), br(y, t, f))
