@@ -1782,6 +1782,17 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
   llvm::MDNode *Weights =
       createProfileWeights(TrueCount, CurrentCount - TrueCount);
 
+  if ( const ImplicitCastExpr *CastExpr = dyn_cast< ImplicitCastExpr >( Cond ) )
+  {
+    return _EmitBranchOnBoolExpr( CastExpr->getSubExpr(),
+                                  falseFirst,
+                                  TrueBlock,
+                                  FalseBlock,
+                                  LHSScaledTrueCount,
+                                  TruePhi,
+                                  FalsePhi );
+  }
+
   // Emit the code for the fully general case.
 
   /* If we have a Sierra Vector Type, make the evaluation depend on the current
@@ -1802,7 +1813,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
   }
   Builder.CreateCondBr(CondV, TrueBlock, FalseBlock, Weights, Unpredictable);
 
-  return NULL;
+  return CondV;
 }
 
 
