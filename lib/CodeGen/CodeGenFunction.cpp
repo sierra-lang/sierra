@@ -879,12 +879,12 @@ ConstantFoldsToSimpleInteger(const Expr *Cond, llvm::APSInt &ResultInt) {
 /// \param TruePHI the phi-node placed at the entrance of the true-successor
 /// \param FalsePHI the phi-node placed at the entrance of the false-successor
 /// \return the result of the short-circuit evaluation of the condition
-void CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
-                                            llvm::BasicBlock *TrueBlock,
-                                            llvm::BasicBlock *FalseBlock,
-                                            bool falseFirst /* = false */,
-                                            llvm::PHINode **TruePhi /* = NULL */,
-                                            llvm::PHINode **FalsePhi /* = NULL */ )
+llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
+                                                     llvm::BasicBlock *TrueBlock,
+                                                     llvm::BasicBlock *FalseBlock,
+                                                     bool falseFirst /* = false */,
+                                                     llvm::PHINode **TruePhi /* = NULL */,
+                                                     llvm::PHINode **FalsePhi /* = NULL */ )
 {
   llvm::LLVMContext &Context = Builder.getContext();
 
@@ -948,7 +948,7 @@ void CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
     llvm::Value *ScalarCond = falseFirst ? EmitAllTrue( *this, Result )
                                          : EmitAnyTrue( *this, Result );
     Builder.CreateCondBr( ScalarCond, TrueBlock, FalseBlock );
-    return;
+    return Result;
   } // End Sierra Vector Type
 
   llvm::Value *ScalarCond = _EmitBranchOnBoolExpr( Cond,
@@ -956,6 +956,7 @@ void CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
                                                    /* TruePhi = */ NULL ,
                                                    /* FalsePhi = */ NULL );
   Builder.CreateCondBr( ScalarCond, TrueBlock, FalseBlock );
+  return NULL;
 }
 
 /// EmitBranchOnBoolExpr - This method extends the regular EmitBranchOnBoolExpr
