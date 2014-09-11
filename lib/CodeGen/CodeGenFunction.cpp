@@ -1312,7 +1312,6 @@ llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
   if ( Cond->getType()->isSierraVectorType() )
   {
     unsigned NumElems = Cond->getType()->getSierraVectorLength();
-
     llvm::VectorType* MaskTy = llvm::VectorType::get(
       llvm::IntegerType::getInt1Ty( Context ), NumElems );
 
@@ -1660,58 +1659,65 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
 	{
     if ( CondOp->getCond()->getType()->isSierraVectorType() )
     {
-      llvm::BasicBlock *LHSBlock = createBasicBlock("sierra-cond.true");
-      llvm::BasicBlock *RHSBlock = createBasicBlock("sierra-cond.false");
+      llvm::BasicBlock *LHSBlock = createBasicBlock("sierra-cond.some-true");
+      llvm::BasicBlock *RHSBlock = createBasicBlock("sierra-cond.some-false");
+      llvm::BasicBlock *EndBlock = createBasicBlock("sierra-cond.end");
 
-      llvm::PHINode *LHSPhi = NULL; // PHI Node for the LHS Block
-      llvm::PHINode *RHSPhi = NULL; // PHI Node for the RHS Block
+      unsigned NumElems = Cond->getType()->getSierraVectorLength();
+      llvm::VectorType* MaskTy = llvm::VectorType::get(
+          llvm::IntegerType::getInt1Ty( Builder.getContext() ), NumElems );
+
+      llvm::PHINode *LHSPhi = llvm::PHINode::Create( MaskTy, 0, "sierra-cond.some-true.phi" ); // PHI Node for the LHS Block
+      llvm::PHINode *RHSPhi = llvm::PHINode::Create( MaskTy, 0, "sierra-cond.some-false.phi" ); // PHI Node for the RHS Block
+      llvm::PHINode *RHSPhiValue = llvm::PHINode::Create( MaskTy, 0, "sierra-cond.some-false.LHS-value" );
+      llvm::PHINode *EndPhi = llvm::PHINode::Create( MaskTy, 0, "sierra-cond.end.phi" ); // PHI Node for the RHS Block
 
       ConditionalEvaluation cond( *this );
-      /* TODO support for falseFirst */
-      llvm::Value *CondMask = EmitBranchOnBoolExpr( CondOp->getCond(),
-                                                    LHSBlock,
-                                                    RHSBlock,
-                                                    false,
-                                                    &LHSPhi,
-                                                    &RHSPhi );
+      llvm::Value *CondV = EvaluateExprAsBool( CondOp->getCond() );
+
+      LHSPhi->addIncoming( CondV, Builder.GetInsertBlock() );
+      RHSPhi->addIncoming( CondV, Builder.GetInsertBlock() );
+      RHSPhiValue->addIncoming( CondV, Builder.GetInsertBlock() );
+
+      Builder.CreateCondBr( EmitAnyTrue( *this, CondV ),
+                            LHSBlock, RHSBlock );
 
       /* Emit code for the LHS.
        */
       cond.begin( *this );
       EmitBlock( LHSBlock );
-
-      llvm::Value *LHSValue = _EmitBranchOnBoolExpr( CondOp->getLHS(),
-                                                     TrueBlock,
-                                                     RHSBlock,
-                                                     TruePhi,
-                                                     RHSPhi );
-
+      Builder.Insert( LHSPhi );
+      llvm::Value *LHSMasked = Builder.CreateAnd( LHSPhi,
+                                                  EvaluateExprAsBool( CondOp->getLHS() ), "sierra-cond.lhs-value" );
       cond.end( *this );
 
-      llvm::Value *LHSMasked = Builder.CreateAnd( CondMask, LHSValue );
-      RHSPhi->addIncoming( LHSMasked, Builder.GetInsertBlock() );
-      TruePhi->addIncoming( LHSMasked, Builder.GetInsertBlock() );
+      RHSPhi->addIncoming( LHSPhi, Builder.GetInsertBlock() );  // propagate the mask
+      RHSPhiValue->addIncoming( LHSMasked, Builder.GetInsertBlock() );
+      EndPhi->addIncoming( LHSMasked, Builder.GetInsertBlock() );
 
-      Builder.CreateCondBr( EmitAllTrue( *this, LHSMasked ),
-                            TrueBlock, RHSBlock );
+      Builder.CreateCondBr( EmitAllTrue( *this, LHSPhi ),
+                            EndBlock, RHSBlock );
 
       /* Emit code for the RHS.
        */
       cond.begin( *this );
       EmitBlock( RHSBlock );
-
-      llvm::Value *RHSValue =_EmitBranchOnBoolExpr( CondOp->getRHS(),
-                                                    TrueBlock,
-                                                    FalseBlock,
-                                                    TruePhi,
-                                                    FalsePhi );
-
+      Builder.Insert( RHSPhi );
+      Builder.Insert( RHSPhiValue );
+      llvm::Value *RHSMasked = Builder.CreateAnd( Builder.CreateNot( RHSPhi ),
+                                                  EvaluateExprAsBool( CondOp->getRHS() ), "sierra-cond.rhs-value" );
       cond.end( *this );
 
-      llvm::Value *RHSMasked = Builder.CreateAnd( Builder.CreateNot( CondMask ),
-                                                  RHSValue );
+      llvm::Value *Result = Builder.CreateOr( RHSPhiValue, RHSMasked );
+      EndPhi->addIncoming( Result, Builder.GetInsertBlock() );
 
-      return Builder.CreateOr( RHSPhi, RHSMasked );
+      Builder.CreateBr( EndBlock );
+
+      /* Emit code for the EndBlock.
+       */
+      EmitBlock( EndBlock );
+      Builder.Insert( EndPhi );
+      return EndPhi;
     } // End Sierra Vector
 
     // br(c ? x : y, t, f) -> br(c, br(x, t, f), br(y, t, f))
