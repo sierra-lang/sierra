@@ -1618,14 +1618,11 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
       // Negate the count.
       uint64_t FalseCount = getCurrentProfileCount() - TrueCount;
 
-      /* TODO
-       * We may merge the Sierra case and the uniform case, by swapping the
-       * blocks and/or the phi-nodes.
-       */
-      if ( Cond->getType()->isSierraVectorType() )\
+      if ( Cond->getType()->isSierraVectorType() )
       {
-        /* To negate the condition, we simply swap the phi-nodes for this
-         * subexpression. */
+        /* To negate a vectorial expression we must swap both the target basic
+         * blocks and the phi nodes.
+         */
         llvm::Value *NotV = _EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
                                                    FalseBlock,
                                                    TrueBlock,
