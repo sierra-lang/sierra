@@ -1788,16 +1788,18 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
   llvm::MDNode *Weights =
       createProfileWeights(TrueCount, CurrentCount - TrueCount);
 
-  if ( const ImplicitCastExpr *CastExpr = dyn_cast< ImplicitCastExpr >( Cond ) )
-  {
-    return _EmitBranchOnBoolExpr( CastExpr->getSubExpr(),
-                                  falseFirst,
-                                  TrueBlock,
-                                  FalseBlock,
-                                  LHSScaledTrueCount,
-                                  TruePhi,
-                                  FalsePhi );
-  }
+  if ( Cond->getType()->isSierraVectorType() )
+    if ( const ImplicitCastExpr *CastExpr = dyn_cast< ImplicitCastExpr >( Cond ) )
+    {
+      return _EmitBranchOnBoolExpr( CastExpr->getSubExpr(),
+          falseFirst,
+          TrueBlock,
+          FalseBlock,
+          LHSScaledTrueCount,
+          TruePhi,
+          FalsePhi );
+      //const Expr *subExpr = CastExpr->getSubExpr();
+    }
 
   // Emit the code for the fully general case.
 
