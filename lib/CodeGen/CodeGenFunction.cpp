@@ -1181,20 +1181,19 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
       {
         /* To negate the condition, we simply swap the phi-nodes for this
          * subexpression. */
-        llvm::Value *Value = _EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
-                                                   TrueBlock,
+        llvm::Value *NotV = _EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
                                                    FalseBlock,
+                                                   TrueBlock,
                                                    FalsePhi,
                                                    TruePhi );
-        return Builder.CreateAnd( getCurrentMask(),
-                                  Builder.CreateNot( Value ) );
+        return Builder.CreateNot( NotV );
       }
 
       return _EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
                                    FalseBlock,
                                    TrueBlock,
-                                   TruePhi,
-                                   FalsePhi );
+                                   FalsePhi,
+                                   TruePhi );
     }
   }
 
