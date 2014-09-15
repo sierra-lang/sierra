@@ -1280,15 +1280,16 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
     return NULL;
   }
 
-  if ( const ImplicitCastExpr *CastExpr = dyn_cast< ImplicitCastExpr >( Cond ) )
-  {
-    return _EmitBranchOnBoolExpr( CastExpr->getSubExpr(),
-                                  TrueBlock,
-                                  FalseBlock,
-                                  TruePhi,
-                                  FalsePhi );
-    //const Expr *subExpr = CastExpr->getSubExpr();
-  }
+  if ( Cond->getType()->isSierraVectorType() )
+    if ( const ImplicitCastExpr *CastExpr = dyn_cast< ImplicitCastExpr >( Cond ) )
+    {
+      return _EmitBranchOnBoolExpr( CastExpr->getSubExpr(),
+          TrueBlock,
+          FalseBlock,
+          TruePhi,
+          FalsePhi );
+      //const Expr *subExpr = CastExpr->getSubExpr();
+    }
 
   // Emit the code for the fully general case.
 
