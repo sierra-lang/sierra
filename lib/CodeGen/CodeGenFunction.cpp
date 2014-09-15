@@ -950,11 +950,9 @@ llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
     return Result;
   } // End Sierra Vector Type
 
-  llvm::Value *ScalarCond = _EmitBranchOnBoolExpr( Cond,
-                                                   TrueBlock, FalseBlock,
-                                                   /* TruePhi = */ NULL ,
-                                                   /* FalsePhi = */ NULL );
-  Builder.CreateCondBr( ScalarCond, TrueBlock, FalseBlock );
+  _EmitBranchOnBoolExpr( Cond, TrueBlock, FalseBlock,
+                         /* TruePhi = */ NULL ,
+                         /* FalsePhi = */ NULL );
   return NULL;
 }
 
@@ -1326,7 +1324,9 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
   }
 
   // Emit the code with the fully general case.
-  return EvaluateExprAsBool(Cond);
+  llvm::Value *CondV = EvaluateExprAsBool(Cond);
+  Builder.CreateCondBr(CondV, TrueBlock, FalseBlock);
+  return NULL;
 }
 
 
