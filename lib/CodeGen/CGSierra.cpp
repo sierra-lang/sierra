@@ -469,53 +469,52 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
 {
   CGBuilderTy &Builder = CGF.Builder;
   llvm::LLVMContext &Context = Builder.getContext();
-  llvm::BasicBlock *OldBlock = Builder.GetInsertBlock();
+
   llvm::Value *OldMask = CGF.getCurrentMask();
   unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
+  llvm::VectorType *MaskTy = llvm::VectorType::get(
+      llvm::IntegerType::getInt1Ty( Context ), NumElems );
 
+  /* If no current mask exist, create one with all lanes set to active. */
   assert( NumElems > 1 );
   if ( ! OldMask )
     CGF.setCurrentMask( CreateAllOnesVector( Context, NumElems ) );
 
-  llvm::Value *CurrenMask = CGF.getCurrentMask();
-
   CodeGenFunction::RunCleanupsScope ForScope( CGF );
 
-  // Break target
   CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope( "sierra-for.end" );
-  // Continue target
-  // Use the Condition Block as the default continue target.
-  // If the statement has an increment block, that block will become the new Continue target.
   CodeGenFunction::JumpDest Continue = CGF.getJumpDestInCurrentScope( "sierra-for.cond" );
-  // Body Block, containing the Loop Body
   llvm::BasicBlock *LoopBody = CGF.createBasicBlock( "sierra-for.body" );
-  // Condition Block
   llvm::BasicBlock *CondBlock = Continue.getBlock();
-  // Exit Block (after the For Statement)
   llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
+  if ( S.getInc() )
+    Continue = CGF.getJumpDestInCurrentScope( "sierra-for.inc" );
 
-  // Create a cleanups scope for the condition variables.
-  CodeGenFunction::RunCleanupsScope ConditionScope( CGF );
-
-  // Evaluate the first part before the loop. This is the initializing statement
-  // of the for-statement.
-  // This statement can be appended to the current basic block (OldBlock) .
-  if ( S.getInit() )
-    CGF.EmitStmt( S.getInit() );
-
-  // Emit the Condition Block
-  CGF.EmitBlock( CondBlock );
-
-  // Create a new phi node. The arguments are specified later.
   // The phi node will take either the initial loop mask,
   // or the one that is created after evaluating the condition.
-  llvm::PHINode *phi = Builder.CreatePHI( CurrenMask->getType(), 2,
-      "sierra-for.header-phi" );
+  llvm::PHINode *phi = llvm::PHINode::Create( MaskTy, 0,
+                                              "sierra-for.phi-header" );
 
-  phi->addIncoming( CurrenMask, OldBlock );
+  /* Evaluate the init expr/decl before the condition block.  It can be appended
+   * to the current basic block.
+   */
+  if ( S.getInit() )
+    CGF.EmitStmt( S.getInit() );
+  phi->addIncoming( CGF.getCurrentMask(), Builder.GetInsertBlock() );
 
-  // If the for statement has a condition scope, emit the local variable
-  // declaration.
+  /* Emit the Condition Block. */
+  CGF.EmitBlock( CondBlock );
+
+  /* Set the mask for the condition block to the incoming phi vlaue. */
+  Builder.Insert( phi );
+  CGF.setCurrentMask( phi );
+
+  /* Create a cleanups scope for the condition variables. */
+  CodeGenFunction::RunCleanupsScope ConditionScope( CGF );
+
+  /* If the for statement has a condition scope, emit the local variable
+   * declaration.
+   */
   if ( S.getConditionVariable() )
     CGF.EmitAutoVarDecl( *S.getConditionVariable() );
 
@@ -524,52 +523,49 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   if ( ConditionScope.requiresCleanups() )
     ExitBlock = CGF.createBasicBlock( "sierra-for.cond.cleanup" );
 
-  llvm::PHINode *LoopMask = NULL;
+  /* LoopMask will hold a reference to the llvm::Value representing the loop's
+   * mask.
+   */
+  llvm::PHINode *LoopMaskPhi = NULL;
+  CGF.EmitBranchOnBoolExpr( S.getCond(),
+                            LoopBody, ExitBlock,
+                            false, &LoopMaskPhi );
 
-  CGF.EmitBranchOnBoolExpr( S.getCond(), LoopBody, ExitBlock, false,
-      &LoopMask );
 
   // Emit the loop body.  We have to emit this in a cleanup scope
   // because it might be a singleton DeclStmt.
+  llvm::Value *LoopMask;
   {
     // Create a cleanups scope for the loop body
     CodeGenFunction::RunCleanupsScope BodyScope( CGF );
-    CGF.setCurrentMask( LoopMask );
-    // Create the body block
     CGF.EmitBlock( LoopBody );
 
-    // Emit the loop body
+    /* Set the current mask for the body block and the increment block. */
+    LoopMask = Builder.CreateAnd( CGF.getCurrentMask(), LoopMaskPhi );
+    CGF.setCurrentMask( LoopMask );
+
+    // TODO push to BreakContinueStack
     CGF.EmitStmt( S.getBody() );
   }
 
   // If an increment block exists, make it the new continue target.
   if ( S.getInc() )
   {
-    // Make the increment block the new continue target
-    Continue = CGF.getJumpDestInCurrentScope( "sierra-for.inc" );
     // Create the increment block
     CGF.EmitBlock( Continue.getBlock() );
     CGF.EmitStmt( S.getInc() );
   }
 
-  // Add incoming edge from the current basic block with the loop mask
-  // The current basic block is either the Body Block or the Increment Block
+  /* The current basic block is either the Body Block or the Increment Block. */
   phi->addIncoming( LoopMask, Builder.GetInsertBlock() );
 
-  // Immediately force cleanup.
+  // TODO pop back BreakContinueStack
+
   ConditionScope.ForceCleanup();
-
-  // Branch to the loop header again.
   CGF.EmitBranch( CondBlock );
-
-  // Emit the exit block
-  if ( ExitBlock != LoopExit.getBlock() )
-  {
-    CGF.EmitBlock( ExitBlock );
-    CGF.EmitBranchThroughCleanup( LoopExit );
-  }
-
   CGF.setCurrentMask( OldMask );
+
+  ForScope.ForceCleanup();
 
   // Emit the blocks after the loop
   CGF.EmitBlock( LoopExit.getBlock(), true );
@@ -579,4 +575,3 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
 
 }  // end namespace CodeGen
 }  // end namespace clang
-
