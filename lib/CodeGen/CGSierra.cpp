@@ -296,36 +296,27 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
   llvm::LLVMContext &Context = Builder.getContext();
   llvm::Value *OldMask = CGF.getCurrentMask();
-  llvm::BasicBlock *OldBlock = Builder.GetInsertBlock();
   unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
+  llvm::VectorType *MaskTy = llvm::VectorType::get(
+      llvm::IntegerType::getInt1Ty( Context ), NumElems );
 
   assert(NumElems > 1);
   if (!OldMask)
     CGF.setCurrentMask(CreateAllOnesVector(Context, NumElems));
 
-  llvm::Value *CurrenMask = CGF.getCurrentMask();
-
   // Emit the header for the loop, which will also become
   // the continue target.
   CodeGenFunction::JumpDest LoopHeader =
-    CGF.getJumpDestInCurrentScope("sierra-while.cond");
-  CGF.EmitBlock(LoopHeader.getBlock());
+    CGF.getJumpDestInCurrentScope( "sierra-while.cond" );
+  CodeGenFunction::JumpDest LoopExit =
+    CGF.getJumpDestInCurrentScope( "sierra-while.end" );
 
   // Create a new phi node. The arguments are specified later.
   // The phi node will take either the initial loop mask,
   // or the one that is created after evaluating the condition.
-  llvm::PHINode *phi = Builder.CreatePHI( CurrenMask->getType(), 2,
-      "sierra-while.header-phi" );
-
-  phi->addIncoming( CurrenMask, OldBlock );
-
-  // Create an exit block for when the condition fails, which will
-  // also become the break target.
-  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope("sierra-while.end");
-
-  // TODO this is not working ATM
-  // Store the blocks to use for break and continue.
-  //CGF.BreakContinueStack.push_back(BreakContinue(LoopExit, LoopHeader));
+  llvm::PHINode *phi = llvm::PHINode::Create( MaskTy, 0, 
+                                              "sierra-while.phi-header" );
+  phi->addIncoming( CGF.getCurrentMask(), Builder.GetInsertBlock() );
 
   // C++ [stmt.while]p2:
   //   When the condition of a while statement is a declaration, the
@@ -336,45 +327,49 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
   //   with each iteration of the loop.
   CodeGenFunction::RunCleanupsScope ConditionScope(CGF);
 
+  CGF.EmitBlock( LoopHeader.getBlock() );
+  Builder.Insert( phi );
+  CGF.setCurrentMask( phi );
+
   if (S.getConditionVariable())
     CGF.EmitAutoVarDecl(*S.getConditionVariable());
 
   // As long as at least one lane yields true go to the loop body.
-  llvm::BasicBlock *LoopBody = CGF.createBasicBlock("sierra-while.body");
+  llvm::BasicBlock *LoopBody = CGF.createBasicBlock( "sierra-while.body" );
   llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
 
-  llvm::PHINode *LoopMask = NULL;
+  // If there are any cleanups between here and the loop-exit scope,
+  // create a block to stage a loop exit along.
+  if (ConditionScope.requiresCleanups())
+    ExitBlock = CGF.createBasicBlock("sierra-while.exit");
 
-  CGF.EmitBranchOnBoolExpr( S.getCond(), LoopBody, ExitBlock, false,
-      &LoopMask );
+  llvm::PHINode *LoopMaskPhi = NULL;
+  CGF.EmitBranchOnBoolExpr( S.getCond(),
+                            LoopBody, ExitBlock,
+                            false, &LoopMaskPhi );
 
   // Emit the loop body.  We have to emit this in a cleanup scope
   // because it might be a singleton DeclStmt.
+  llvm::Value *LoopMask;
   {
     CodeGenFunction::RunCleanupsScope BodyScope(CGF);
-    CGF.setCurrentMask(LoopMask);
     CGF.EmitBlock(LoopBody);
+
+    LoopMask = Builder.CreateAnd( LoopMaskPhi, CGF.getCurrentMask() );
+    CGF.setCurrentMask(LoopMask);
+
+    // TODO push to BreakContinueStack
     CGF.EmitStmt(S.getBody());
+    // TODO pop back BreakContinueStack
   }
 
-  //BreakContinueStack.pop_back();
-
-
-  // Add incoming edge from the current basic block with the loop mask
-  // The current basic block is either the Body Block or the Increment Block
   phi->addIncoming( LoopMask, Builder.GetInsertBlock() );
-
-  // Immediately force cleanup.
   ConditionScope.ForceCleanup();
-
-  // Branch to the loop header again.
-  CGF.EmitBranch(LoopHeader.getBlock());
-
+  CGF.EmitBranch( LoopHeader.getBlock() );
   CGF.setCurrentMask(OldMask);
 
-  if (ConditionScope.requiresCleanups())
+  if ( ExitBlock != LoopExit.getBlock() )
   {
-    ExitBlock = CGF.createBasicBlock("sierra-while.exit");
     CGF.EmitBlock(ExitBlock);
     CGF.EmitBranchThroughCleanup(LoopExit);
   }
