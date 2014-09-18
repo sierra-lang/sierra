@@ -546,6 +546,7 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
 
     // TODO push to BreakContinueStack
     CGF.EmitStmt( S.getBody() );
+    // TODO pop back BreakContinueStack
   }
 
   // If an increment block exists, make it the new continue target.
@@ -558,14 +559,17 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
 
   /* The current basic block is either the Body Block or the Increment Block. */
   phi->addIncoming( LoopMask, Builder.GetInsertBlock() );
-
-  // TODO pop back BreakContinueStack
-
   ConditionScope.ForceCleanup();
   CGF.EmitBranch( CondBlock );
   CGF.setCurrentMask( OldMask );
 
   ForScope.ForceCleanup();
+
+  if ( ExitBlock != LoopExit.getBlock() )
+  {
+    CGF.EmitBlock(ExitBlock);
+    CGF.EmitBranchThroughCleanup(LoopExit);
+  }
 
   // Emit the blocks after the loop
   CGF.EmitBlock( LoopExit.getBlock(), true );
