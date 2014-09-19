@@ -136,6 +136,14 @@ class CodeGenFunction : public CodeGenTypeCache {
   void operator=(const CodeGenFunction &) = delete;
 
   friend class CGCXXABI;
+
+  /* Declare Sierra code gen functions, that need to access the
+   * BreakContinueStack, as friend.
+   */
+  friend void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S);
+  friend void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S);
+  friend void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S);
+
 public:
   /// A jump destination is an abstract label, branching to which may
   /// require a jump out through normal cleanups.
