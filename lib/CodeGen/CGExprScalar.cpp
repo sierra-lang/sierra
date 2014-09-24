@@ -2988,7 +2988,7 @@ Value *ScalarExprEmitter::VisitBinLAnd(const BinaryOperator *E) {
 
 Value *ScalarExprEmitter::VisitBinLOr(const BinaryOperator *E) {
   // Perform vector logical or on comparisons with zero vectors.
-  if (E->getType()->isVectorType()) {
+  if (E->getType()->isVectorType() && ! E->getType()->isSierraVectorType()) {
     Value *LHS = Visit(E->getLHS());
     Value *RHS = Visit(E->getRHS());
     Value *Zero = llvm::ConstantAggregateZero::get(LHS->getType());
@@ -3018,6 +3018,49 @@ Value *ScalarExprEmitter::VisitBinLOr(const BinaryOperator *E) {
     // 1 || RHS: If it is safe, just elide the RHS, and return 1/true.
     if (!CGF.ContainsLabel(E->getRHS()))
       return llvm::ConstantInt::get(ResTy, 1);
+  }
+
+  if ( E->getType()->isSierraVectorType() )
+  {
+    unsigned NumElems = E->getType()->getSierraVectorLength();
+    assert(NumElems > 1);
+    llvm::VectorType* MaskTy = llvm::VectorType::get(
+      llvm::IntegerType::getInt1Ty( Builder.getContext() ), NumElems );
+
+    llvm::Value *OldMask = CGF.getCurrentMask();
+    if ( ! OldMask )
+      CGF.setCurrentMask( CreateAllOnesVector( Builder.getContext(), NumElems ) );
+
+    llvm::BasicBlock *TrueBlock = CGF.createBasicBlock( "sierra-lor.some-true" );
+    llvm::BasicBlock *FalseBlock = CGF.createBasicBlock( "sierra-lor.some-false" );
+    llvm::BasicBlock *EndBlock = CGF.createBasicBlock( "sierra-lor.end" );
+
+    llvm::PHINode *TruePhi = NULL;
+    llvm::PHINode *FalsePhi = NULL;
+    llvm::PHINode *EndPhi = llvm::PHINode::Create( MaskTy, 0,
+                                                   "sierra-lor.phi-end" );
+
+    CGF.EmitBranchOnBoolExpr( E,
+                              TrueBlock, FalseBlock,
+                              /* falseFirst = */ false,
+                              &TruePhi, &FalsePhi );
+
+    /* Emit code for the TrueBlock. */
+    CGF.EmitBlock( TrueBlock );
+    EndPhi->addIncoming( TruePhi, Builder.GetInsertBlock() );
+    Builder.CreateBr( EndBlock );
+
+    /* Emit code for the FalseBlock. */
+    CGF.EmitBlock( FalseBlock );
+    EndPhi->addIncoming( FalsePhi, Builder.GetInsertBlock() );
+    CGF.EmitBlock( EndBlock );
+
+    /* Emit code for the EndBlock. */
+    Builder.Insert( EndPhi );
+    llvm::Value *Res = Builder.CreateAnd( EndPhi, CGF.getCurrentMask() );
+
+    CGF.setCurrentMask( OldMask );
+    return Res;
   }
 
   llvm::BasicBlock *ContBlock = CGF.createBasicBlock("lor.end");
