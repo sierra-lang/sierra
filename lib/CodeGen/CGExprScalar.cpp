@@ -3437,6 +3437,48 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
     return Builder.CreateSelect(CondV, LHS, RHS, "cond");
   }
 
+  if ( condExpr->getType()->isSierraVectorType() )
+  {
+    unsigned NumElems = E->getType()->getSierraVectorLength();
+    assert(NumElems > 1);
+    llvm::VectorType* MaskTy = llvm::VectorType::get(
+      llvm::IntegerType::getInt1Ty( Builder.getContext() ), NumElems );
+
+    llvm::Value *OldMask = CGF.getCurrentMask();
+    if ( ! OldMask )
+      CGF.setCurrentMask( CreateAllOnesVector( Builder.getContext(), NumElems ) );
+
+    llvm::BasicBlock *TrueBlock = CGF.createBasicBlock( "sierra-conditional.some-true" );
+    llvm::BasicBlock *FalseBlock = CGF.createBasicBlock( "sierra-conditional.some-false" );
+    llvm::BasicBlock *EndBlock = CGF.createBasicBlock( "sierra-conditional.end" );
+
+    llvm::PHINode *TruePhi = NULL;
+    llvm::PHINode *FalsePhi = NULL;
+    llvm::PHINode *EndPhi = llvm::PHINode::Create( MaskTy, 0, "sierra-conditional.phi-end" );
+
+    CGF.EmitBranchOnBoolExpr( E,
+                              TrueBlock, FalseBlock,
+                              /* falseFirst = */ false,
+                              &TruePhi, &FalsePhi );
+
+    /* Emit code for the TrueBlock. */
+    CGF.EmitBlock( TrueBlock );
+    EndPhi->addIncoming( TruePhi, Builder.GetInsertBlock() );
+    Builder.CreateBr( EndBlock );
+
+    /* Emit code for the FalseBlock. */
+    CGF.EmitBlock( FalseBlock );
+    EndPhi->addIncoming( FalsePhi, Builder.GetInsertBlock() );
+    CGF.EmitBlock( EndBlock );
+
+    /* Emit code for the EndBlock. */
+    Builder.Insert( EndPhi );
+    llvm::Value *Res = Builder.CreateAnd( EndPhi, CGF.getCurrentMask() );
+
+    CGF.setCurrentMask( OldMask );
+    return Res;
+  }
+
   llvm::BasicBlock *LHSBlock = CGF.createBasicBlock("cond.true");
   llvm::BasicBlock *RHSBlock = CGF.createBasicBlock("cond.false");
   llvm::BasicBlock *ContBlock = CGF.createBasicBlock("cond.end");
