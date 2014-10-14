@@ -46,7 +46,7 @@ CodeGenFunction::CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext)
       ExceptionSlot(0), EHSelectorSlot(0), DebugInfo(CGM.getModuleDebugInfo()),
       DisableDebugInfo(false), DidCallStackSave(false), IndirectBranch(0),
       SwitchInsn(0), CaseRangeBlock(0), UnreachableBlock(0), NumReturnExprs(0),
-      CurrentMask(0),
+      CurrentMask(0), SierraMask_(0),
       NumSimpleReturnExprs(0), CXXABIThisDecl(0), CXXABIThisValue(0),
       CXXThisValue(0), CXXDefaultInitExprThis(0),
       CXXStructorImplicitParamDecl(0), CXXStructorImplicitParamValue(0),

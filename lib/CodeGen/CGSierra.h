@@ -28,6 +28,9 @@ class IfStmt;
 class WhileStmt;
 class DoStmt;
 class ForStmt;
+class BreakStmt;
+class ContinueStmt;
+class ReturnStmt;
 
 namespace CodeGen {
 
@@ -38,7 +41,7 @@ llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context, unsigned NumEle
 
 llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, llvm::Value *Src, QualType SrcType, QualType DstType);
 
-llvm::Value *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask, 
+llvm::Value *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask,
                                  llvm::Value *Val, llvm::Value *Ptr, bool Volatile);
 
 llvm::Value *EmitAllTrue(CodeGenFunction &CGF, llvm::Value* V);
@@ -50,6 +53,38 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S);
 void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S);
 void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S);
 void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S);
+void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S);
+void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S);
+void EmitSierraReturnStmt(CodeGenFunction &CGF, const ReturnStmt &S);
+
+/// \brief Holds masks used by the Sierra code generation.
+struct SierraMask
+{
+  llvm::Value * const CurrentMask;
+  llvm::Value * const ContinueMask;
+
+  static SierraMask * Create( llvm::Value *CurrentMask,
+                              llvm::Value *ContinueMask )
+  {
+    assert( CurrentMask );
+    assert( ContinueMask );
+    return new SierraMask( CurrentMask, ContinueMask );
+  }
+
+  static SierraMask * Create( llvm::LLVMContext &Context,
+                              unsigned NumElems )
+  {
+    assert( 0 != NumElems );
+    return new SierraMask( CreateAllOnesVector( Context, NumElems ),
+                           CreateAllZerosVector( Context, NumElems ) );
+  }
+
+  private:
+  SierraMask( llvm::Value * const CurrentMask,
+                     llvm::Value * const ContinueMask )
+    : CurrentMask(CurrentMask), ContinueMask(ContinueMask)
+  {}
+};
 
 }  // end namespace CodeGen
 }  // end namespace clang

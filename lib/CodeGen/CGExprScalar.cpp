@@ -2908,14 +2908,15 @@ Value *ScalarExprEmitter::VisitBinLAnd(const BinaryOperator *E) {
 
   if ( E->getType()->isSierraVectorType() )
   {
-    unsigned NumElems = E->getType()->getSierraVectorLength();
-    assert(NumElems > 1);
-    llvm::VectorType* MaskTy = llvm::VectorType::get(
-      llvm::IntegerType::getInt1Ty( Builder.getContext() ), NumElems );
-
-    llvm::Value *OldMask = CGF.getCurrentMask();
+    SierraMask *OldMask = CGF.getSierraMask();
     if ( ! OldMask )
-      CGF.setCurrentMask( CreateAllOnesVector( Builder.getContext(), NumElems ) );
+    {
+      /* Create a mask with all-true current and all-false continue. */
+      unsigned NumElems = E->getType()->getSierraVectorLength();
+      OldMask = SierraMask::Create( Builder.getContext(), NumElems );
+      CGF.setSierraMask( OldMask );
+    }
+    llvm::Type *MaskTy = OldMask->CurrentMask->getType();
 
     llvm::BasicBlock *TrueBlock = CGF.createBasicBlock( "sierra-land.some-true" );
     llvm::BasicBlock *FalseBlock = CGF.createBasicBlock( "sierra-land.some-false" );
@@ -2943,9 +2944,9 @@ Value *ScalarExprEmitter::VisitBinLAnd(const BinaryOperator *E) {
 
     /* Emit code for the EndBlock. */
     Builder.Insert( EndPhi );
-    llvm::Value *Res = Builder.CreateAnd( EndPhi, CGF.getCurrentMask() );
+    llvm::Value *Res = Builder.CreateAnd( EndPhi, OldMask->CurrentMask );
 
-    CGF.setCurrentMask( OldMask );
+    CGF.setSierraMask( OldMask );
     return Res;
   }
 
@@ -3022,14 +3023,15 @@ Value *ScalarExprEmitter::VisitBinLOr(const BinaryOperator *E) {
 
   if ( E->getType()->isSierraVectorType() )
   {
-    unsigned NumElems = E->getType()->getSierraVectorLength();
-    assert(NumElems > 1);
-    llvm::VectorType* MaskTy = llvm::VectorType::get(
-      llvm::IntegerType::getInt1Ty( Builder.getContext() ), NumElems );
-
-    llvm::Value *OldMask = CGF.getCurrentMask();
+    SierraMask *OldMask = CGF.getSierraMask();
     if ( ! OldMask )
-      CGF.setCurrentMask( CreateAllOnesVector( Builder.getContext(), NumElems ) );
+    {
+      /* Create a mask with all-true current and all-false continue. */
+      unsigned NumElems = E->getType()->getSierraVectorLength();
+      OldMask = SierraMask::Create( Builder.getContext(), NumElems );
+      CGF.setSierraMask( OldMask );
+    }
+    llvm::Type *MaskTy = OldMask->CurrentMask->getType();
 
     llvm::BasicBlock *TrueBlock = CGF.createBasicBlock( "sierra-lor.some-true" );
     llvm::BasicBlock *FalseBlock = CGF.createBasicBlock( "sierra-lor.some-false" );
@@ -3057,9 +3059,9 @@ Value *ScalarExprEmitter::VisitBinLOr(const BinaryOperator *E) {
 
     /* Emit code for the EndBlock. */
     Builder.Insert( EndPhi );
-    llvm::Value *Res = Builder.CreateAnd( EndPhi, CGF.getCurrentMask() );
+    llvm::Value *Res = Builder.CreateAnd( EndPhi, OldMask->CurrentMask );
 
-    CGF.setCurrentMask( OldMask );
+    CGF.setSierraMask( OldMask );
     return Res;
   }
 
@@ -3220,14 +3222,15 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
 
   if ( condExpr->getType()->isSierraVectorType() )
   {
-    unsigned NumElems = E->getType()->getSierraVectorLength();
-    assert(NumElems > 1);
-    llvm::VectorType* MaskTy = llvm::VectorType::get(
-      llvm::IntegerType::getInt1Ty( Builder.getContext() ), NumElems );
-
-    llvm::Value *OldMask = CGF.getCurrentMask();
+    SierraMask *OldMask = CGF.getSierraMask();
     if ( ! OldMask )
-      CGF.setCurrentMask( CreateAllOnesVector( Builder.getContext(), NumElems ) );
+    {
+      /* Create a mask with all-true current and all-false continue. */
+      unsigned NumElems = E->getType()->getSierraVectorLength();
+      OldMask = SierraMask::Create( Builder.getContext(), NumElems );
+      CGF.setSierraMask( OldMask );
+    }
+    llvm::Type *MaskTy = OldMask->CurrentMask->getType();
 
     llvm::BasicBlock *TrueBlock = CGF.createBasicBlock( "sierra-conditional.some-true" );
     llvm::BasicBlock *FalseBlock = CGF.createBasicBlock( "sierra-conditional.some-false" );
@@ -3254,9 +3257,9 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
 
     /* Emit code for the EndBlock. */
     Builder.Insert( EndPhi );
-    llvm::Value *Res = Builder.CreateAnd( EndPhi, CGF.getCurrentMask() );
+    llvm::Value *Res = Builder.CreateAnd( EndPhi, OldMask->CurrentMask );
 
-    CGF.setCurrentMask( OldMask );
+    CGF.setSierraMask( OldMask );
     return Res;
   }
 
