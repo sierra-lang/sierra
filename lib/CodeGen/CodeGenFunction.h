@@ -137,12 +137,19 @@ class CodeGenFunction : public CodeGenTypeCache {
 
   friend class CGCXXABI;
 
-  /* Declare Sierra code gen functions, that need to access the
-   * BreakContinueStack, as friend.
-   */
+  /* Declare Sierra code gen functions as friend. */
+  friend void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S);
   friend void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S);
   friend void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S);
   friend void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S);
+  friend void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S);
+  friend void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S);
+  friend void EmitSierraReturnStmt(CodeGenFunction &CGF, const ReturnStmt &S);
+  friend SierraMask * EmitSierraSelectMask(
+      CodeGenFunction &CGF, llvm::VectorType *MaskTy,
+      llvm::BasicBlock *BB0, llvm::BasicBlock *BB1 );
+  friend SierraMask * EmitSierraMergeMask(
+      CodeGenFunction &CGF, SierraMask *M0, SierraMask *M1 );
 
 public:
   /// A jump destination is an abstract label, branching to which may
@@ -1387,6 +1394,9 @@ public:
 
   llvm::Value *getCurrentMask() const { return CurrentMask; }
   void setCurrentMask(llvm::Value *NewMask) { CurrentMask = NewMask; }
+
+  SierraMask *getSierraMask() const { return SierraMask_; }
+  void setSierraMask(SierraMask *NewMask) { SierraMask_ = NewMask; }
 
   /// Returns a pointer to the function's exception object and selector slot,
   /// which is assigned in every landing pad.

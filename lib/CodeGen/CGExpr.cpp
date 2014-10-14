@@ -1422,9 +1422,9 @@ void CodeGenFunction::EmitStoreOfScalar(llvm::Value *Value, Address Addr,
 
   Value = EmitToMemory(Value, Ty);
 
-  llvm::StoreInst *Store;
   if (Value->getType()->isVectorTy() && CurrentMask) {
-    Store = EmitMaskedStore(Builder, CurrentMask, Value, Addr, Volatile);
+    EmitMaskedStore(Builder, CurrentMask, Value, Addr, Volatile);
+    return;
   } else {
     LValue AtomicLValue =
         LValue::MakeAddr(Addr, Ty, getContext(), AlignSource, TBAAInfo);
@@ -1433,8 +1433,6 @@ void CodeGenFunction::EmitStoreOfScalar(llvm::Value *Value, Address Addr,
       EmitAtomicStore(RValue::get(Value), AtomicLValue, isInit);
       return;
     }
-  
-    Store = Builder.CreateStore(Value, Addr, Volatile);
   }
   if (isNontemporal) {
     llvm::MDNode *Node =

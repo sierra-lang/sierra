@@ -1129,6 +1129,15 @@ void CodeGenFunction::EmitBreakStmt(const BreakStmt &S) {
   if (HaveInsertPoint())
     EmitStopPoint(&S);
 
+  /* If the BreakStmt is inside a vectorial Sierra loop, trigger Sierra's code
+   * gen.
+   * FIXME Only checking whether a current mask exists is not enough. We have to
+   * make sure that the BreakStmt is part of a vectorial loop, and not only
+   * inside a vectorial context.
+   */
+  if ( getSierraMask() )
+    return EmitSierraBreakStmt( *this, S );
+
   EmitBranchThroughCleanup(BreakContinueStack.back().BreakBlock);
 }
 
@@ -1140,6 +1149,15 @@ void CodeGenFunction::EmitContinueStmt(const ContinueStmt &S) {
   // "simple" statement path.
   if (HaveInsertPoint())
     EmitStopPoint(&S);
+
+  /* If the BreakStmt is inside a vectorial Sierra loop, trigger Sierra's code
+   * gen.
+   * FIXME Only checking whether a current mask exists is not enough. We have to
+   * make sure that the BreakStmt is part of a vectorial loop, and not only
+   * inside a vectorial context.
+   */
+  if ( getSierraMask() )
+    return EmitSierraContinueStmt( *this, S );
 
   EmitBranchThroughCleanup(BreakContinueStack.back().ContinueBlock);
 }
