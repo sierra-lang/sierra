@@ -44,6 +44,8 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, llvm::Value *Src, QualTy
 llvm::Value *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask,
                                  llvm::Value *Val, llvm::Value *Ptr, bool Volatile);
 
+llvm::Value *EmitToInt(CGBuilderTy &Builder, llvm::Value *Vec);
+
 llvm::Value *EmitAllTrue(CodeGenFunction &CGF, llvm::Value* V);
 llvm::Value *EmitAllFalse(CodeGenFunction &CGF, llvm::Value* V);
 llvm::Value *EmitAnyTrue(CodeGenFunction &CGF, llvm::Value* V);
