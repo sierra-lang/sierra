@@ -1364,7 +1364,8 @@ llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
     /* Create the branch for the right-most subexpression.  We now must consider
      * the flaseFirst flag.
      */
-    llvm::Value *ScalarCond = falseFirst ? EmitAllTrue( *this, Result )
+    llvm::Value *ScalarCond = falseFirst ? Builder.CreateICmpEQ( EmitToInt( Builder, Result ),
+                                                                 EmitToInt( Builder, getSierraMask()->CurrentMask ) )
                                          : EmitAnyTrue( *this, Result );
     Builder.CreateCondBr( ScalarCond, TrueBlock, FalseBlock );
     return Result;
@@ -1538,8 +1539,10 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
         /* Create the branch for the LHS under consideration of the current
          * mask.
          */
-        Builder.CreateCondBr( EmitAllTrue( *this, LHSValue ),
-                              TrueBlock, LHSSomeFalse );
+        Builder.CreateCondBr(
+            Builder.CreateICmpEQ( EmitToInt( Builder, LHSValue ),
+                                  EmitToInt( Builder, getSierraMask()->CurrentMask ) ),
+            TrueBlock, LHSSomeFalse );
 
         /* Emit the block for the RHS. */
         eval.begin( *this );
@@ -1692,7 +1695,8 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
       RHSPhiValue->addIncoming( LHSMasked, Builder.GetInsertBlock() );
       EndPhi->addIncoming( LHSMasked, Builder.GetInsertBlock() );
 
-      Builder.CreateCondBr( EmitAllTrue( *this, LHSPhi ),
+      Builder.CreateCondBr( Builder.CreateICmpEQ( EmitToInt( Builder, LHSPhi ),
+                                                  EmitToInt( Builder, getSierraMask()->CurrentMask ) ),
                             EndBlock, RHSBlock );
 
       /* Emit code for the RHS.
@@ -1805,10 +1809,9 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
    */
   if ( Cond->getType()->isSierraVectorType() )
   {
-    /* Evaluate the condition.  We don't need to mask the result, as this is
-     * done by the code gen for the parent expression or statement.
-     */
-    return EvaluateExprAsBool( Cond );
+    /* Evaluate the condition. */
+    llvm::Value *Res = EvaluateExprAsBool( Cond );
+    return Builder.CreateAnd( Res, getSierraMask()->CurrentMask );
   } // End Sierra Vector Type
 
   // Emit the code with the fully general case.
