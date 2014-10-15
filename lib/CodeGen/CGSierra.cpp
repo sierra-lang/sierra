@@ -478,6 +478,7 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S)
 
   // Emit the exit block.
   CGF.EmitBlock( LoopExit.getBlock() );
+  CGF.setSierraMask( OldMask );
 }
 
 
@@ -548,20 +549,19 @@ void EmitSierraDoStmt( CodeGenFunction &CGF, const DoStmt &S )
   }
 
   // Emit the blocks after the loop
-  CGF.EmitBlock( LoopExit.getBlock(), true );
-
-  Builder.GetInsertBlock()->getParent()->dump();
+  CGF.EmitBlock( LoopExit.getBlock() );
+  CGF.setSierraMask( OldMask );
 }
 
 void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
 {
   CGBuilderTy &Builder = CGF.Builder;
+  unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
 
   SierraMask *OldMask = CGF.getSierraMask();
   if ( ! OldMask )
   {
     /* Create a mask with all-true current and all-false continue. */
-    unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
     OldMask = SierraMask::Create( Builder.getContext(), NumElems );
     CGF.setSierraMask( OldMask );
   }
@@ -606,10 +606,10 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   /* Emit the loop body.  We have to emit this in a cleanup scope because it
    * might be a singleton DeclStmt.
    */
+  CGF.EmitBlock( LoopBody );
   {
     // Create a cleanups scope for the loop body
     CodeGenFunction::RunCleanupsScope BodyScope( CGF );
-    CGF.EmitBlock( LoopBody );
 
     /* Set the current mask for the body block and the increment block. */
     CGF.setSierraMask(
@@ -625,15 +625,22 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   }
 
   CGF.EmitBlock( Continue.getBlock() );
-  if ( S.getInc() )
-    CGF.EmitStmt( S.getInc() );
+  {
+    SierraMask *M = CGF.getSierraMask();
+    CGF.setSierraMask( SierraMask::Create(
+          Builder.CreateOr( M->CurrentMask, M->ContinueMask ),
+          CreateAllZerosVector( Builder.getContext(), NumElems )
+          ) );
 
-  CondMaskPhi->addIncoming( Builder.CreateOr(
-                              CGF.getSierraMask()->CurrentMask,
-                              CGF.getSierraMask()->ContinueMask ),
-                            Builder.GetInsertBlock() );
-  ConditionScope.ForceCleanup();
-  CGF.EmitBranch( CondBlock );
+    if ( S.getInc() )
+      CGF.EmitStmt( S.getInc() );
+
+    CondMaskPhi->addIncoming( CGF.getSierraMask()->CurrentMask,
+                              Builder.GetInsertBlock() );
+
+    ConditionScope.ForceCleanup();
+    CGF.EmitBranch( CondBlock );
+  }
 
   ForScope.ForceCleanup();
 
@@ -645,6 +652,7 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
 
   // Emit the blocks after the loop
   CGF.EmitBlock( LoopExit.getBlock() );
+  CGF.setSierraMask( OldMask );
 }
 
 void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S)
@@ -652,31 +660,27 @@ void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S)
   /* Insert the new Current mask to the Sierra mask map. */
   SierraMask *OldMask = CGF.getSierraMask();
 
-  SierraMask *NewMask = SierraMask::Create(
-      CreateAllZerosVector(
-        CGF.getLLVMContext(),
-        OldMask->CurrentMask->getType()->getVectorNumElements() ),
-      OldMask->ContinueMask // keep continue-mask
-      );
-
-  CGF.setSierraMask( EmitSierraMergeMask( CGF, OldMask, NewMask ) );
+  CGF.setSierraMask( SierraMask::Create(
+        CreateAllZerosVector(
+          CGF.getLLVMContext(),
+          OldMask->CurrentMask->getType()->getVectorNumElements() ),
+        OldMask->ContinueMask ) ); // keep continue-mask
 
   // TODO emit conditional branch to loop exit
 }
 
 void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S)
 {
+  CGBuilderTy &Builder = CGF.Builder;
+
   /* Insert the new Current and Continue mask to the Sierra mask map. */
   SierraMask *OldMask = CGF.getSierraMask();
 
-  SierraMask *NewMask = SierraMask::Create(
-      CreateAllZerosVector(
-        CGF.getLLVMContext(),
-        OldMask->CurrentMask->getType()->getVectorNumElements() ),
-      OldMask->CurrentMask  // use current mask, do not set to all-true!
-      );
-
-  CGF.setSierraMask( EmitSierraMergeMask( CGF, OldMask, NewMask ) );
+  CGF.setSierraMask( SierraMask::Create(
+        CreateAllZerosVector(
+          CGF.getLLVMContext(),
+          OldMask->CurrentMask->getType()->getVectorNumElements() ),
+        Builder.CreateOr( OldMask->CurrentMask, OldMask->ContinueMask ) ) );
 
   // TODO emit conditional branch to continue target
 }
