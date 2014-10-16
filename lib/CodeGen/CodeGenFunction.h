@@ -79,6 +79,7 @@ namespace CodeGen {
   class CGCXXABI;
   class BlockFlags;
   class BlockFieldFlags;
+  class SierraMask;
 
 /// The kind of evaluation to perform on values of a particular
 /// type.  Basically, is the code in CGExprScalar, CGExprComplex, or
@@ -99,12 +100,19 @@ class CodeGenFunction : public CodeGenTypeCache {
 
   friend class CGCXXABI;
 
-  /* Declare Sierra code gen functions, that need to access the
-   * BreakContinueStack, as friend.
-   */
+  /* Declare Sierra code gen functions as friend. */
+  friend void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S);
   friend void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S);
   friend void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S);
   friend void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S);
+  friend void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S);
+  friend void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S);
+  friend void EmitSierraReturnStmt(CodeGenFunction &CGF, const ReturnStmt &S);
+  friend SierraMask * EmitSierraSelectMask(
+      CodeGenFunction &CGF, llvm::VectorType *MaskTy,
+      llvm::BasicBlock *BB0, llvm::BasicBlock *BB1 );
+  friend SierraMask * EmitSierraMergeMask(
+      CodeGenFunction &CGF, SierraMask *M0, SierraMask *M1 );
 
 public:
   /// A jump destination is an abstract label, branching to which may
@@ -835,6 +843,9 @@ private:
   };
   SmallVector<BreakContinue, 8> BreakContinueStack;
 
+  //typedef llvm::DenseMap< const clang::Stmt *, SierraMask * > SierraMaskMapTy;
+  //SierraMaskMapTy SierraMaskMap;
+
   /// SwitchInsn - This is nearest current switch instruction. It is null if
   /// current context is not in a switch.
   llvm::SwitchInst *SwitchInsn;
@@ -865,6 +876,7 @@ private:
 
   /// When generating Sierra code this will hold the current mask
   llvm::Value *CurrentMask;
+  SierraMask *SierraMask_;
 
   /// Count the number of simple (constant) return expressions in the function.
   unsigned NumSimpleReturnExprs;
@@ -980,6 +992,9 @@ public:
 
   llvm::Value *getCurrentMask() const { return CurrentMask; }
   void setCurrentMask(llvm::Value *NewMask) { CurrentMask = NewMask; }
+
+  SierraMask *getSierraMask() const { return SierraMask_; }
+  void setSierraMask(SierraMask *NewMask) { SierraMask_ = NewMask; }
 
   /// Returns a pointer to the function's exception object and selector slot,
   /// which is assigned in every landing pad.
