@@ -9949,7 +9949,7 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
         if (Context.getLangOpts().CPlusPlus) {
           // C++03 [expr.unary.op]p8, C++0x [expr.unary.op]p9:
           // operand contextually converted to bool.
-          Input = ImpCastExprToType(Input.take(), Context.getSierraVectorType(Context.BoolTy, V->getNumElements()),
+          Input = ImpCastExprToType(Input.get(), Context.getSierraVectorType(Context.BoolTy, V->getNumElements()),
                                     ScalarTypeToBooleanCastKind(ElemType));
 
           resultType = Input.get()->getType();
@@ -12220,6 +12220,7 @@ bool Sema::tryCaptureVariable(VarDecl *Var, SourceLocation ExprLoc,
         case Type::Builtin:
         case Type::Complex:
         case Type::Vector:
+        case Type::SierraVector:
         case Type::ExtVector:
         case Type::Record:
         case Type::Enum:
@@ -12978,7 +12979,7 @@ ExprResult Sema::CheckBooleanCondition(Expr *E, SourceLocation Loc) {
 
       if (ERes.isInvalid()) return ExprError();
 
-      E = ERes.take();
+      E = ERes.get();
       QualType T = E->getType();
       unsigned newL = T->getSierraVectorLength();
       //assert(oldL == 1 || newL == 1 || oldL == newL);

@@ -860,7 +860,7 @@ void CXXNameMangler::mangleUnresolvedPrefix(NestedNameSpecifier *qualifier,
     case Type::IncompleteArray:
     case Type::VariableArray:
     case Type::DependentSizedArray:
-    case Type::DependentSizedSierratVector:
+    case Type::DependentSizedSierraVector:
     case Type::DependentSizedExtVector:
     case Type::Vector:
     case Type::SierraVector:
@@ -2318,6 +2318,15 @@ void CXXNameMangler::mangleType(const VectorType *T) {
     Out << 'b';
   else
     mangleType(T->getElementType());
+}
+void CXXNameMangler::mangleType(const SierraVectorType *T) {
+  mangleType(static_cast<const VectorType*>(T));
+}
+void CXXNameMangler::mangleType(const DependentSizedSierraVectorType *T) {
+  Out << "Dv";
+  mangleExpression(T->getSizeExpr());
+  Out << '_';
+  mangleType(T->getElementType());
 }
 void CXXNameMangler::mangleType(const ExtVectorType *T) {
   mangleType(static_cast<const VectorType*>(T));

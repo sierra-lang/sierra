@@ -106,7 +106,7 @@ QualType SierraVectorOperandsChecker::Splat() {
 QualType SierraVectorOperandsChecker::RightFromLeft(CastKind CK) {
   RE = LE;
   QualType NewRType = RNum ? S.Context.getSierraVectorType(RE, RNum) : RE;
-  RHS = S.ImpCastExprToType(RHS.take(), NewRType, CK);
+  RHS = S.ImpCastExprToType(RHS.get(), NewRType, CK);
   return Splat();
 }
 
@@ -114,7 +114,7 @@ QualType SierraVectorOperandsChecker::LeftFromRight(CastKind CK) {
   if (!IsCompAssign) {
     LE = RE;
     QualType NewLType = S.Context.getSierraVectorType(LE, LNum);
-    LHS = S.ImpCastExprToType(LHS.take(), NewLType, CK);
+    LHS = S.ImpCastExprToType(LHS.get(), NewLType, CK);
   }
   return Splat();
 }
@@ -134,7 +134,7 @@ QualType SierraVectorOperandsChecker::Check() {
 
   // LE is the promoted LHS vector element type
   if (LE != LEUnpromotedType && !IsCompAssign) {
-    LHS = S.ImpCastExprToType(LHS.take(), 
+    LHS = S.ImpCastExprToType(LHS.get(), 
                             S.Context.getSierraVectorType(LE, LNum), 
                             CK_IntegralCast);
   }
