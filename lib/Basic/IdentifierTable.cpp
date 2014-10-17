@@ -12,11 +12,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/Basic/CharInfo.h"
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/LangOptions.h"
-#include "clang/Basic/CharInfo.h"
+#include "clang/Basic/OperatorKinds.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdio>
@@ -42,8 +44,8 @@ IdentifierInfo::IdentifierInfo() {
   RevertedTokenID = false;
   OutOfDate = false;
   IsModulesImport = false;
-  FETokenInfo = 0;
-  Entry = 0;
+  FETokenInfo = nullptr;
+  Entry = nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -60,7 +62,7 @@ namespace {
   class EmptyLookupIterator : public IdentifierIterator
   {
   public:
-    virtual StringRef Next() { return StringRef(); }
+    StringRef Next() override { return StringRef(); }
   };
 }
 
@@ -105,7 +107,8 @@ namespace {
     KEYARC = 0x800,
     KEYNOMS = 0x01000,
     WCHARSUPPORT = 0x02000,
-    KEYSIERRA = 0x4000,
+    HALFSUPPORT = 0x04000,
+    KEYSIERRA = 0x8000,
     KEYALL = (0xffff & ~KEYNOMS) // Because KEYNOMS is used to exclude.
   };
 }
@@ -131,6 +134,7 @@ static void AddKeyword(StringRef Keyword,
   else if (LangOpts.Borland && (Flags & KEYBORLAND)) AddResult = 1;
   else if (LangOpts.Sierra && (Flags & KEYSIERRA)) AddResult = 1;
   else if (LangOpts.Bool && (Flags & BOOLSUPPORT)) AddResult = 2;
+  else if (LangOpts.Half && (Flags & HALFSUPPORT)) AddResult = 2;
   else if (LangOpts.WChar && (Flags & WCHARSUPPORT)) AddResult = 2;
   else if (LangOpts.AltiVec && (Flags & KEYALTIVEC)) AddResult = 2;
   else if (LangOpts.OpenCL && (Flags & KEYOPENCL)) AddResult = 2;
@@ -141,8 +145,8 @@ static void AddKeyword(StringRef Keyword,
   else if (LangOpts.ObjC2 && (Flags & KEYARC)) AddResult = 2;
   else if (LangOpts.CPlusPlus && (Flags & KEYCXX11)) AddResult = 3;
 
-  // Don't add this keyword under MicrosoftMode.
-  if (LangOpts.MicrosoftMode && (Flags & KEYNOMS))
+  // Don't add this keyword under MSVCCompat.
+  if (LangOpts.MSVCCompat && (Flags & KEYNOMS))
      return;
   // Don't add this keyword if disabled in this language.
   if (AddResult == 0) return;
@@ -400,6 +404,10 @@ std::string Selector::getAsString() const {
   return getMultiKeywordSelector()->getName();
 }
 
+void Selector::print(llvm::raw_ostream &OS) const {
+  OS << getAsString();
+}
+
 /// Interpreting the given string using the normal CamelCase
 /// conventions, determine whether the given string starts with the
 /// given "word", which is assumed to end in a lowercase letter.
@@ -523,7 +531,7 @@ Selector SelectorTable::getSelector(unsigned nKeys, IdentifierInfo **IIV) {
   llvm::FoldingSetNodeID ID;
   MultiKeywordSelector::Profile(ID, IIV, nKeys);
 
-  void *InsertPos = 0;
+  void *InsertPos = nullptr;
   if (MultiKeywordSelector *SI =
         SelTabImpl.Table.FindNodeOrInsertPos(ID, InsertPos))
     return Selector(SI);
@@ -551,7 +559,7 @@ const char *clang::getOperatorSpelling(OverloadedOperatorKind Operator) {
   switch (Operator) {
   case OO_None:
   case NUM_OVERLOADED_OPERATORS:
-    return 0;
+    return nullptr;
 
 #define OVERLOADED_OPERATOR(Name,Spelling,Token,Unary,Binary,MemberOnly) \
   case OO_##Name: return Spelling;
