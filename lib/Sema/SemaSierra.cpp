@@ -147,7 +147,7 @@ QualType SierraVectorOperandsChecker::Splat() {
     }
 
     QualType NewRType = S.Context.getSierraVectorType(LE, LNum);
-    RHS = S.ImpCastExprToType(RHS.take(), NewRType, CK_VectorSplat);
+    RHS = S.ImpCastExprToType(RHS.get(), NewRType, CK_VectorSplat);
     return NewRType;
   }
 
