@@ -1926,6 +1926,23 @@ void MicrosoftCXXNameMangler::mangleType(const VectorType *T,
   Out << "@@";
 }
 
+void MicrosoftCXXNameMangler::mangleType(const SierraVectorType *T,
+                                         SourceRange Range) {
+  DiagnosticsEngine &Diags = Context.getDiags();
+  unsigned DiagID = Diags.getCustomDiagID(DiagnosticsEngine::Error,
+    "cannot mangle this sierra vector type yet");
+  Diags.Report(Range.getBegin(), DiagID)
+    << Range;
+}
+void MicrosoftCXXNameMangler::mangleType(const DependentSizedSierraVectorType *T,
+                                         SourceRange Range) {
+  DiagnosticsEngine &Diags = Context.getDiags();
+  unsigned DiagID = Diags.getCustomDiagID(DiagnosticsEngine::Error,
+    "cannot mangle this dependent-sized sierra vector type yet");
+  Diags.Report(Range.getBegin(), DiagID)
+    << Range;
+}
+
 void MicrosoftCXXNameMangler::mangleType(const ExtVectorType *T,
                                          SourceRange Range) {
   DiagnosticsEngine &Diags = Context.getDiags();
