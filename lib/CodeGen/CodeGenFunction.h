@@ -2554,10 +2554,10 @@ public:
   /// if statement) to the specified blocks.  Based on the condition, this might
   /// try to simplify the codegen of the conditional based on the branch.
   llvm::Value * EmitBranchOnBoolExpr(const Expr *Cond, llvm::BasicBlock *TrueBlock,
-                                     llvm::BasicBlock *FalseBlock, uint64_t TrueCount
+                                     llvm::BasicBlock *FalseBlock, uint64_t TrueCount,
                                      bool falseFirst = false,
-                                     llvm::PHINode **TruePhi = NULL,
-                                     llvm::PHINode **FalsePhi = NULL);
+                                     llvm::PHINode **TruePhi = nullptr,
+                                     llvm::PHINode **FalsePhi = nullptr);
 
   // Extends the previous EmitBranchOnBoolExpr function by two arguments to
   // allow short-circuit evaluation for Sierra Vector Expressions

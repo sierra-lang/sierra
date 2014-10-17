@@ -976,9 +976,10 @@ ConstantFoldsToSimpleInteger(const Expr *Cond, llvm::APSInt &ResultInt) {
 llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
                                                      llvm::BasicBlock *TrueBlock,
                                                      llvm::BasicBlock *FalseBlock,
+                                                     uint64_t TrueCount,
                                                      bool falseFirst /* = false */,
-                                                     llvm::PHINode **TruePhi /* = NULL */,
-                                                     llvm::PHINode **FalsePhi /* = NULL */ )
+                                                     llvm::PHINode **TruePhi /* = nullptr */,
+                                                     llvm::PHINode **FalsePhi /* = nullptr */ )
 {
   llvm::LLVMContext &Context = Builder.getContext();
 
@@ -994,28 +995,28 @@ llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
      * such phi-nodes now.
      * The caller may specify **PHINode pointing to an already existing PHINode
      * instance.  In this case, the exisitng instance is used.
-     * The caller may specify a **PHINode pointing to NULL.  *PHINode will then
+     * The caller may specify a **PHINode pointing to nullptr.  *PHINode will then
      * be assigned a pointer to a newly created PHINode instance.
      * This way, the caller must not take care of creating phi-nodes, but has
      * full control over them.  This is especially important when constructing
      * vectorized control flow, where the false-successor must be scheduled
      * after the true-successor (or vice versa).
-     * The caller may specify NULL as **PHINode, in which case a new PHINode
+     * The caller may specify nullptr as **PHINode, in which case a new PHINode
      * instance is created internally, but the caller has no way to access it
      * later on.  This is a convenience feature for scalar control flow.
      */
     llvm::PHINode *AltTruePhi;
-    if ( NULL == TruePhi )
+    if ( nullptr == TruePhi )
     {
       TruePhi = &AltTruePhi;
-      *TruePhi = NULL;
+      *TruePhi = nullptr;
     }
 
     llvm::PHINode *AltFalsePhi;
-    if ( NULL == FalsePhi )
+    if ( nullptr == FalsePhi )
     {
       FalsePhi = &AltFalsePhi;
-      *FalsePhi = NULL;
+      *FalsePhi = nullptr;
     }
 
     /* Creates the phi nodes, to which all leafs of the condition tree will add
@@ -1029,7 +1030,7 @@ llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
           FalseBlock );
 
     llvm::Value *Result = _EmitBranchOnBoolExpr( Cond,
-                                                 TrueBlock, FalseBlock,
+                                                 TrueBlock, FalseBlock, TrueCount,
                                                  *TruePhi, *FalsePhi );
 
     ( *TruePhi )->addIncoming( Result, Builder.GetInsertBlock() );
@@ -1045,10 +1046,10 @@ llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
     return Result;
   } // End Sierra Vector Type
 
-  _EmitBranchOnBoolExpr( Cond, TrueBlock, FalseBlock,
-                         /* TruePhi = */ NULL ,
-                         /* FalsePhi = */ NULL );
-  return NULL;
+  _EmitBranchOnBoolExpr( Cond, TrueBlock, FalseBlock, TrueCount,
+                         /* TruePhi = */ nullptr ,
+                         /* FalsePhi = */ nullptr );
+  return nullptr;
 }
 
 /// EmitBranchOnBoolExpr - This method extends the regular EmitBranchOnBoolExpr
@@ -1099,6 +1100,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
         llvm::Value *LHSValue = _EmitBranchOnBoolExpr( CondBOp->getLHS(),
                                                        LHSSomeTrue,
                                                        FalseBlock,
+                                                       TrueCount,
                                                        LHSPhi,
                                                        FalsePhi );
 
@@ -1119,6 +1121,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
         llvm::Value *RHSValue = _EmitBranchOnBoolExpr( CondBOp->getRHS(),
                                                        TrueBlock,
                                                        FalseBlock,
+                                                       TrueCount,
                                                        TruePhi,
                                                        FalsePhi );
 
@@ -1165,10 +1168,9 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
       eval.begin(*this);
       _EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock, TrueCount,
                             TruePhi, FalsePhi);
-      EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock, TrueCount);
       eval.end(*this);
 
-      return NULL;
+      return nullptr;
     } // End BO_Land
 
     if (CondBOp->getOpcode() == BO_LOr) {
@@ -1194,6 +1196,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
         llvm::Value *LHSValue = _EmitBranchOnBoolExpr( CondBOp->getLHS(),
                                                        TrueBlock,
                                                        LHSSomeFalse,
+                                                       TrueCount,
                                                        TruePhi,
                                                        LHSPhi );
 
@@ -1216,6 +1219,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
         llvm::Value *RHSValue = _EmitBranchOnBoolExpr( CondBOp->getRHS(),
                                                        TrueBlock,
                                                        FalseBlock,
+                                                       TrueCount,
                                                        TruePhi,
                                                        FalsePhi );
 
@@ -1254,7 +1258,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
       uint64_t RHSCount = TrueCount - LHSCount;
 
       ConditionalEvaluation eval(*this);
-      _EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, LHSFalse, LHSCount
+      _EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, LHSFalse, LHSCount,
                            TruePhi, FalsePhi);
       EmitBlock(LHSFalse);
 
@@ -1265,15 +1269,15 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
                            TruePhi, FalsePhi);
       eval.end(*this);
 
-      return NULL;
+      return nullptr;
     } // End BO_Lor
   } // End Binary
 
   if (const UnaryOperator *CondUOp = dyn_cast<UnaryOperator>(Cond)) {
     // br(!x, t, f) -> br(x, f, t)
+    // Negate the count.
+    uint64_t FalseCount = PGO.getCurrentRegionCount() - TrueCount;
     if (CondUOp->getOpcode() == UO_LNot) {
-      // Negate the count.
-      uint64_t FalseCount = PGO.getCurrentRegionCount() - TrueCount;
       if ( Cond->getType()->isSierraVectorType() )
       {
         /* To negate a vectorial expression we must swap both the target basic
@@ -1282,6 +1286,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
         llvm::Value *NotV = _EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
                                                    FalseBlock,
                                                    TrueBlock,
+                                                   FalseCount,
                                                    FalsePhi,
                                                    TruePhi );
         return Builder.CreateNot( NotV );
@@ -1395,7 +1400,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
                          TrueCount - LHSScaledTrueCount);
     cond.end(*this);
 
-    return NULL;
+    return nullptr;
   }
 
   if ( Cond->getType()->isSierraVectorType() )
@@ -1404,6 +1409,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
       return _EmitBranchOnBoolExpr( CastExpr->getSubExpr(),
           TrueBlock,
           FalseBlock,
+          TrueCount,
           TruePhi,
           FalsePhi );
       //const Expr *subExpr = CastExpr->getSubExpr();
@@ -1428,7 +1434,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
     // Fold this to:
     //   br(c, throw x, br(y, t, f))
     EmitCXXThrowExpr(Throw, /*KeepInsertionPoint*/false);
-    return NULL;
+    return nullptr;
   }
 
   if (const CXXThrowExpr *Throw = dyn_cast<CXXThrowExpr>(Cond)) {
@@ -1438,7 +1444,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
     // Fold this to:
     //   br(c, throw x, br(y, t, f))
     EmitCXXThrowExpr(Throw, /*KeepInsertionPoint*/false);
-    return NULL;
+    return nullptr;
   }
 
   // Create branch weights based on the number of times we get here and the
@@ -1450,7 +1456,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
   // Emit the code with the fully general case.
   llvm::Value *CondV = EvaluateExprAsBool(Cond);
   Builder.CreateCondBr(CondV, TrueBlock, FalseBlock, Weights);
-  return NULL;
+  return nullptr;
 }
 
 

@@ -60,28 +60,27 @@ void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S);
 void EmitSierraReturnStmt(CodeGenFunction &CGF, const ReturnStmt &S);
 
 /// \brief Holds masks used by the Sierra code generation.
-struct SierraMask
-{
+class SierraMask {
+  // TODO fix private/public
+public:
   llvm::Value * const CurrentMask;
   llvm::Value * const ContinueMask;
 
   static SierraMask * Create( llvm::Value *CurrentMask,
-                              llvm::Value *ContinueMask )
-  {
+                              llvm::Value *ContinueMask ) {
     assert( CurrentMask );
     assert( ContinueMask );
     return new SierraMask( CurrentMask, ContinueMask );
   }
 
   static SierraMask * Create( llvm::LLVMContext &Context,
-                              unsigned NumElems )
-  {
+                              unsigned NumElems ) {
     assert( 0 != NumElems );
     return new SierraMask( CreateAllOnesVector( Context, NumElems ),
                            CreateAllZerosVector( Context, NumElems ) );
   }
 
-  private:
+//private:
   SierraMask( llvm::Value * const CurrentMask,
                      llvm::Value * const ContinueMask )
     : CurrentMask(CurrentMask), ContinueMask(ContinueMask)

@@ -3976,12 +3976,21 @@ bool UnnamedLocalNoLinkageFinder::VisitDependentSizedArrayType(
   return Visit(T->getElementType());
 }
 
+bool UnnamedLocalNoLinkageFinder::VisitDependentSizedSierraVectorType(
+                                         const DependentSizedSierraVectorType* T) {
+  return Visit(T->getElementType());
+}
+
 bool UnnamedLocalNoLinkageFinder::VisitDependentSizedExtVectorType(
                                          const DependentSizedExtVectorType* T) {
   return Visit(T->getElementType());
 }
 
 bool UnnamedLocalNoLinkageFinder::VisitVectorType(const VectorType* T) {
+  return Visit(T->getElementType());
+}
+
+bool UnnamedLocalNoLinkageFinder::VisitSierraVectorType(const SierraVectorType* T) {
   return Visit(T->getElementType());
 }
 

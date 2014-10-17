@@ -13004,7 +13004,7 @@ ExprResult Sema::CheckBooleanCondition(Expr *E, SourceLocation Loc) {
       if (oldL == 1 || newL == 1 || oldL == newL) {
         scope->setCurrentVectorLength(newL);
         return E;
-      
+      }
 
       Diag(Loc, diag::err_sierra_incompatible_vector_lengths_in_condition)
         << oldL << newL;

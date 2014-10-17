@@ -193,9 +193,12 @@ llvm::Value *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask,
 
 }
 
+// TODO unused
+#if 0
 static llvm::Value *AllTrueInt(llvm::Type *Type) {
   return llvm::ConstantInt::get(Type, uint64_t(-1));
 }
+#endif
 
 static llvm::Value *AllFalseInt(llvm::Type *Type) {
   return llvm::ConstantInt::get(Type, uint64_t(0));
@@ -308,7 +311,7 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S)
   llvm::PHINode *ThenPhi = NULL, *ElsePhi = NULL;
 
   CGF.EmitBranchOnBoolExpr( S.getCond(),
-                            ThenBlock, ElseBlock,
+                            ThenBlock, ElseBlock, 0 /*TODO*/,
                             false,
                             &ThenPhi, &ElsePhi );
 
@@ -436,7 +439,7 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S)
 
   llvm::PHINode *LoopMaskPhi = NULL;
   CGF.EmitBranchOnBoolExpr( S.getCond(),
-                            LoopBody, ExitBlock,
+                            LoopBody, ExitBlock, 0 /*TODO*/,
                             false,
                             &LoopMaskPhi );
 
@@ -537,7 +540,7 @@ void EmitSierraDoStmt( CodeGenFunction &CGF, const DoStmt &S )
           M->ContinueMask ) );
 
     CGF.EmitBranchOnBoolExpr( S.getCond(),
-                              LoopBody, ExitBlock,
+                              LoopBody, ExitBlock, 0 /*TODO*/,
                               false,
                               &LoopMaskPhi );
   }
@@ -598,7 +601,7 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
 
   llvm::PHINode *LoopMaskPhi = NULL;
   CGF.EmitBranchOnBoolExpr( S.getCond(),
-                            LoopBody, ExitBlock,
+                            LoopBody, ExitBlock, 0 /*TODO*/,
                             false,
                             &LoopMaskPhi );
 
