@@ -4603,7 +4603,7 @@ QualType TreeTransform<Derived>::TransformDependentSizedSierraVectorType(
       ElementType != T->getElementType() ||
       Size.get() != T->getSizeExpr()) {
     Result = getDerived().RebuildDependentSizedSierraVectorType(ElementType,
-                                                             Size.take(),
+                                                             Size.get(),
                                                          T->getAttributeLoc());
     if (Result.isNull())
       return QualType();

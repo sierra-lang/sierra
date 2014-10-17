@@ -3880,6 +3880,7 @@ static void captureVariablyModifiedType(ASTContext &Context, QualType T,
     case Type::Builtin:
     case Type::Complex:
     case Type::Vector:
+    case Type::SierraVector:
     case Type::ExtVector:
     case Type::Record:
     case Type::Enum:
@@ -11721,7 +11722,7 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
         if (Context.getLangOpts().CPlusPlus) {
           // C++03 [expr.unary.op]p8, C++0x [expr.unary.op]p9:
           // operand contextually converted to bool.
-          Input = ImpCastExprToType(Input.take(), Context.getSierraVectorType(Context.BoolTy, V->getNumElements()),
+          Input = ImpCastExprToType(Input.get(), Context.getSierraVectorType(Context.BoolTy, V->getNumElements()),
                                     ScalarTypeToBooleanCastKind(ElemType));
 
           resultType = Input.get()->getType();
