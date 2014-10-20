@@ -583,6 +583,12 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
                                                       "sierra-for.phi-cond" );
   CondMaskPhi->addIncoming( OldMask->CurrentMask, Builder.GetInsertBlock() );
 
+  /* Used to collect the incoming edges for the loop's increment block. */
+  llvm::PHINode *IncrCurrMask = llvm::PHINode::Create(
+      MaskTy, 0, "sierra-for.inc-curr-mask" );
+  llvm::PHINode *IncrContMask = llvm::PHINode::Create(
+      MaskTy, 0, "sierra-for.inc-cont-mask" );
+
   CodeGenFunction::RunCleanupsScope ForScope( CGF );
 
   CGF.EmitBlock( CondBlock );
