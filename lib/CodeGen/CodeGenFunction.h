@@ -843,8 +843,11 @@ private:
   };
   SmallVector<BreakContinue, 8> BreakContinueStack;
 
-  //typedef llvm::DenseMap< const clang::Stmt *, SierraMask * > SierraMaskMapTy;
-  //SierraMaskMapTy SierraMaskMap;
+  // Stores the phi-node at the continue-target for vectorized continue.
+  SmallVector<llvm::PHINode *, 8> SierraContinuePhiStack;
+
+  // Stores the phi-noes masking the loop body
+  SmallVector<llvm::PHINode *, 8> SierraLoopMaskStack;
 
   /// SwitchInsn - This is nearest current switch instruction. It is null if
   /// current context is not in a switch.
