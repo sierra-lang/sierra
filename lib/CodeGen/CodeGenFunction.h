@@ -1034,6 +1034,12 @@ private:
   };
   SmallVector<BreakContinue, 8> BreakContinueStack;
 
+  // Stores the phi-node at the continue-target for vectorized continue.
+  SmallVector<llvm::PHINode *, 8> SierraContinuePhiStack;
+
+  // Stores the phi-noes masking the loop body
+  SmallVector<llvm::PHINode *, 8> SierraLoopMaskStack;
+
   /// Handles cancellation exit points in OpenMP-related constructs.
   class OpenMPCancelExitStack {
     /// Tracks cancellation exit point and join point for cancel-related exit
