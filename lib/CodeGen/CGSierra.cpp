@@ -738,7 +738,7 @@ void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S)
   llvm::BasicBlock *AfterBB   = CGF.createBasicBlock( "sierra-continue.after" );
 
   // TODO emit conditional branch to loop exit
-  Builder.CreateCondBr( 
+  Builder.CreateCondBr(
       EmitAnyTrue( CGF,
         Builder.CreateAnd( Builder.CreateNot( OldMask->CurrentMask ),
                            CGF.SierraLoopMaskStack.back() ) ),
@@ -752,6 +752,57 @@ void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S)
       CGF.getSierraMask()->ContinueMask,
       Builder.GetInsertBlock() );
   CGF.EmitBranchThroughCleanup( CGF.BreakContinueStack.back().ContinueBlock );
+
+  CGF.EmitBlock( AfterBB );
+}
+
+void EmitSierraReturnStmt( CodeGenFunction &CGF, const ReturnStmt &S )
+{
+  CGBuilderTy &Builder = CGF.Builder;
+
+  SierraMask *OldMask = CGF.getSierraMask();
+
+  llvm::BasicBlock *CleanupBB = CGF.createBasicBlock( "sierra-return.cleanup" );
+  llvm::BasicBlock *AfterBB   = CGF.createBasicBlock( "sierra-return.after" );
+
+  const Expr *RV = S.getRetValue();
+
+  // Treat block literals in a return expression as if they appeared
+  // in their own scope.  This permits a small, easily-implemented
+  // exception to our over-conservative rules about not jumping to
+  // statements following block literals with non-trivial cleanups.
+  CodeGenFunction::RunCleanupsScope cleanupScope(CGF);
+  if (const ExprWithCleanups *cleanups =
+        dyn_cast_or_null<ExprWithCleanups>(RV)) {
+    CGF.enterFullExpression(cleanups);
+    RV = cleanups->getSubExpr();
+  }
+
+  EmitMaskedStore( Builder,
+                   OldMask->CurrentMask,
+                   CGF.EmitScalarExpr(RV),
+                   CGF.ReturnValue,
+                   false );
+
+  ++CGF.NumReturnExprs;
+  if (RV == 0 || RV->isEvaluatable(CGF.getContext()))
+    ++CGF.NumSimpleReturnExprs;
+
+  CGF.setSierraMask( SierraMask::Create(
+        CreateAllZerosVector(
+          Builder.getContext(),
+          OldMask->CurrentMask->getType()->getVectorNumElements() ),
+        OldMask->ContinueMask ) );
+
+  /* FIXME To support masked function calls (SPMD functions), we have to comare
+   * the current mask to the function mask.
+   */
+  Builder.CreateCondBr( EmitAllTrue( CGF, OldMask->CurrentMask ),
+                        CleanupBB, AfterBB );
+
+  CGF.EmitBlock( CleanupBB );
+  cleanupScope.ForceCleanup();
+  CGF.EmitBranchThroughCleanup( CGF.ReturnBlock );
 
   CGF.EmitBlock( AfterBB );
 }

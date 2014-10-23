@@ -1048,6 +1048,9 @@ void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
   // Emit the result value, even if unused, to evalute the side effects.
   const Expr *RV = S.getRetValue();
 
+  if ( getSierraMask() && RV && RV->getType()->isSierraVectorType())
+    return EmitSierraReturnStmt(*this, S);
+
   // Treat block literals in a return expression as if they appeared
   // in their own scope.  This permits a small, easily-implemented
   // exception to our over-conservative rules about not jumping to
