@@ -108,6 +108,8 @@ class CodeGenFunction : public CodeGenTypeCache {
   friend void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S);
   friend void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S);
   friend void EmitSierraReturnStmt(CodeGenFunction &CGF, const ReturnStmt &S);
+  friend void EmitSierraGotoStmt(CodeGenFunction &CGF, const GotoStmt &S);
+  friend void EmitSierraLabelStmt(CodeGenFunction &CGF, const LabelStmt &S);
   friend SierraMask * EmitSierraSelectMask(
       CodeGenFunction &CGF, llvm::VectorType *MaskTy,
       llvm::BasicBlock *BB0, llvm::BasicBlock *BB1 );
@@ -846,8 +848,13 @@ private:
   // Stores the phi-node at the continue-target for vectorized continue.
   SmallVector<llvm::PHINode *, 8> SierraContinuePhiStack;
 
-  // Stores the phi-noes masking the loop body
+  // Stores the phi-nodes masking the loop body
   SmallVector<llvm::PHINode *, 8> SierraLoopMaskStack;
+
+  // Stores the phi-nodes for the incoming edges of a label statement used to
+  // select the current mask
+  typedef llvm::DenseMap<const LabelDecl *, std::pair<llvm::PHINode *, llvm::PHINode *> > SierraLabelsTy;
+  SierraLabelsTy SierraLabels;
 
   /// SwitchInsn - This is nearest current switch instruction. It is null if
   /// current context is not in a switch.

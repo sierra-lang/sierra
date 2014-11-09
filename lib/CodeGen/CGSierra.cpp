@@ -804,6 +804,85 @@ void EmitSierraReturnStmt( CodeGenFunction &CGF, const ReturnStmt &S )
   CGF.EmitBlock( AfterBB );
 }
 
+void EmitSierraGotoStmt(CodeGenFunction &CGF, const GotoStmt &S)
+{
+  CGBuilderTy &Builder = CGF.Builder;
+  SierraMask *mask = CGF.getSierraMask();
+  llvm::BasicBlock *CurBB = Builder.GetInsertBlock();
+  LabelDecl *decl = S.getLabel();
+
+  llvm::PHINode *currentMask, *continueMask;
+  CodeGenFunction::SierraLabelsTy::iterator it = CGF.SierraLabels.find( decl );
+  if ( CGF.SierraLabels.end() == it )
+  {
+    /* The phi-nodes for the label do not yet exist, create them. */
+    currentMask  = llvm::PHINode::Create( mask->CurrentMask->getType(),
+                                          1, "sierra-label.current" );
+    continueMask = llvm::PHINode::Create( mask->ContinueMask->getType(),
+                                          1, "sierra-label.continue" );
+    CGF.SierraLabels.insert(
+        std::make_pair( decl, std::make_pair( currentMask, continueMask ) ) );
+  }
+  else
+  {
+    /* The phi-nodes for the label do already exist, use them. */
+    currentMask  = it->second.first;
+    continueMask = it->second.second;
+  }
+
+  currentMask->addIncoming(  mask->CurrentMask,  CurBB );
+  continueMask->addIncoming( mask->ContinueMask, CurBB );
+
+  CGF.setSierraMask( SierraMask::Create(
+        CreateAllZerosVector(
+          CGF.getLLVMContext(),
+          mask->CurrentMask->getType()->getVectorNumElements() ),
+        mask->ContinueMask ) ); // keep continue-mask
+
+  llvm::BasicBlock *AfterBB   = CGF.createBasicBlock( "sierra-goto.after" );
+  CGF.EmitBranchThroughCleanup( CGF.getJumpDestForLabel( S.getLabel() ) );
+  CGF.EmitBlock( AfterBB );
+  // TODO add conditional branch to skip code after the goto if its mask would
+  // be all-zero
+}
+
+void EmitSierraLabelStmt(CodeGenFunction &CGF, const LabelStmt &S)
+{
+  CGBuilderTy &Builder = CGF.Builder;
+  SierraMask *mask = CGF.getSierraMask();
+  LabelDecl *decl = S.getDecl();
+  llvm::BasicBlock *OldBB = Builder.GetInsertBlock();
+
+  CGF.EmitLabel( decl );
+
+  llvm::PHINode *currentMask, *continueMask;
+  CodeGenFunction::SierraLabelsTy::iterator it = CGF.SierraLabels.find( decl );
+  if ( CGF.SierraLabels.end() == it )
+  {
+    /* The phi-nodes for the label do not yet exist, create them. */
+    currentMask  = llvm::PHINode::Create( mask->CurrentMask->getType(),
+                                          1, "sierra-label.current" );
+    continueMask = llvm::PHINode::Create( mask->ContinueMask->getType(),
+                                          1, "sierra-label.continue" );
+    CGF.SierraLabels.insert( std::make_pair( decl, std::make_pair( currentMask, continueMask ) ) );
+  }
+  else
+  {
+    /* The phi-nodes for the label do already exist, use them. */
+    currentMask  = it->second.first;
+    continueMask = it->second.second;
+  }
+
+  currentMask->addIncoming( mask->CurrentMask, OldBB );
+  continueMask->addIncoming( mask->ContinueMask, OldBB );
+
+  Builder.Insert( currentMask );
+  Builder.Insert( continueMask );
+  CGF.setSierraMask( SierraMask::Create( currentMask, continueMask ) );
+  CGF.EmitStmt( S.getSubStmt() );
+}
+
+
 
 //------------------------------------------------------------------------------
 

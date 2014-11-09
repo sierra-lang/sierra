@@ -387,6 +387,8 @@ void CodeGenFunction::LexicalScope::rescopeLabels() {
 
 
 void CodeGenFunction::EmitLabelStmt(const LabelStmt &S) {
+  if (getSierraMask())
+    return EmitSierraLabelStmt(*this, S);
   EmitLabel(S.getDecl());
   EmitStmt(S.getSubStmt());
 }
@@ -401,6 +403,9 @@ void CodeGenFunction::EmitGotoStmt(const GotoStmt &S) {
   // "simple" statement path.
   if (HaveInsertPoint())
     EmitStopPoint(&S);
+
+  if (getSierraMask())
+    return EmitSierraGotoStmt(*this, S);
 
   EmitBranchThroughCleanup(getJumpDestForLabel(S.getLabel()));
 }

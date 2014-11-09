@@ -31,6 +31,8 @@ class ForStmt;
 class BreakStmt;
 class ContinueStmt;
 class ReturnStmt;
+class GotoStmt;
+class LabelStmt;
 
 namespace CodeGen {
 
@@ -58,6 +60,8 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S);
 void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S);
 void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S);
 void EmitSierraReturnStmt(CodeGenFunction &CGF, const ReturnStmt &S);
+void EmitSierraGotoStmt(CodeGenFunction &CGF, const GotoStmt &S);
+void EmitSierraLabelStmt(CodeGenFunction &CGF, const LabelStmt &S);
 
 /// \brief Holds masks used by the Sierra code generation.
 struct SierraMask
