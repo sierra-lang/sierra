@@ -811,6 +811,9 @@ void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
   // Emit the result value, even if unused, to evalute the side effects.
   const Expr *RV = S.getRetValue();
 
+  if ( getSierraMask() && RV && RV->getType()->isSierraVectorType())
+    return EmitSierraReturnStmt(*this, S);
+
   // Treat block literals in a return expression as if they appeared
   // in their own scope.  This permits a small, easily-implemented
   // exception to our over-conservative rules about not jumping to
@@ -895,6 +898,15 @@ void CodeGenFunction::EmitBreakStmt(const BreakStmt &S) {
   if (HaveInsertPoint())
     EmitStopPoint(&S);
 
+  /* If the BreakStmt is inside a vectorial Sierra loop, trigger Sierra's code
+   * gen.
+   * FIXME Only checking whether a current mask exists is not enough. We have to
+   * make sure that the BreakStmt is part of a vectorial loop, and not only
+   * inside a vectorial context.
+   */
+  if ( getSierraMask() )
+    return EmitSierraBreakStmt( *this, S );
+
   JumpDest Block = BreakContinueStack.back().BreakBlock;
   EmitBranchThroughCleanup(Block);
 }
@@ -907,6 +919,15 @@ void CodeGenFunction::EmitContinueStmt(const ContinueStmt &S) {
   // "simple" statement path.
   if (HaveInsertPoint())
     EmitStopPoint(&S);
+
+  /* If the BreakStmt is inside a vectorial Sierra loop, trigger Sierra's code
+   * gen.
+   * FIXME Only checking whether a current mask exists is not enough. We have to
+   * make sure that the BreakStmt is part of a vectorial loop, and not only
+   * inside a vectorial context.
+   */
+  if ( getSierraMask() )
+    return EmitSierraContinueStmt( *this, S );
 
   JumpDest Block = BreakContinueStack.back().ContinueBlock;
   EmitBranchThroughCleanup(Block);
