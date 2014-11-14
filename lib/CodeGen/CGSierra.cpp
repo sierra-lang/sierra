@@ -804,81 +804,82 @@ void EmitSierraReturnStmt( CodeGenFunction &CGF, const ReturnStmt &S )
   CGF.EmitBlock( AfterBB );
 }
 
+llvm::AllocaInst * SierraGetAllocaForLabel( CodeGenFunction &CGF,
+                                            const LabelDecl *label )
+{
+  CGBuilderTy &Builder = CGF.Builder;
+  llvm::AllocaInst *alloca;
+  CodeGenFunction::SierraLabelsTy::iterator it = CGF.SierraLabels.find( label );
+  if ( CGF.SierraLabels.end() == it )
+  {
+    SierraMask *mask = CGF.getSierraMask();
+    alloca = new llvm::AllocaInst( mask->CurrentMask->getType(), NULL,
+                                   "sierra-label.alloca",
+                                   CGF.AllocaInsertPt );
+    llvm::StoreInst *init = new llvm::StoreInst(
+        CreateAllZerosVector(
+          Builder.getContext(),
+          mask->CurrentMask->getType()->getVectorNumElements() ),
+        alloca );
+    init->insertAfter( CGF.AllocaInsertPt );
+    CGF.SierraLabels.insert( std::make_pair( label, alloca ) );
+  }
+  else
+    alloca = it->second;
+
+  return alloca;
+}
+
 void EmitSierraGotoStmt(CodeGenFunction &CGF, const GotoStmt &S)
 {
   CGBuilderTy &Builder = CGF.Builder;
-  SierraMask *mask = CGF.getSierraMask();
-  llvm::BasicBlock *CurBB = Builder.GetInsertBlock();
   LabelDecl *decl = S.getLabel();
+  llvm::AllocaInst *alloca = SierraGetAllocaForLabel( CGF, decl );
 
-  llvm::PHINode *currentMask, *continueMask;
-  CodeGenFunction::SierraLabelsTy::iterator it = CGF.SierraLabels.find( decl );
-  if ( CGF.SierraLabels.end() == it )
-  {
-    /* The phi-nodes for the label do not yet exist, create them. */
-    currentMask  = llvm::PHINode::Create( mask->CurrentMask->getType(),
-                                          1, "sierra-label.current" );
-    continueMask = llvm::PHINode::Create( mask->ContinueMask->getType(),
-                                          1, "sierra-label.continue" );
-    CGF.SierraLabels.insert(
-        std::make_pair( decl, std::make_pair( currentMask, continueMask ) ) );
-  }
-  else
-  {
-    /* The phi-nodes for the label do already exist, use them. */
-    currentMask  = it->second.first;
-    continueMask = it->second.second;
-  }
-
-  currentMask->addIncoming(  mask->CurrentMask,  CurBB );
-  continueMask->addIncoming( mask->ContinueMask, CurBB );
+  SierraMask *OldMask = CGF.getSierraMask();
+  llvm::LoadInst *off = Builder.CreateLoad( alloca );
+  llvm::Value *currentMask = Builder.CreateOr( off, OldMask->CurrentMask );
+  Builder.CreateStore( currentMask, alloca );
 
   CGF.setSierraMask( SierraMask::Create(
         CreateAllZerosVector(
-          CGF.getLLVMContext(),
-          mask->CurrentMask->getType()->getVectorNumElements() ),
-        mask->ContinueMask ) ); // keep continue-mask
+          Builder.getContext(),
+          OldMask->CurrentMask->getType()->getVectorNumElements() ),
+        OldMask->ContinueMask ) );
 
-  llvm::BasicBlock *AfterBB   = CGF.createBasicBlock( "sierra-goto.after" );
-  CGF.EmitBranchThroughCleanup( CGF.getJumpDestForLabel( S.getLabel() ) );
-  CGF.EmitBlock( AfterBB );
-  // TODO add conditional branch to skip code after the goto if its mask would
-  // be all-zero
+  llvm::BasicBlock *cleanupBB = CGF.createBasicBlock( "sierra-goto.cleanup" );
+  llvm::BasicBlock *afterBB   = CGF.createBasicBlock();
+  Builder.CreateCondBr( EmitAllTrue( CGF, OldMask->CurrentMask ),
+                        cleanupBB, afterBB );
+
+  CGF.EmitBlock( cleanupBB );
+  {
+    CGF.EmitBranchThroughCleanup( CGF.getJumpDestForLabel( S.getLabel() ) );
+  }
+
+  CGF.EmitBlock( afterBB );
+
+  //Builder.GetInsertBlock()->getParent()->dump();
 }
 
 void EmitSierraLabelStmt(CodeGenFunction &CGF, const LabelStmt &S)
 {
   CGBuilderTy &Builder = CGF.Builder;
-  SierraMask *mask = CGF.getSierraMask();
   LabelDecl *decl = S.getDecl();
-  llvm::BasicBlock *OldBB = Builder.GetInsertBlock();
+  llvm::AllocaInst *alloca = SierraGetAllocaForLabel( CGF, decl );
+
+  SierraMask *OldMask = CGF.getSierraMask();
+  llvm::LoadInst *off = Builder.CreateLoad( alloca );
+  llvm::Value *currentMask = Builder.CreateOr( off, OldMask->CurrentMask );
+  Builder.CreateStore( currentMask, alloca );
 
   CGF.EmitLabel( decl );
 
-  llvm::PHINode *currentMask, *continueMask;
-  CodeGenFunction::SierraLabelsTy::iterator it = CGF.SierraLabels.find( decl );
-  if ( CGF.SierraLabels.end() == it )
-  {
-    /* The phi-nodes for the label do not yet exist, create them. */
-    currentMask  = llvm::PHINode::Create( mask->CurrentMask->getType(),
-                                          1, "sierra-label.current" );
-    continueMask = llvm::PHINode::Create( mask->ContinueMask->getType(),
-                                          1, "sierra-label.continue" );
-    CGF.SierraLabels.insert( std::make_pair( decl, std::make_pair( currentMask, continueMask ) ) );
-  }
-  else
-  {
-    /* The phi-nodes for the label do already exist, use them. */
-    currentMask  = it->second.first;
-    continueMask = it->second.second;
-  }
+  off = Builder.CreateLoad( alloca );
+  CGF.setSierraMask( SierraMask::Create( off, OldMask->ContinueMask ) );
 
-  currentMask->addIncoming( mask->CurrentMask, OldBB );
-  continueMask->addIncoming( mask->ContinueMask, OldBB );
+  //Builder.GetInsertBlock()->getParent()->dump();
 
-  Builder.Insert( currentMask );
-  Builder.Insert( continueMask );
-  CGF.setSierraMask( SierraMask::Create( currentMask, continueMask ) );
   CGF.EmitStmt( S.getSubStmt() );
 }
 

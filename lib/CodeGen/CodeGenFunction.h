@@ -115,6 +115,7 @@ class CodeGenFunction : public CodeGenTypeCache {
       llvm::BasicBlock *BB0, llvm::BasicBlock *BB1 );
   friend SierraMask * EmitSierraMergeMask(
       CodeGenFunction &CGF, SierraMask *M0, SierraMask *M1 );
+  friend llvm::AllocaInst * SierraGetAllocaForLabel(CodeGenFunction &CGF, const LabelDecl *label);
 
 public:
   /// A jump destination is an abstract label, branching to which may
@@ -853,7 +854,7 @@ private:
 
   // Stores the phi-nodes for the incoming edges of a label statement used to
   // select the current mask
-  typedef llvm::DenseMap<const LabelDecl *, std::pair<llvm::PHINode *, llvm::PHINode *> > SierraLabelsTy;
+  typedef llvm::DenseMap<const LabelDecl *, llvm::AllocaInst * > SierraLabelsTy;
   SierraLabelsTy SierraLabels;
 
   /// SwitchInsn - This is nearest current switch instruction. It is null if
