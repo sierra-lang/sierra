@@ -644,10 +644,9 @@ def SierraSpmd : InheritableAttr {
   let Documentation = [Undocumented]; // TODO
 }
 
-def SierraVectorType : Attr {
+def SierraVectorType : TypeAttr {
   let Spellings = [GNU<"sierra_vector">];
   let Args = [ExprArgument<"NumElements">];
-  let ASTNode = 0;
   let Documentation = [Undocumented]; // TODO
 }
 
