@@ -637,10 +637,9 @@ def EnableIf : InheritableAttr {
   let Documentation = [EnableIfDocs];
 }
 
-def SierraSpmd : InheritableAttr {
+def SierraSpmd : TypeAttr {
   let Spellings = [GNU<"sierra_spmd">];
   let Args = [IntArgument<"SPMD">];
-  let Subjects = SubjectList<[Function]>;
   let Documentation = [Undocumented]; // TODO
 }
 
