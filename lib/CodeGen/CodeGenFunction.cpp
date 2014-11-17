@@ -1033,8 +1033,15 @@ llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
                                                  TrueBlock, FalseBlock, TrueCount,
                                                  *TruePhi, *FalsePhi );
 
-    ( *TruePhi )->addIncoming( Result, Builder.GetInsertBlock() );
-    ( *FalsePhi )->addIncoming( Result, Builder.GetInsertBlock() );
+    if ( TruePhi != &AltTruePhi )
+      ( *TruePhi )->addIncoming( Result, Builder.GetInsertBlock() );
+    else
+      ( *TruePhi )->eraseFromParent();
+
+    if ( FalsePhi != &AltFalsePhi )
+      ( *FalsePhi )->addIncoming( Result, Builder.GetInsertBlock() );
+    else
+      ( *FalsePhi )->eraseFromParent();
 
     /* Create the branch for the right-most subexpression.  We now must consider
      * the flaseFirst flag.
