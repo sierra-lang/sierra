@@ -59,6 +59,7 @@ void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S);
 void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S);
 void EmitSierraReturnStmt(CodeGenFunction &CGF, const ReturnStmt &S);
 
+// FIXME don't create via new -> it's a memory leak
 /// \brief Holds masks used by the Sierra code generation.
 class SierraMask {
   // TODO fix private/public

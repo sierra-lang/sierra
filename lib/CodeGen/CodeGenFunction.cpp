@@ -47,7 +47,7 @@ CodeGenFunction::CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext)
       DisableDebugInfo(false), DidCallStackSave(false), IndirectBranch(nullptr),
       PGO(cgm), SwitchInsn(nullptr), SwitchWeights(nullptr),
       CaseRangeBlock(nullptr), UnreachableBlock(nullptr), NumReturnExprs(0),
-      CurrentMask(nullptr), SierraMask_(nullptr),
+      SierraMask_(nullptr),
       NumSimpleReturnExprs(0), CXXABIThisDecl(nullptr),
       CXXABIThisValue(nullptr), CXXThisValue(nullptr),
       CXXDefaultInitExprThis(nullptr), CXXStructorImplicitParamDecl(nullptr),
@@ -1023,11 +1023,9 @@ llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
      * edges to.
      */
     if ( ! *TruePhi )
-      *TruePhi = llvm::PHINode::Create( MaskTy, 0, "phi-true_block",
-          TrueBlock );
+      *TruePhi = llvm::PHINode::Create( MaskTy, 0, "phi-true_block", TrueBlock );
     if ( ! *FalsePhi )
-      *FalsePhi = llvm::PHINode::Create( MaskTy, 0, "phi-false_block",
-          FalseBlock );
+      *FalsePhi = llvm::PHINode::Create( MaskTy, 0, "phi-false_block", FalseBlock );
 
     llvm::Value *Result = _EmitBranchOnBoolExpr( Cond,
                                                  TrueBlock, FalseBlock, TrueCount,
