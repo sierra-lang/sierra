@@ -1192,11 +1192,11 @@ private:
   /// lazily by getUnreachableBlock().
   llvm::BasicBlock *UnreachableBlock;
 
-  /// When generating Sierra code this will hold the current mask
-  llvm::Value *CurrentMask;
-
   /// Counts of the number return expressions in the function.
   unsigned NumReturnExprs;
+
+  /// When generating Sierra code this will hold the current mask
+  llvm::Value *CurrentMask;
 
   /// Count the number of simple (constant) return expressions in the function.
   unsigned NumSimpleReturnExprs;
@@ -1397,9 +1397,6 @@ public:
   }
 
   const LangOptions &getLangOpts() const { return CGM.getLangOpts(); }
-
-  llvm::Value *getCurrentMask() const { return CurrentMask; }
-  void setCurrentMask(llvm::Value *NewMask) { CurrentMask = NewMask; }
 
   SierraMask *getSierraMask() const { return SierraMask_; }
   void setSierraMask(SierraMask *NewMask) { SierraMask_ = NewMask; }

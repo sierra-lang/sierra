@@ -19,6 +19,7 @@
 #include "CGCleanup.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
+#include "CGSierra.h"
 #include "TargetInfo.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
@@ -2469,6 +2470,7 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
   }
 
   unsigned SierraSpmd = FI.getSierraSpmd();
+  assert(SierraSpmd != 0);
   if (SierraSpmd != 1) {
     auto AI = &FnArgs.back();//FnArgs[FnArgs.size() - 1];
     CurrentMask = AI;
@@ -3898,8 +3900,8 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
     Args.push_back(llvm::ConstantVector::get(values));
 #endif
 
-    if (CurrentMask)
-      Args.push_back(CurrentMask);
+    if (auto mask = getSierraMask())
+      Args.push_back(mask->CurrentMask);
     else {
       llvm::VectorType *VTy = cast<llvm::VectorType>(IRFuncTy->getParamType(IRFuncTy->getNumParams()-1));
       Args.push_back(llvm::ConstantVector::getSplat(VTy->getNumElements(), Builder.getTrue()));

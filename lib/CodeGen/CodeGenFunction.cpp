@@ -1348,11 +1348,9 @@ llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr( const Expr *Cond,
      * edges to.
      */
     if ( ! *TruePhi )
-      *TruePhi = llvm::PHINode::Create( MaskTy, 0, "phi-true_block",
-          TrueBlock );
+      *TruePhi = llvm::PHINode::Create( MaskTy, 0, "phi-true_block", TrueBlock );
     if ( ! *FalsePhi )
-      *FalsePhi = llvm::PHINode::Create( MaskTy, 0, "phi-false_block",
-          FalseBlock );
+      *FalsePhi = llvm::PHINode::Create( MaskTy, 0, "phi-false_block", FalseBlock );
 
     llvm::Value *Result = _EmitBranchOnBoolExpr( Cond,
                                                  TrueBlock, FalseBlock, TrueCount,
