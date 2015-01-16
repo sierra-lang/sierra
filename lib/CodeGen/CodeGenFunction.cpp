@@ -1302,7 +1302,9 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
       return _EmitBranchOnBoolExpr(CondUOp->getSubExpr(), FalseBlock, TrueBlock,
                                    FalseCount, FalsePhi, TruePhi );
     }
+    // FIXME code below is unreachable, remove it
     if (CondUOp->getOpcode() == UO_LNot) {
+      llvm_unreachable("Case should be handled above");
       // Negate the condition and swap the destination blocks.
       return EmitBranchOnBoolExpr(CondUOp->getSubExpr(), FalseBlock, TrueBlock,
                                   FalseCount);
