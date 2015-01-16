@@ -1658,13 +1658,9 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
         return Builder.CreateNot( notValue );
       }
 
-      return _EmitBranchOnBoolExpr( CondUOp->getSubExpr(),
-                                    falseFirst,
-                                   FalseBlock,
-                                   TrueBlock,
-                                   TrueCount,
-                                   FalsePhi,
-                                   TruePhi );
+      return _EmitBranchOnBoolExpr( CondUOp->getSubExpr(), falseFirst,
+                                    FalseBlock, TrueBlock, FalseCount,
+                                    FalsePhi, TruePhi );
     }
   }
 
