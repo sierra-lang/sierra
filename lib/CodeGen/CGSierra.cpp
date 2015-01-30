@@ -286,6 +286,7 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S)
   CGBuilderTy &Builder = CGF.Builder;
 
   SierraMask *OldMask = CGF.getSierraMask();
+  bool resetToScalar = OldMask == nullptr;
   if ( ! OldMask )
   {
     /* Create a mask with all-true current and all-false continue. */
@@ -386,7 +387,7 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S)
   CGF.EmitBlock( EndBlock );
   Builder.Insert( EndCurrentPhi );
   Builder.Insert( EndContinuePhi );
-  CGF.setSierraMask( SierraMask::Create( EndCurrentPhi, EndContinuePhi ) );
+  CGF.setSierraMask( resetToScalar ? nullptr : SierraMask::Create( EndCurrentPhi, EndContinuePhi ) );
 }
 
 //------------------------------------------------------------------------------
@@ -396,6 +397,7 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S)
   CGBuilderTy &Builder = CGF.Builder;
 
   SierraMask *OldMask = CGF.getSierraMask();
+  bool resetToScalar = OldMask == nullptr;
   if ( ! OldMask )
   {
     /* Create a mask with all-true current and all-false continue. */
@@ -492,7 +494,7 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S)
 
   // Emit the exit block.
   CGF.EmitBlock( LoopExit.getBlock() );
-  CGF.setSierraMask( OldMask );
+  CGF.setSierraMask( resetToScalar ? nullptr : OldMask );
 }
 
 
@@ -501,6 +503,7 @@ void EmitSierraDoStmt( CodeGenFunction &CGF, const DoStmt &S )
   CGBuilderTy &Builder = CGF.Builder;
 
   SierraMask *OldMask = CGF.getSierraMask();
+  bool resetToScalar = OldMask == nullptr;
   if ( ! OldMask )
   {
     /* Create a mask with all-true current and all-false continue. */
@@ -576,7 +579,7 @@ void EmitSierraDoStmt( CodeGenFunction &CGF, const DoStmt &S )
 
   // Emit the blocks after the loop
   CGF.EmitBlock( LoopExit.getBlock() );
-  CGF.setSierraMask( OldMask );
+  CGF.setSierraMask( resetToScalar ? nullptr : OldMask );
 }
 
 void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
@@ -585,6 +588,7 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
 
   SierraMask *OldMask = CGF.getSierraMask();
+  bool resetToScalar = OldMask == nullptr;
   if ( ! OldMask )
   {
     /* Create a mask with all-true current and all-false continue. */
@@ -689,7 +693,7 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
   // Emit the blocks after the loop
   CGF.EmitBlock( LoopExit.getBlock() );
   ForScope.ForceCleanup();
-  CGF.setSierraMask( OldMask );
+  CGF.setSierraMask( resetToScalar ? nullptr : OldMask );
 }
 
 void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S)
