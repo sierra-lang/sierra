@@ -502,8 +502,10 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
   if (S.getConditionVariable())
     EmitAutoVarDecl(*S.getConditionVariable());
 
-  if (S.getCond()->getType()->isSierraVectorType()) 
+  if (S.getCond()->getType()->isSierraVectorType())
     return EmitSierraIfStmt(*this, S);
+
+  auto oldMask = getSierraMask();
 
   // If the condition constant folds and can be elided, try to avoid emitting
   // the condition and the dead arm of the if/else.
@@ -524,6 +526,7 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
         RunCleanupsScope ExecutedScope(*this);
         EmitStmt(Executed);
       }
+      setSierraMask(oldMask);
       return;
     }
   }
@@ -567,6 +570,7 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
 
   // Emit the continuation block for code after the if.
   EmitBlock(ContBlock, true);
+  setSierraMask(oldMask);
 }
 
 void CodeGenFunction::EmitCondBrHints(llvm::LLVMContext &Context,
@@ -658,6 +662,8 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
   if (S.getCond()->getType()->isSierraVectorType()) 
     return EmitSierraWhileStmt(*this, S);
 
+  auto oldMask = getSierraMask();
+
   RegionCounter Cnt = getPGORegionCounter(&S);
 
   // Emit the header for the loop, which will also become
@@ -743,6 +749,8 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
   // a branch, try to erase it.
   if (!EmitBoolCondBranch)
     SimplifyForwardingBlocks(LoopHeader.getBlock());
+
+  setSierraMask(oldMask);
 }
 
 void CodeGenFunction::EmitDoStmt(const DoStmt &S,
@@ -751,6 +759,8 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
   // See EmitWhileStmt
   if (S.getCond()->getType()->isSierraVectorType()) 
     return EmitSierraDoStmt(*this, S);
+
+  auto oldMask = getSierraMask();
 
   JumpDest LoopExit = getJumpDestInCurrentScope("do.end");
   JumpDest LoopCond = getJumpDestInCurrentScope("do.cond");
@@ -809,12 +819,16 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
   // emitting a branch, try to erase it.
   if (!EmitBoolCondBranch)
     SimplifyForwardingBlocks(LoopCond.getBlock());
+
+  setSierraMask(oldMask);
 }
 
 void CodeGenFunction::EmitForStmt(const ForStmt &S,
                                   const ArrayRef<const Attr *> &ForAttrs) {
-  if ( S.getCond() && S.getCond()->getType()->isSierraVectorType() ) 
+  if (S.getCond() && S.getCond()->getType()->isSierraVectorType())
     return EmitSierraForStmt( *this, S );
+
+  auto oldMask = getSierraMask();
 
   JumpDest LoopExit = getJumpDestInCurrentScope("for.end");
 
@@ -917,6 +931,7 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
 
   // Emit the fall-through block.
   EmitBlock(LoopExit.getBlock(), true);
+  setSierraMask(oldMask);
 }
 
 void
