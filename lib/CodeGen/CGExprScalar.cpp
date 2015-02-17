@@ -3441,37 +3441,44 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
       OldMask = SierraMask::Create(Builder.getContext(), NumElems);
       CGF.setSierraMask(OldMask);
     }
-    llvm::Type *MaskTy = OldMask->CurrentMask->getType();
 
     llvm::BasicBlock *TrueBlock  = CGF.createBasicBlock("sierra-conditional.some-true");
     llvm::BasicBlock *FalseBlock = CGF.createBasicBlock("sierra-conditional.some-false");
     llvm::BasicBlock *EndBlock   = CGF.createBasicBlock("sierra-conditional.end");
 
+    auto const ValueType    = CGF.ConvertType(lhsExpr->getType());
     llvm::PHINode *TruePhi  = NULL;
     llvm::PHINode *FalsePhi = NULL;
-    llvm::PHINode *EndPhi   = llvm::PHINode::Create(MaskTy, 0, "sierra-conditional.phi-end");
+    llvm::PHINode *EndPhi   = llvm::PHINode::Create(ValueType, 0, "sierra-conditional.phi-end");
+    llvm::PHINode *vPhi     = llvm::PHINode::Create(ValueType, 0, "sierra-conditional.phi-value");
+    vPhi->addIncoming(llvm::UndefValue::get(ValueType), Builder.GetInsertBlock());
 
-    CGF.EmitBranchOnBoolExpr(E,
+    CGF.EmitBranchOnBoolExpr(condExpr,
                              TrueBlock, FalseBlock, Cnt.getCount(),
                              /* falseFirst = */ false,
                              &TruePhi, &FalsePhi);
 
     /* Emit code for the TrueBlock. */
     CGF.EmitBlock(TrueBlock);
-    EndPhi->addIncoming(TruePhi, Builder.GetInsertBlock());
-    Builder.CreateBr(EndBlock);
+    llvm::Value *LHS = Visit(lhsExpr);
+    FalsePhi->addIncoming(TruePhi, Builder.GetInsertBlock());
+    vPhi    ->addIncoming(LHS,     Builder.GetInsertBlock());
+    EndPhi  ->addIncoming(LHS,     Builder.GetInsertBlock());
+    Builder.CreateCondBr(EmitAllTrue(CGF, TruePhi), EndBlock, FalseBlock);
 
     /* Emit code for the FalseBlock. */
     CGF.EmitBlock(FalseBlock);
-    EndPhi->addIncoming(FalsePhi, Builder.GetInsertBlock());
-    CGF.EmitBlock(EndBlock);
+    Builder.Insert(vPhi);
+    llvm::Value *RHS = Visit(rhsExpr);
+    auto const Merged = Builder.CreateSelect(FalsePhi, vPhi, RHS, "sierra-conditional.merged");
+    EndPhi->addIncoming(Merged, Builder.GetInsertBlock());
 
     /* Emit code for the EndBlock. */
+    CGF.EmitBlock(EndBlock);
     Builder.Insert(EndPhi);
-    llvm::Value *Res = Builder.CreateAnd(EndPhi, OldMask->CurrentMask);
 
     CGF.setSierraMask(OldMask);
-    return Res;
+    return EndPhi;
   }
 
   llvm::BasicBlock *LHSBlock = CGF.createBasicBlock("cond.true");
