@@ -1239,7 +1239,7 @@ void CodeGenFunction::EmitStoreOfScalar(llvm::Value *Value, llvm::Value *Addr,
   Value = EmitToMemory(Value, Ty);
 
   if (Value->getType()->isVectorTy() && SierraMask_ ) {
-    EmitMaskedStore(Builder, SierraMask_->CurrentMask, Value, Addr, Volatile);
+    EmitMaskedStore(Builder, SierraMask_.CurrentMask, Value, Addr, Volatile);
     return;
   }
 
