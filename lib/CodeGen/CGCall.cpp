@@ -2473,7 +2473,7 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
   assert(SierraSpmd != 0);
   if (SierraSpmd != 1) {
     auto AI = &FnArgs.back();//FnArgs[FnArgs.size() - 1];
-    CurrentMask = AI;
+    setSierraMask(SierraMask(AI, CreateAllZerosVector(getLLVMContext(), SierraSpmd)));
     AI->setName("current_mask");
   }
 
@@ -3901,7 +3901,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 #endif
 
     if (auto mask = getSierraMask())
-      Args.push_back(mask->CurrentMask);
+      Args.push_back(mask.CurrentMask);
     else {
       llvm::VectorType *VTy = cast<llvm::VectorType>(IRFuncTy->getParamType(IRFuncTy->getNumParams()-1));
       Args.push_back(llvm::ConstantVector::getSplat(VTy->getNumElements(), Builder.getTrue()));

@@ -17,6 +17,7 @@
 #include "CGBuilder.h"
 #include "CGDebugInfo.h"
 #include "CGLoopInfo.h"
+#include "CGSierra.h"
 #include "CGValue.h"
 #include "CodeGenModule.h"
 #include "CodeGenPGO.h"
@@ -145,11 +146,6 @@ class CodeGenFunction : public CodeGenTypeCache {
   friend void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S);
   friend void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S);
   friend void EmitSierraReturnStmt(CodeGenFunction &CGF, const ReturnStmt &S);
-  friend SierraMask * EmitSierraSelectMask(
-      CodeGenFunction &CGF, llvm::VectorType *MaskTy,
-      llvm::BasicBlock *BB0, llvm::BasicBlock *BB1 );
-  friend SierraMask * EmitSierraMergeMask(
-      CodeGenFunction &CGF, SierraMask *M0, SierraMask *M1 );
 
 public:
   /// A jump destination is an abstract label, branching to which may
@@ -1196,7 +1192,7 @@ private:
   unsigned NumReturnExprs;
 
   /// When generating Sierra code this will hold the current mask
-  llvm::Value *CurrentMask;
+  SierraMask SierraMask_;
 
   /// Count the number of simple (constant) return expressions in the function.
   unsigned NumSimpleReturnExprs;
@@ -1398,8 +1394,8 @@ public:
 
   const LangOptions &getLangOpts() const { return CGM.getLangOpts(); }
 
-  SierraMask *getSierraMask() const { return SierraMask_; }
-  void setSierraMask(SierraMask *NewMask) { SierraMask_ = NewMask; }
+  SierraMask getSierraMask() const { return SierraMask_; }
+  void setSierraMask(SierraMask NewMask) { SierraMask_ = NewMask; }
 
   /// Returns a pointer to the function's exception object and selector slot,
   /// which is assigned in every landing pad.

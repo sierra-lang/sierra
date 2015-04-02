@@ -680,7 +680,7 @@ void CodeGenFunction::EmitScalarInit(const Expr *init, const ValueDecl *D,
     // Always write all lanes in an initalization.
     // Inactive lanes are undefined anyway.
     auto OldMask = getSierraMask();
-    setSierraMask(nullptr);
+    setSierraMask(SierraMask());
     if (capturedByInit)
       drillIntoBlockVariable(*this, lvalue, cast<VarDecl>(D));
     EmitStoreThroughLValue(RValue::get(value), lvalue, true);

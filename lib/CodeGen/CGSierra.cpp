@@ -25,80 +25,6 @@ using llvm::Value;
 namespace clang {
 namespace CodeGen {
 
-/// Selects the Sierra mask for the current basic block from the two given
-/// incoming Sierra masks.  Creates PHI nodes if necessary.
-SierraMask * EmitSierraSelectMask( CodeGenFunction &CGF,
-                                   llvm::BasicBlock *BB0,
-                                   SierraMask *M0,
-                                   llvm::BasicBlock *BB1,
-                                   SierraMask *M1)
-{
-  assert( M0 && "M0 was null" );
-  assert( M1 && "M1 was null" );
-
-  if ( M0 == M1 ) return M0;
-
-  CGBuilderTy &Builder = CGF.Builder;
-  SierraMask *M = CGF.getSierraMask();
-  llvm::Value *Current, *Continue;
-
-  /* Select Current mask. */
-  if ( M0->CurrentMask != M1->CurrentMask )
-  {
-    llvm::PHINode *phi = Builder.CreatePHI( M->CurrentMask->getType(), 2 );
-    phi->addIncoming( M0->CurrentMask, BB0 );
-    phi->addIncoming( M1->CurrentMask, BB1 );
-    Current = phi;
-  }
-  else
-    Current = M0->CurrentMask;
-
-  /* Select Continue mask. */
-  if ( M0->ContinueMask != M1->ContinueMask )
-  {
-    llvm::PHINode *phi = Builder.CreatePHI( M->ContinueMask->getType(), 2 );
-    phi->addIncoming( M0->ContinueMask, BB0 );
-    phi->addIncoming( M1->ContinueMask, BB1 );
-    Continue = phi;
-  }
-  else
-    Continue = M0->ContinueMask;
-
-  return SierraMask::Create( Current, Continue );
-}
-
-/// Merges two Sierra masks.
-/// The current masks are merged via AND, the continue masks are merged via OR.
-SierraMask * EmitSierraMergeMask( CodeGenFunction &CGF,
-                                  SierraMask *M0,
-                                  SierraMask *M1 )
-{
-  assert( M0 && "M0 was null" );
-  assert( M1 && "M1 was null" );
-
-  CGBuilderTy &Builder = CGF.Builder;
-
-  llvm::Value *Current, *Continue;
-
-  if ( M0->CurrentMask != M1->CurrentMask )
-    Current = Builder.CreateAnd(
-        M0->CurrentMask,
-        M1->CurrentMask
-        );
-  else
-    Current = M0->CurrentMask;
-
-  if ( M0->ContinueMask != M1->ContinueMask )
-    Continue = Builder.CreateOr(
-        M0->ContinueMask,
-        M1->ContinueMask
-        );
-  else
-    Continue = M0->ContinueMask;
-
-  return SierraMask::Create( Current, Continue );
-}
-
 llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src, QualType SrcType, QualType DstType) {
   assert(SrcType->isSierraVectorType() && "must be a sierra vector");
 
@@ -167,44 +93,16 @@ llvm::Value *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask,
   llvm::VectorType *ValTy  = llvm::cast<llvm::VectorType>( Val->getType());
   assert(MaskTy->getNumElements() == ValTy->getNumElements());
   llvm::Value *OldVal = Builder.CreateLoad(Ptr);
-
-#if 0
-  llvm::Module* Module = Builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Function *Fun = llvm::Intrinsic::getDeclaration(Module, llvm::Intrinsic::x86_avx_blendv_ps_256);
-  unsigned NumElems = MaskTy->getNumElements();
-  MaskTy = llvm::VectorType::get(Builder.getInt32Ty(), NumElems);
-  Mask   = Builder.CreateSExt(Mask, MaskTy);
-  MaskTy = llvm::VectorType::get(Builder.getFloatTy(), NumElems);
-  Mask   = Builder.CreateBitCast(Mask, MaskTy);
-  llvm::Value *NewVal;
-  if (ValTy->getElementType()->isFloatingPointTy()) {
-    NewVal = Builder.CreateCall3(Fun, OldVal, Val, Mask);
-  } else {
-    llvm::Type* NewValTy  = llvm::VectorType::get(Builder.getFloatTy(), NumElems);
-    Val    = Builder.CreateBitCast(Val, NewValTy);
-    OldVal = Builder.CreateBitCast(OldVal, NewValTy);
-    NewVal = Builder.CreateCall3(Fun, OldVal, Val, Mask);
-    NewVal = Builder.CreateBitCast(NewVal, ValTy);
-  }
-#else
   llvm::Value *NewVal = Builder.CreateSelect(Mask, Val, OldVal);
-#endif
   return Builder.CreateStore(NewVal, Ptr, Volatile);
 
 }
-
-// TODO unused
-#if 0
-static llvm::Value *AllTrueInt(llvm::Type *Type) {
-  return llvm::ConstantInt::get(Type, uint64_t(-1));
-}
-#endif
 
 static llvm::Value *AllFalseInt(llvm::Type *Type) {
   return llvm::ConstantInt::get(Type, uint64_t(0));
 }
 
-llvm::Value *EmitToInt(CGBuilderTy &Builder, llvm::Value *Vec) {
+llvm::Value *EmitVecToInt(CGBuilderTy &Builder, llvm::Value *Vec) {
   llvm::VectorType *VecTy = llvm::cast<llvm::VectorType>(Vec->getType());
   unsigned NumElems = VecTy->getNumElements();
 #if 0
@@ -223,40 +121,36 @@ llvm::Value *EmitToInt(CGBuilderTy &Builder, llvm::Value *Vec) {
 #endif
 }
 
-llvm::Value *EmitAnyTrue(CodeGenFunction &CGF, llvm::Value *V)
-{
+llvm::Value *EmitAnyTrue(CodeGenFunction &CGF, llvm::Value *V) {
   CGBuilderTy &Builder = CGF.Builder;
-  SierraMask *M = CGF.getSierraMask();
-  assert( M->CurrentMask && "no current mask" );
-  llvm::Value *Result = EmitToInt( Builder, V );
-  return Builder.CreateICmpNE( Result, AllFalseInt( Result->getType() ) );
+  auto M = CGF.getSierraMask();
+  assert(M && "no current mask");
+  llvm::Value *Result = EmitVecToInt(Builder, V);
+  return Builder.CreateICmpNE(Result, AllFalseInt(Result->getType()));
 }
 
-llvm::Value *EmitAnyFalse(CodeGenFunction &CGF, llvm::Value *V)
-{
+llvm::Value *EmitAnyFalse(CodeGenFunction &CGF, llvm::Value *V) {
   CGBuilderTy &Builder = CGF.Builder;
-  return EmitAnyTrue( CGF, Builder.CreateNot( V ) );
+  return EmitAnyTrue(CGF, Builder.CreateNot(V));
 }
 
-llvm::Value *EmitAllFalse(CodeGenFunction &CGF, llvm::Value *V)
-{
+llvm::Value *EmitAllFalse(CodeGenFunction &CGF, llvm::Value *V) {
   CGBuilderTy &Builder = CGF.Builder;
-  SierraMask *M = CGF.getSierraMask();
-  assert( M->CurrentMask && "no current mask" );
-  llvm::Value *Result = EmitToInt( Builder, V );
-  return Builder.CreateICmpEQ( Result, AllFalseInt( Result->getType() ) );
+  auto M = CGF.getSierraMask();
+  assert(M && "no current mask");
+  llvm::Value *Result = EmitVecToInt(Builder, V);
+  return Builder.CreateICmpEQ(Result, AllFalseInt( Result->getType()));
 }
 
-llvm::Value *EmitAllTrue(CodeGenFunction &CGF, llvm::Value *V)
-{
+llvm::Value *EmitAllTrue(CodeGenFunction &CGF, llvm::Value *V) {
   CGBuilderTy &Builder = CGF.Builder;
-  return EmitAllFalse( CGF, Builder.CreateNot( V ) );
+  return EmitAllFalse(CGF, Builder.CreateNot(V));
 }
 
 //------------------------------------------------------------------------------
 
 llvm::Constant *CreateAllOnesVector(llvm::LLVMContext &Context,
-                                           unsigned NumElems) {
+                                    unsigned NumElems) {
   llvm::Constant** ones = new llvm::Constant*[NumElems];
   for (unsigned i = 0; i < NumElems; ++i)
     ones[i] = llvm::ConstantInt::getTrue(Context);
@@ -268,7 +162,7 @@ llvm::Constant *CreateAllOnesVector(llvm::LLVMContext &Context,
 }
 
 llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context,
-                                            unsigned NumElems) {
+                                     unsigned NumElems) {
   llvm::Constant** zeros = new llvm::Constant*[NumElems];
   for (unsigned i = 0; i < NumElems; ++i)
     zeros[i] = llvm::ConstantInt::getFalse(Context);
@@ -281,146 +175,137 @@ llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context,
 
 //------------------------------------------------------------------------------
 
-void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S)
-{
+void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
 
-  SierraMask *OldMask = CGF.getSierraMask();
-  bool resetToScalar = OldMask == nullptr;
-  if ( ! OldMask )
-  {
+  auto OldMask = CGF.getSierraMask();
+  bool resetToScalar = not OldMask;
+  if (resetToScalar) {
     /* Create a mask with all-true current and all-false continue. */
     unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
-    OldMask = SierraMask::Create( Builder.getContext(), NumElems );
-    CGF.setSierraMask( OldMask );
+    OldMask = SierraMask(Builder.getContext(), NumElems);
+    CGF.setSierraMask(OldMask);
   }
-  llvm::Type *MaskTy = OldMask->CurrentMask->getType();
+  llvm::Type *MaskTy = OldMask.CurrentMask->getType();
 
-  llvm::BasicBlock *ThenBlock = CGF.createBasicBlock( "sierra-if.then" );
-  llvm::BasicBlock *ElseBlock = CGF.createBasicBlock( "sierra-if.else" );
-  llvm::BasicBlock *EndBlock  = CGF.createBasicBlock( "sierra-if.end" );
+  llvm::BasicBlock *ThenBlock = CGF.createBasicBlock("sierra-if.then");
+  llvm::BasicBlock *ElseBlock = CGF.createBasicBlock("sierra-if.else");
+  llvm::BasicBlock *EndBlock  = CGF.createBasicBlock("sierra-if.end");
 
   /* The masks at the end of the Then-/Else-Stmt.  We use these to compute the
-   * SierraMask for all further stmts.
-   */
-  llvm::PHINode *ElseCurrentPhi   = llvm::PHINode::Create( MaskTy, 2 );
-  llvm::PHINode *ElseContinuePhi  = llvm::PHINode::Create( MaskTy, 2 );
-  llvm::PHINode *EndCurrentPhi    = llvm::PHINode::Create( MaskTy, 2 );
-  llvm::PHINode *EndContinuePhi   = llvm::PHINode::Create( MaskTy, 2 );
+   * SierraMask for all further stmts. */
+  llvm::PHINode *ElseCurrentPhi   = llvm::PHINode::Create(MaskTy, 2);
+  llvm::PHINode *ElseContinuePhi  = llvm::PHINode::Create(MaskTy, 2);
+  llvm::PHINode *EndCurrentPhi    = llvm::PHINode::Create(MaskTy, 2);
+  llvm::PHINode *EndContinuePhi   = llvm::PHINode::Create(MaskTy, 2);
 
   /* The PHI nodes for the incoming masks. */
   llvm::PHINode *ThenPhi = NULL, *ElsePhi = NULL;
 
-  CGF.EmitBranchOnBoolExpr( S.getCond(),
-                            ThenBlock, ElseBlock, 0 /*TODO*/,
-                            false,
-                            &ThenPhi, &ElsePhi );
+  CGF.EmitBranchOnBoolExpr(S.getCond(),
+                           ThenBlock, ElseBlock,
+                           0 /*TODO*/,
+                           false,
+                           &ThenPhi, &ElsePhi);
 
   /* Emit the then-block. */
-  CGF.EmitBlock( ThenBlock );
+  CGF.EmitBlock(ThenBlock);
   {
-    CGF.setSierraMask( SierraMask::Create( ThenPhi, OldMask->ContinueMask ) );
+    CGF.setSierraMask(SierraMask(ThenPhi, OldMask.ContinueMask));
 
     CodeGenFunction::RunCleanupsScope ThenScope(CGF);
-    CGF.EmitStmt( S.getThen() );
+    CGF.EmitStmt(S.getThen());
 
     /* Add edges to phi-nodes */
     {
-      SierraMask *M = CGF.getSierraMask();
+      auto M = CGF.getSierraMask();
       llvm::BasicBlock *BB = Builder.GetInsertBlock();
-      ElsePhi->addIncoming( ThenPhi, BB );
-      ElseCurrentPhi->addIncoming( M->CurrentMask, BB );
-      ElseContinuePhi->addIncoming( M->ContinueMask, BB );
-      EndCurrentPhi->addIncoming( M->CurrentMask, BB );
-      EndContinuePhi->addIncoming( M->ContinueMask, BB );
+      ElsePhi->addIncoming(ThenPhi, BB);
+      ElseCurrentPhi->addIncoming(M.CurrentMask, BB);
+      ElseContinuePhi->addIncoming(M.ContinueMask, BB);
+      EndCurrentPhi->addIncoming(M.CurrentMask, BB);
+      EndContinuePhi->addIncoming(M.ContinueMask, BB);
     }
 
-    CGF.setSierraMask( OldMask );  // necessary for the conditional branch
+    CGF.setSierraMask(OldMask);  // necessary for the conditional branch
     Builder.CreateCondBr(
-        EmitAnyTrue( CGF, Builder.CreateAnd( OldMask->CurrentMask,
-                                             Builder.CreateNot( ThenPhi ) ) ),
-        ElseBlock, EndBlock );
+        EmitAnyTrue(CGF, Builder.CreateAnd(OldMask.CurrentMask,
+                                           Builder.CreateNot(ThenPhi))),
+        ElseBlock, EndBlock);
   }
 
   /* Emit the else-block. */
-  CGF.EmitBlock( ElseBlock );
+  CGF.EmitBlock(ElseBlock);
   {
     /* Add the missing incoming edges for SierraMask. */
     {
-      llvm::BasicBlock *BB = ElseCurrentPhi->getIncomingBlock( 0 );
-      assert( BB );
+      llvm::BasicBlock *BB = ElseCurrentPhi->getIncomingBlock(0);
+      assert(BB);
 
-      for ( unsigned i = 0, E = ElsePhi->getNumIncomingValues(); i != E; ++i )
-      {
-        llvm::BasicBlock *InBB = ElsePhi->getIncomingBlock( i );
-        if ( InBB != BB )
-        {
-          ElseCurrentPhi->addIncoming( OldMask->CurrentMask, InBB );
-          ElseContinuePhi->addIncoming( OldMask->ContinueMask, InBB );
+      for (unsigned i = 0, E = ElsePhi->getNumIncomingValues(); i != E; ++i) {
+        llvm::BasicBlock *InBB = ElsePhi->getIncomingBlock(i);
+        if (InBB != BB) {
+          ElseCurrentPhi->addIncoming(OldMask.CurrentMask, InBB);
+          ElseContinuePhi->addIncoming(OldMask.ContinueMask, InBB);
         }
       }
     }
-    Builder.Insert( ElseCurrentPhi );
-    Builder.Insert( ElseContinuePhi );
+    Builder.Insert(ElseCurrentPhi);
+    Builder.Insert(ElseContinuePhi);
 
-    CGF.setSierraMask( SierraMask::Create(
-          Builder.CreateAnd( Builder.CreateNot( ElsePhi ),
-                             OldMask->CurrentMask ),
-          OldMask->ContinueMask ) );
+    CGF.setSierraMask(SierraMask(
+          Builder.CreateAnd(Builder.CreateNot(ElsePhi), OldMask.CurrentMask),
+          OldMask.ContinueMask));
 
-    if ( const Stmt *Else = S.getElse() )
-    {
-      CodeGenFunction::RunCleanupsScope ElseScope( CGF );
-      CGF.EmitStmt( Else );
+    if (const Stmt *Else = S.getElse()) {
+      CodeGenFunction::RunCleanupsScope ElseScope(CGF);
+      CGF.EmitStmt(Else);
     }
 
     {
-      SierraMask *M = CGF.getSierraMask();
+      auto M = CGF.getSierraMask();
       llvm::BasicBlock *BB = Builder.GetInsertBlock();
       EndCurrentPhi->addIncoming(
-          Builder.CreateOr( M->CurrentMask, ElseCurrentPhi ), BB );
+          Builder.CreateOr(M.CurrentMask, ElseCurrentPhi), BB);
       EndContinuePhi->addIncoming(
-          Builder.CreateOr( M->ContinueMask, ElseContinuePhi ), BB );
+          Builder.CreateOr(M.ContinueMask, ElseContinuePhi), BB);
     }
   }
 
-  CGF.EmitBlock( EndBlock );
-  Builder.Insert( EndCurrentPhi );
-  Builder.Insert( EndContinuePhi );
-  CGF.setSierraMask( resetToScalar ? nullptr : SierraMask::Create( EndCurrentPhi, EndContinuePhi ) );
+  CGF.EmitBlock(EndBlock);
+  Builder.Insert(EndCurrentPhi);
+  Builder.Insert(EndContinuePhi);
+  CGF.setSierraMask(resetToScalar ? SierraMask() : SierraMask(EndCurrentPhi, EndContinuePhi));
 }
 
 //------------------------------------------------------------------------------
 
-void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S)
-{
+void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
 
-  SierraMask *OldMask = CGF.getSierraMask();
-  bool resetToScalar = OldMask == nullptr;
-  if ( ! OldMask )
-  {
+  auto OldMask = CGF.getSierraMask();
+  bool resetToScalar = not OldMask;
+  if (resetToScalar) {
     /* Create a mask with all-true current and all-false continue. */
     unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
-    OldMask = SierraMask::Create( Builder.getContext(), NumElems );
-    CGF.setSierraMask( OldMask );
+    OldMask = SierraMask(Builder.getContext(), NumElems);
+    CGF.setSierraMask(OldMask);
   }
-  llvm::Type *MaskTy = OldMask->CurrentMask->getType();
+  llvm::Type *MaskTy = OldMask.CurrentMask->getType();
 
-  CodeGenFunction::JumpDest Continue = CGF.getJumpDestInCurrentScope( "sierra-while.continue" );
-  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope( "sierra-while.end" );
-  llvm::BasicBlock *CondBlock        = CGF.createBasicBlock( "sierra-while.cond" );
-  llvm::BasicBlock *BodyBlock        = CGF.createBasicBlock( "sierra-while.body" );
+  CodeGenFunction::JumpDest Continue = CGF.getJumpDestInCurrentScope("sierra-while.continue");
+  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope("sierra-while.end");
+  llvm::BasicBlock *CondBlock        = CGF.createBasicBlock("sierra-while.cond");
+  llvm::BasicBlock *BodyBlock        = CGF.createBasicBlock("sierra-while.body");
   llvm::BasicBlock *ExitBlock        = LoopExit.getBlock();
   llvm::BasicBlock *ContBlock        = Continue.getBlock();
 
-  llvm::PHINode *CondMaskPhi = llvm::PHINode::Create( MaskTy, 0,
-                                                      "sierra-while.phi-cond" );
-  CondMaskPhi->addIncoming( OldMask->CurrentMask, Builder.GetInsertBlock() );
+  llvm::PHINode *CondMaskPhi = llvm::PHINode::Create(MaskTy, 0, "sierra-while.phi-cond");
+  CondMaskPhi->addIncoming(OldMask.CurrentMask, Builder.GetInsertBlock());
 
   llvm::PHINode *ContinueMask = llvm::PHINode::Create(
-      MaskTy, 0, "sierra-while.continue-mask" );
-  CGF.SierraContinuePhiStack.push_back( ContinueMask );
+      MaskTy, 0, "sierra-while.continue-mask");
+  CGF.SierraContinuePhiStack.push_back(ContinueMask);
 
   // C++ [stmt.while]p2:
   //   When the condition of a while statement is a declaration, the
@@ -430,9 +315,9 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S)
   //   The object created in a condition is destroyed and created
   //   with each iteration of the loop.
 
-  CGF.EmitBlock( CondBlock );
-  Builder.Insert( CondMaskPhi );
-  CGF.setSierraMask( SierraMask::Create( CondMaskPhi, OldMask->ContinueMask ) );
+  CGF.EmitBlock(CondBlock);
+  Builder.Insert(CondMaskPhi);
+  CGF.setSierraMask(SierraMask(CondMaskPhi, OldMask.ContinueMask));
 
   CodeGenFunction::RunCleanupsScope ConditionScope(CGF);
   if (S.getConditionVariable())
@@ -441,333 +326,319 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S)
   /* If there are any cleanups between here and the loop-exit scope, create a
    * block to stage a loop exit along.
    */
-  if ( ConditionScope.requiresCleanups() )
-    ExitBlock = CGF.createBasicBlock( "sierra-while.exit" );
+  if (ConditionScope.requiresCleanups())
+    ExitBlock = CGF.createBasicBlock("sierra-while.exit");
 
   llvm::PHINode *LoopMaskPhi = NULL;
-  CGF.EmitBranchOnBoolExpr( S.getCond(),
-                            BodyBlock, ExitBlock, 0 /*TODO*/,
-                            false,
-                            &LoopMaskPhi );
+  CGF.EmitBranchOnBoolExpr(S.getCond(),
+                           BodyBlock, ExitBlock,
+                           0 /*TODO*/,
+                           false,
+                           &LoopMaskPhi);
 
   /* Emit the loop body.  We have to emit this in a cleanup scope because it
    * might be a singleton DeclStmt.
    */
-  CGF.EmitBlock( BodyBlock );
+  CGF.EmitBlock(BodyBlock);
   {
     CodeGenFunction::RunCleanupsScope BodyScope(CGF);
 
-    CGF.SierraLoopMaskStack.push_back( LoopMaskPhi );
-    CGF.setSierraMask(
-        SierraMask::Create( LoopMaskPhi,
-                            CreateAllZerosVector(
-                              Builder.getContext(),
-                              MaskTy->getVectorNumElements() ) ) );
+    CGF.SierraLoopMaskStack.push_back(LoopMaskPhi);
+    CGF.setSierraMask(SierraMask(LoopMaskPhi,
+                                 CreateAllZerosVector(
+                                   Builder.getContext(),
+                                   MaskTy->getVectorNumElements())));
 
     CGF.BreakContinueStack.push_back(
-        CodeGenFunction::BreakContinue( LoopExit, Continue ) );
+        CodeGenFunction::BreakContinue(LoopExit, Continue));
     CGF.EmitStmt(S.getBody());
     CGF.BreakContinueStack.pop_back();
 
-    SierraMask *M = CGF.getSierraMask();
-    ContinueMask->addIncoming( M->ContinueMask, Builder.GetInsertBlock() );
+    auto M = CGF.getSierraMask();
+    ContinueMask->addIncoming(M.ContinueMask, Builder.GetInsertBlock());
   }
 
   /* Emit the catch-up block for continue stmts. */
-  CGF.EmitBlock( ContBlock );
-  Builder.Insert( ContinueMask );
+  CGF.EmitBlock(ContBlock);
+  Builder.Insert(ContinueMask);
 
-  CondMaskPhi->addIncoming( Builder.CreateOr(
-                              CGF.getSierraMask()->CurrentMask,
-                              ContinueMask ),
-                            Builder.GetInsertBlock() );
+  CondMaskPhi->addIncoming(Builder.CreateOr(
+                             CGF.getSierraMask().CurrentMask,
+                             ContinueMask),
+                           Builder.GetInsertBlock());
   ConditionScope.ForceCleanup();
-  CGF.EmitBranch( CondBlock );
+  CGF.EmitBranch(CondBlock);
 
-  CGF.setSierraMask( OldMask );
+  CGF.setSierraMask(OldMask);
 
-  if ( ExitBlock != LoopExit.getBlock() )
-  {
-    CGF.EmitBlock( ExitBlock );
-    CGF.EmitBranchThroughCleanup( LoopExit );
+  if (ExitBlock != LoopExit.getBlock()) {
+    CGF.EmitBlock(ExitBlock);
+    CGF.EmitBranchThroughCleanup(LoopExit);
   }
 
   // Emit the exit block.
-  CGF.EmitBlock( LoopExit.getBlock() );
-  CGF.setSierraMask( resetToScalar ? nullptr : OldMask );
+  CGF.EmitBlock(LoopExit.getBlock());
+  CGF.setSierraMask(resetToScalar ? SierraMask() : OldMask);
 }
 
 
-void EmitSierraDoStmt( CodeGenFunction &CGF, const DoStmt &S )
-{
+void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
 
-  SierraMask *OldMask = CGF.getSierraMask();
-  bool resetToScalar = OldMask == nullptr;
-  if ( ! OldMask )
-  {
+  auto OldMask = CGF.getSierraMask();
+  bool resetToScalar = not OldMask;
+  if (resetToScalar) {
     /* Create a mask with all-true current and all-false continue. */
     unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
-    OldMask = SierraMask::Create( Builder.getContext(), NumElems );
-    CGF.setSierraMask( OldMask );
+    OldMask = SierraMask(Builder.getContext(), NumElems);
+    CGF.setSierraMask(OldMask);
   }
-  llvm::Type *MaskTy = OldMask->CurrentMask->getType();
+  llvm::Type *MaskTy = OldMask.CurrentMask->getType();
 
-  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope( "sierra-do.end" );
-  CodeGenFunction::JumpDest LoopCond = CGF.getJumpDestInCurrentScope( "sierra-do.cond" );
-  llvm::BasicBlock *LoopBody = CGF.createBasicBlock( "sierra-do.body" );
+  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope("sierra-do.end");
+  CodeGenFunction::JumpDest LoopCond = CGF.getJumpDestInCurrentScope("sierra-do.cond");
+  llvm::BasicBlock *LoopBody = CGF.createBasicBlock("sierra-do.body");
   llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
   llvm::BasicBlock *OldBlock  = Builder.GetInsertBlock();
   llvm::BasicBlock *CondBlock = LoopCond.getBlock();
 
-  llvm::PHINode *LoopMaskPhi = llvm::PHINode::Create( MaskTy, 0,
-                                                      "sierra-do.phi-body" );
-  LoopMaskPhi->addIncoming( OldMask->CurrentMask, OldBlock );
+  llvm::PHINode *LoopMaskPhi = llvm::PHINode::Create(MaskTy, 0, "sierra-do.phi-body");
+  LoopMaskPhi->addIncoming(OldMask.CurrentMask, OldBlock);
 
   llvm::PHINode *ContinueMask = llvm::PHINode::Create(
-      MaskTy, 0, "sierra-while.continue-mask" );
-  CGF.SierraContinuePhiStack.push_back( ContinueMask );
+      MaskTy, 0, "sierra-while.continue-mask");
+  CGF.SierraContinuePhiStack.push_back(ContinueMask);
 
-  CGF.EmitBlock( LoopBody );
+  CGF.EmitBlock(LoopBody);
   {
-    CodeGenFunction::RunCleanupsScope BodyScope( CGF );
+    CodeGenFunction::RunCleanupsScope BodyScope(CGF);
 
-    CGF.SierraLoopMaskStack.push_back( LoopMaskPhi );
-    Builder.Insert( LoopMaskPhi );
+    CGF.SierraLoopMaskStack.push_back(LoopMaskPhi);
+    Builder.Insert(LoopMaskPhi);
 
-    CGF.setSierraMask(
-        SierraMask::Create( LoopMaskPhi,
-                            CreateAllZerosVector(
-                              Builder.getContext(),
-                              MaskTy->getVectorNumElements() ) ) );
+    CGF.setSierraMask(SierraMask(LoopMaskPhi,
+                                 CreateAllZerosVector(
+                                   Builder.getContext(),
+                                   MaskTy->getVectorNumElements())));
     CGF.BreakContinueStack.push_back(
-        CodeGenFunction::BreakContinue( LoopExit, LoopCond ) );
-    CGF.EmitStmt( S.getBody() );
+        CodeGenFunction::BreakContinue(LoopExit, LoopCond));
+    CGF.EmitStmt(S.getBody());
     CGF.BreakContinueStack.pop_back();
 
-    SierraMask *M = CGF.getSierraMask();
-    ContinueMask->addIncoming( M->ContinueMask, Builder.GetInsertBlock() );
+    auto M = CGF.getSierraMask();
+    ContinueMask->addIncoming(M.ContinueMask, Builder.GetInsertBlock());
   }
 
   // Create the block for the condition.
-  CGF.EmitBlock( CondBlock );
+  CGF.EmitBlock(CondBlock);
   {
-    CodeGenFunction::RunCleanupsScope ConditionScope( CGF );
+    CodeGenFunction::RunCleanupsScope ConditionScope(CGF);
 
-    Builder.Insert( ContinueMask );
+    Builder.Insert(ContinueMask);
 
-    if ( ConditionScope.requiresCleanups() )
+    if (ConditionScope.requiresCleanups())
       ExitBlock = CGF.createBasicBlock("sierra-do.exit");
 
-    SierraMask *M = CGF.getSierraMask();
-    CGF.setSierraMask( SierraMask::Create(
-          Builder.CreateOr( M->CurrentMask, ContinueMask ),
-          CreateAllZerosVector( Builder.getContext(),
-                                MaskTy->getVectorNumElements() ) ) );
+    auto M = CGF.getSierraMask();
+    CGF.setSierraMask(SierraMask(
+          Builder.CreateOr(M.CurrentMask, ContinueMask),
+          CreateAllZerosVector(Builder.getContext(),
+                               MaskTy->getVectorNumElements())));
 
-    CGF.EmitBranchOnBoolExpr( S.getCond(),
-                              LoopBody, ExitBlock, 0 /*TODO*/,
-                              false,
-                              &LoopMaskPhi );
+    CGF.EmitBranchOnBoolExpr(S.getCond(),
+                             LoopBody, ExitBlock,
+                             0 /*TODO*/,
+                             false,
+                             &LoopMaskPhi);
   }
 
-  if ( ExitBlock != LoopExit.getBlock() )
-  {
-    CGF.EmitBlock( ExitBlock );
-    CGF.EmitBranchThroughCleanup( LoopExit );
+  if (ExitBlock != LoopExit.getBlock()) {
+    CGF.EmitBlock(ExitBlock);
+    CGF.EmitBranchThroughCleanup(LoopExit);
   }
 
   // Emit the blocks after the loop
-  CGF.EmitBlock( LoopExit.getBlock() );
-  CGF.setSierraMask( resetToScalar ? nullptr : OldMask );
+  CGF.EmitBlock(LoopExit.getBlock());
+  CGF.setSierraMask(resetToScalar ? SierraMask() : OldMask);
 }
 
-void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S)
-{
+void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
   unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
 
-  SierraMask *OldMask = CGF.getSierraMask();
-  bool resetToScalar = OldMask == nullptr;
-  if ( ! OldMask )
-  {
+  auto OldMask = CGF.getSierraMask();
+  bool resetToScalar = not OldMask;
+  if (resetToScalar) {
     /* Create a mask with all-true current and all-false continue. */
-    OldMask = SierraMask::Create( Builder.getContext(), NumElems );
-    CGF.setSierraMask( OldMask );
+    OldMask = SierraMask(Builder.getContext(), NumElems);
+    CGF.setSierraMask(OldMask);
   }
-  llvm::Type *MaskTy = OldMask->CurrentMask->getType();
+  llvm::Type *MaskTy = OldMask.CurrentMask->getType();
 
-  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope( "sierra-for.end" );
-  CodeGenFunction::JumpDest LoopIncr = CGF.getJumpDestInCurrentScope( "sierra-for.inc" );
-  llvm::BasicBlock *BodyBlock  = CGF.createBasicBlock( "sierra-for.body" );
-  llvm::BasicBlock *CondBlock = CGF.createBasicBlock( "sierra-for.cond" );
+  CodeGenFunction::JumpDest LoopExit = CGF.getJumpDestInCurrentScope("sierra-for.end");
+  CodeGenFunction::JumpDest LoopIncr = CGF.getJumpDestInCurrentScope("sierra-for.inc");
+  llvm::BasicBlock *BodyBlock  = CGF.createBasicBlock("sierra-for.body");
+  llvm::BasicBlock *CondBlock = CGF.createBasicBlock("sierra-for.cond");
   llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
   llvm::BasicBlock *IncrBlock = LoopIncr.getBlock();
 
-  if ( S.getInit() )
-    CGF.EmitStmt( S.getInit() );
+  if (S.getInit())
+    CGF.EmitStmt(S.getInit());
 
-  llvm::PHINode *CondMaskPhi = llvm::PHINode::Create( MaskTy, 0,
-                                                      "sierra-for.phi-cond" );
-  CondMaskPhi->addIncoming( OldMask->CurrentMask, Builder.GetInsertBlock() );
+  llvm::PHINode *CondMaskPhi = llvm::PHINode::Create(MaskTy, 0,
+                                                     "sierra-for.phi-cond");
+  CondMaskPhi->addIncoming(OldMask.CurrentMask, Builder.GetInsertBlock());
 
   /* Used to collect the incoming edges for the loop's increment block. */
   llvm::PHINode *IncrContMask = llvm::PHINode::Create(
-      MaskTy, 0, "sierra-for.continue-mask" );
-  CGF.SierraContinuePhiStack.push_back( IncrContMask );
+      MaskTy, 0, "sierra-for.continue-mask");
+  CGF.SierraContinuePhiStack.push_back(IncrContMask);
 
-  CodeGenFunction::RunCleanupsScope ForScope( CGF );
+  CodeGenFunction::RunCleanupsScope ForScope(CGF);
 
-  CGF.EmitBlock( CondBlock );
-  Builder.Insert( CondMaskPhi );
-  CGF.setSierraMask( SierraMask::Create( CondMaskPhi, OldMask->ContinueMask ) );
+  CGF.EmitBlock(CondBlock);
+  Builder.Insert(CondMaskPhi);
+  CGF.setSierraMask(SierraMask(CondMaskPhi, OldMask.ContinueMask));
 
-  CodeGenFunction::RunCleanupsScope ConditionScope( CGF );
-  if ( S.getConditionVariable() )
-    CGF.EmitAutoVarDecl( *S.getConditionVariable() );
+  CodeGenFunction::RunCleanupsScope ConditionScope(CGF);
+  if (S.getConditionVariable())
+    CGF.EmitAutoVarDecl(*S.getConditionVariable());
 
   /* If there are any cleanups between here and the loop-exit scope, create a
    * block to stage a loop exit along.
    */
-  if ( ConditionScope.requiresCleanups() )
-    ExitBlock = CGF.createBasicBlock( "sierra-for.cond.cleanup" );
+  if (ConditionScope.requiresCleanups())
+    ExitBlock = CGF.createBasicBlock("sierra-for.cond.cleanup");
 
   llvm::PHINode *LoopMaskPhi = NULL;
-  CGF.EmitBranchOnBoolExpr( S.getCond(),
-                            BodyBlock, ExitBlock, 0 /*TODO*/,
-                            false,
-                            &LoopMaskPhi );
+  CGF.EmitBranchOnBoolExpr(S.getCond(),
+                           BodyBlock, ExitBlock,
+                           0 /*TODO*/,
+                           false,
+                           &LoopMaskPhi);
 
 
   /* Emit the loop body.  We have to emit this in a cleanup scope because it
    * might be a singleton DeclStmt.
    */
-  CGF.EmitBlock( BodyBlock );
+  CGF.EmitBlock(BodyBlock);
   {
-    CGF.SierraLoopMaskStack.push_back( LoopMaskPhi );
+    CGF.SierraLoopMaskStack.push_back(LoopMaskPhi);
 
     // Create a cleanups scope for the loop body
-    CodeGenFunction::RunCleanupsScope BodyScope( CGF );
+    CodeGenFunction::RunCleanupsScope BodyScope(CGF);
 
     /* Set the current mask for the body block and the increment block. */
-    CGF.setSierraMask(
-        SierraMask::Create( LoopMaskPhi,
-                            CreateAllZerosVector(
-                              Builder.getContext(),
-                              MaskTy->getVectorNumElements() ) ) );
+    CGF.setSierraMask(SierraMask(LoopMaskPhi,
+                                 CreateAllZerosVector(
+                                   Builder.getContext(),
+                                   MaskTy->getVectorNumElements())));
 
     CGF.BreakContinueStack.push_back(
-        CodeGenFunction::BreakContinue( LoopExit, LoopIncr ) );
-    CGF.EmitStmt( S.getBody() );
+        CodeGenFunction::BreakContinue(LoopExit, LoopIncr));
+    CGF.EmitStmt(S.getBody());
     CGF.BreakContinueStack.pop_back();
 
-    SierraMask *M = CGF.getSierraMask();
-    IncrContMask->addIncoming( M->ContinueMask, Builder.GetInsertBlock() );
+    auto M = CGF.getSierraMask();
+    IncrContMask->addIncoming(M.ContinueMask, Builder.GetInsertBlock());
   }
 
-  CGF.EmitBlock( IncrBlock );
+  CGF.EmitBlock(IncrBlock);
   {
-    Builder.Insert( IncrContMask );
+    Builder.Insert(IncrContMask);
 
-    CGF.setSierraMask( SierraMask::Create(
-          Builder.CreateOr( CGF.getSierraMask()->CurrentMask, IncrContMask ),
-          CreateAllZerosVector( Builder.getContext(), NumElems )
-          ) );
+    CGF.setSierraMask(SierraMask(
+          Builder.CreateOr(CGF.getSierraMask().CurrentMask, IncrContMask),
+          CreateAllZerosVector(Builder.getContext(), NumElems)));
 
-    if ( S.getInc() )
-      CGF.EmitStmt( S.getInc() );
+    if (S.getInc())
+      CGF.EmitStmt(S.getInc());
 
-    CondMaskPhi->addIncoming( CGF.getSierraMask()->CurrentMask,
-                              Builder.GetInsertBlock() );
+    CondMaskPhi->addIncoming(CGF.getSierraMask().CurrentMask,
+                             Builder.GetInsertBlock());
 
     ConditionScope.ForceCleanup();
-    CGF.EmitBranch( CondBlock );
+    CGF.EmitBranch(CondBlock);
   }
 
-  if ( ExitBlock != LoopExit.getBlock() )
-  {
-    CGF.EmitBlock( ExitBlock );
-    CGF.EmitBranchThroughCleanup( LoopExit );
+  if (ExitBlock != LoopExit.getBlock()) {
+    CGF.EmitBlock(ExitBlock);
+    CGF.EmitBranchThroughCleanup(LoopExit);
   }
 
   // Emit the blocks after the loop
-  CGF.EmitBlock( LoopExit.getBlock() );
+  CGF.EmitBlock(LoopExit.getBlock());
   ForScope.ForceCleanup();
-  CGF.setSierraMask( resetToScalar ? nullptr : OldMask );
+  CGF.setSierraMask(resetToScalar ? SierraMask() : OldMask);
 }
 
-void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S)
-{
+void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
 
   /* Insert the new Current mask to the Sierra mask map. */
-  SierraMask *OldMask = CGF.getSierraMask();
+  auto OldMask = CGF.getSierraMask();
 
-  CGF.setSierraMask( SierraMask::Create(
+  CGF.setSierraMask(SierraMask(
         CreateAllZerosVector(
           CGF.getLLVMContext(),
-          OldMask->CurrentMask->getType()->getVectorNumElements() ),
-        OldMask->ContinueMask ) ); // keep continue-mask
+          OldMask.CurrentMask->getType()->getVectorNumElements()),
+        OldMask.ContinueMask)); // keep continue-mask
 
-  llvm::BasicBlock *CleanupBB = CGF.createBasicBlock( "sierra-break.cleanup" );
-  llvm::BasicBlock *AfterBB   = CGF.createBasicBlock( "sierra-break.after" );
+  llvm::BasicBlock *CleanupBB = CGF.createBasicBlock("sierra-break.cleanup");
+  llvm::BasicBlock *AfterBB   = CGF.createBasicBlock("sierra-break.after");
 
   Builder.CreateCondBr(
-      EmitAnyTrue( CGF,
-        Builder.CreateAnd( Builder.CreateNot( OldMask->CurrentMask ),
-                           CGF.SierraLoopMaskStack.back() ) ),
+      EmitAnyTrue(CGF, Builder.CreateAnd(Builder.CreateNot(OldMask.CurrentMask),
+                                         CGF.SierraLoopMaskStack.back())),
       AfterBB,
-      CleanupBB );
+      CleanupBB);
 
-  CGF.EmitBlock( CleanupBB );
-  CGF.EmitBranchThroughCleanup( CGF.BreakContinueStack.back().BreakBlock );
+  CGF.EmitBlock(CleanupBB);
+  CGF.EmitBranchThroughCleanup(CGF.BreakContinueStack.back().BreakBlock);
 
-  CGF.EmitBlock( AfterBB );
+  CGF.EmitBlock(AfterBB);
 }
 
-void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S)
-{
+void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
 
   /* Insert the new Current and Continue mask to the Sierra mask map. */
-  SierraMask *OldMask = CGF.getSierraMask();
+  auto OldMask = CGF.getSierraMask();
 
-  CGF.setSierraMask( SierraMask::Create(
+  CGF.setSierraMask(SierraMask(
         CreateAllZerosVector(
           CGF.getLLVMContext(),
-          OldMask->CurrentMask->getType()->getVectorNumElements() ),
-        Builder.CreateOr( OldMask->CurrentMask, OldMask->ContinueMask ) ) );
+          OldMask.CurrentMask->getType()->getVectorNumElements()),
+        Builder.CreateOr(OldMask.CurrentMask, OldMask.ContinueMask)));
 
-  llvm::BasicBlock *CleanupBB = CGF.createBasicBlock( "sierra-continue.cleanup" );
-  llvm::BasicBlock *AfterBB   = CGF.createBasicBlock( "sierra-continue.after" );
+  llvm::BasicBlock *CleanupBB = CGF.createBasicBlock("sierra-continue.cleanup");
+  llvm::BasicBlock *AfterBB   = CGF.createBasicBlock("sierra-continue.after");
 
   // TODO emit conditional branch to loop exit
   Builder.CreateCondBr(
-      EmitAnyTrue( CGF,
-        Builder.CreateAnd( Builder.CreateNot( OldMask->CurrentMask ),
-                           CGF.SierraLoopMaskStack.back() ) ),
+      EmitAnyTrue(CGF, Builder.CreateAnd(Builder.CreateNot(OldMask.CurrentMask),
+                                         CGF.SierraLoopMaskStack.back())),
       AfterBB,
-      CleanupBB );
+      CleanupBB);
 
-  CGF.EmitBlock( CleanupBB );
+  CGF.EmitBlock(CleanupBB);
   /* Add a new incoming edge for the phi-node in the continue-/increment-block.
    */
   CGF.SierraContinuePhiStack.back()->addIncoming(
-      CGF.getSierraMask()->ContinueMask,
-      Builder.GetInsertBlock() );
-  CGF.EmitBranchThroughCleanup( CGF.BreakContinueStack.back().ContinueBlock );
+      CGF.getSierraMask().ContinueMask,
+      Builder.GetInsertBlock());
+  CGF.EmitBranchThroughCleanup(CGF.BreakContinueStack.back().ContinueBlock);
 
-  CGF.EmitBlock( AfterBB );
+  CGF.EmitBlock(AfterBB);
 }
 
-void EmitSierraReturnStmt( CodeGenFunction &CGF, const ReturnStmt &S )
-{
+void EmitSierraReturnStmt(CodeGenFunction &CGF, const ReturnStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
 
-  SierraMask *OldMask = CGF.getSierraMask();
+  auto OldMask = CGF.getSierraMask();
 
-  llvm::BasicBlock *CleanupBB = CGF.createBasicBlock( "sierra-return.cleanup" );
-  llvm::BasicBlock *AfterBB   = CGF.createBasicBlock( "sierra-return.after" );
+  llvm::BasicBlock *CleanupBB = CGF.createBasicBlock("sierra-return.cleanup");
+  llvm::BasicBlock *AfterBB   = CGF.createBasicBlock("sierra-return.after");
 
   const Expr *RV = S.getRetValue();
 
@@ -776,43 +647,39 @@ void EmitSierraReturnStmt( CodeGenFunction &CGF, const ReturnStmt &S )
   // exception to our over-conservative rules about not jumping to
   // statements following block literals with non-trivial cleanups.
   CodeGenFunction::RunCleanupsScope cleanupScope(CGF);
-  if (const ExprWithCleanups *cleanups =
-        dyn_cast_or_null<ExprWithCleanups>(RV)) {
+  if (const ExprWithCleanups *cleanups = dyn_cast_or_null<ExprWithCleanups>(RV)) {
     CGF.enterFullExpression(cleanups);
     RV = cleanups->getSubExpr();
   }
 
-  EmitMaskedStore( Builder,
-                   OldMask->CurrentMask,
-                   CGF.EmitScalarExpr(RV),
-                   CGF.ReturnValue,
-                   false );
+  EmitMaskedStore(Builder,
+                  OldMask.CurrentMask,
+                  CGF.EmitScalarExpr(RV),
+                  CGF.ReturnValue,
+                  false);
 
   ++CGF.NumReturnExprs;
   if (RV == 0 || RV->isEvaluatable(CGF.getContext()))
     ++CGF.NumSimpleReturnExprs;
 
-  CGF.setSierraMask( SierraMask::Create(
+  CGF.setSierraMask(SierraMask(
         CreateAllZerosVector(
           Builder.getContext(),
-          OldMask->CurrentMask->getType()->getVectorNumElements() ),
-        OldMask->ContinueMask ) );
+          OldMask.CurrentMask->getType()->getVectorNumElements()),
+        OldMask.ContinueMask));
 
-  /* FIXME To support masked function calls (SPMD functions), we have to comare
+  /* FIXME To support masked function calls (SPMD functions), we have to compare
    * the current mask to the function mask.
    */
-  Builder.CreateCondBr( EmitAllTrue( CGF, OldMask->CurrentMask ),
-                        CleanupBB, AfterBB );
+  Builder.CreateCondBr(EmitAllTrue(CGF, OldMask.CurrentMask),
+                       CleanupBB, AfterBB);
 
-  CGF.EmitBlock( CleanupBB );
+  CGF.EmitBlock(CleanupBB);
   cleanupScope.ForceCleanup();
-  CGF.EmitBranchThroughCleanup( CGF.ReturnBlock );
+  CGF.EmitBranchThroughCleanup(CGF.ReturnBlock);
 
-  CGF.EmitBlock( AfterBB );
+  CGF.EmitBlock(AfterBB);
 }
 
-
-//------------------------------------------------------------------------------
-
-}  // end namespace CodeGen
-}  // end namespace clang
+}
+}

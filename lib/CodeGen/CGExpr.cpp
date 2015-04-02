@@ -1422,8 +1422,8 @@ void CodeGenFunction::EmitStoreOfScalar(llvm::Value *Value, Address Addr,
 
   Value = EmitToMemory(Value, Ty);
 
-  if (Value->getType()->isVectorTy() && CurrentMask) {
-    EmitMaskedStore(Builder, CurrentMask, Value, Addr, Volatile);
+  if (Value->getType()->isVectorTy() && SierraMask_ ) {
+    EmitMaskedStore(Builder, SierraMask_.CurrentMask, Value, Addr, Volatile);
     return;
   } else {
     LValue AtomicLValue =

@@ -3108,14 +3108,14 @@ Value *ScalarExprEmitter::VisitBinLAnd(const BinaryOperator *E) {
   }
 
   if (E->getType()->isSierraVectorType()) {
-    SierraMask *OldMask = CGF.getSierraMask();
-    if (nullptr == OldMask) {
+    auto OldMask = CGF.getSierraMask();
+    if (not OldMask) {
       /* Create a mask with all-true current and all-false continue. */
       unsigned NumElems = E->getType()->getSierraVectorLength();
-      OldMask = SierraMask::Create(Builder.getContext(), NumElems);
+      OldMask = SierraMask(Builder.getContext(), NumElems);
       CGF.setSierraMask(OldMask);
     }
-    llvm::Type *MaskTy = OldMask->CurrentMask->getType();
+    llvm::Type *MaskTy = OldMask.CurrentMask->getType();
 
     llvm::BasicBlock *TrueBlock  = CGF.createBasicBlock("sierra-land.some-true");
     llvm::BasicBlock *FalseBlock = CGF.createBasicBlock("sierra-land.some-false");
@@ -3142,7 +3142,7 @@ Value *ScalarExprEmitter::VisitBinLAnd(const BinaryOperator *E) {
 
     /* Emit code for the EndBlock. */
     Builder.Insert(EndPhi);
-    llvm::Value *Res = Builder.CreateAnd(EndPhi, OldMask->CurrentMask);
+    llvm::Value *Res = Builder.CreateAnd(EndPhi, OldMask.CurrentMask);
 
     CGF.setSierraMask(OldMask);
     return Res;
@@ -3229,14 +3229,14 @@ Value *ScalarExprEmitter::VisitBinLOr(const BinaryOperator *E) {
   }
 
   if (E->getType()->isSierraVectorType()) {
-    SierraMask *OldMask = CGF.getSierraMask();
-    if (nullptr == OldMask) {
+    auto OldMask = CGF.getSierraMask();
+    if (not OldMask) {
       /* Create a mask with all-true current and all-false continue. */
       unsigned NumElems = E->getType()->getSierraVectorLength();
-      OldMask = SierraMask::Create(Builder.getContext(), NumElems );
+      OldMask = SierraMask(Builder.getContext(), NumElems);
       CGF.setSierraMask(OldMask );
     }
-    llvm::Type *MaskTy = OldMask->CurrentMask->getType();
+    llvm::Type *MaskTy = OldMask.CurrentMask->getType();
 
     llvm::BasicBlock *TrueBlock  = CGF.createBasicBlock("sierra-lor.some-true");
     llvm::BasicBlock *FalseBlock = CGF.createBasicBlock("sierra-lor.some-false");
@@ -3263,7 +3263,7 @@ Value *ScalarExprEmitter::VisitBinLOr(const BinaryOperator *E) {
 
     /* Emit code for the EndBlock. */
     Builder.Insert(EndPhi);
-    llvm::Value *Res = Builder.CreateAnd(EndPhi, OldMask->CurrentMask);
+    llvm::Value *Res = Builder.CreateAnd(EndPhi, OldMask.CurrentMask);
 
     CGF.setSierraMask(OldMask);
     return Res;
@@ -3434,11 +3434,11 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
   }
 
   if (condExpr->getType()->isSierraVectorType()) {
-    SierraMask *OldMask = CGF.getSierraMask();
-    if (nullptr == OldMask) {
+    auto OldMask = CGF.getSierraMask();
+    if (not OldMask) {
       /* Create a mask with all-true current and all-false continue. */
       unsigned NumElems = E->getType()->getSierraVectorLength();
-      OldMask = SierraMask::Create(Builder.getContext(), NumElems);
+      OldMask = SierraMask(Builder.getContext(), NumElems);
       CGF.setSierraMask(OldMask);
     }
 
@@ -3477,7 +3477,7 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
     CGF.EmitBlock(EndBlock);
     Builder.Insert(EndPhi);
 
-    CGF.setSierraMask(OldMask);
+    CGF.setSierraMask(OldMask); // TODO: resetToScalar ?
     return EndPhi;
   }
 
