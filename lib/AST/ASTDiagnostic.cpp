@@ -549,6 +549,45 @@ class TemplateDiff {
       unsigned ParentNode = 0;
 
       TemplateArgumentInfo FromArgInfo, ToArgInfo;
+||||||| merged common ancestors
+      unsigned ParentNode;
+
+      /// FromType, ToType - The type arguments.
+      QualType FromType, ToType;
+
+      /// FromExpr, ToExpr - The expression arguments.
+      Expr *FromExpr, *ToExpr;
+
+      /// FromNullPtr, ToNullPtr - If the template argument is a nullptr
+      bool FromNullPtr, ToNullPtr;
+
+      /// FromTD, ToTD - The template decl for template template
+      /// arguments or the type arguments that are templates.
+      TemplateDecl *FromTD, *ToTD;
+
+      /// FromQual, ToQual - Qualifiers for template types.
+      Qualifiers FromQual, ToQual;
+
+      /// FromInt, ToInt - APSInt's for integral arguments.
+      llvm::APSInt FromInt, ToInt;
+
+      /// IsValidFromInt, IsValidToInt - Whether the APSInt's are valid.
+      bool IsValidFromInt, IsValidToInt;
+
+      /// FromValueDecl, ToValueDecl - Whether the argument is a decl.
+      ValueDecl *FromValueDecl, *ToValueDecl;
+
+      /// FromAddressOf, ToAddressOf - Whether the ValueDecl needs an address of
+      /// operator before it.
+      bool FromAddressOf, ToAddressOf;
+
+      /// FromDefault, ToDefault - Whether the argument is a default argument.
+      bool FromDefault, ToDefault;
+=======
+      unsigned ParentNode = 0;
+
+      TemplateArgumentInfo FromArgInfo, ToArgInfo;
+>>>>>>> Merging r257831, r257838, r257853, r257861, r257869, r257870, r257871.
 
       /// Same - Whether the two arguments evaluate to the same value.
       bool Same = false;
@@ -1670,7 +1709,7 @@ class TemplateDiff {
     assert((FromExpr || ToExpr) &&
             "Only one template argument may be missing.");
     if (Same) {
-      PrintExpr(FromExpr, FromNullPtr);
+      PrintExpr(FromExpr);
     } else if (!PrintTree) {
       OS << (FromDefault ? "(default) " : "");
       Bold();
@@ -1870,6 +1909,13 @@ class TemplateDiff {
       Bold();
       PrintValueDecl(ToValueDecl, ToAddressOf, ToExpr, ToNullPtr);
       Unbold();
+    } else {
+      OS << (DefaultDecl ? "[(default) " : "[");
+      Bold();
+      PrintValueDecl(VD, NeedAddressOf, VDExpr, IsNullPtr);
+      Unbold();
+      OS << " != " << (DefaultInt ? "(default) " : "");
+      PrintAPSInt(Val, IntExpr, true /*Valid*/, IntType, false /*PrintType*/);
       OS << ']';
     }
   }
