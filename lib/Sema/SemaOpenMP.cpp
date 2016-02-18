@@ -3281,6 +3281,14 @@ Expr *OpenMPIterationSpaceChecker::BuildNumIterations(
   auto NewStep = tryBuildCapture(SemaRef, Step, Captures);
   if (!NewStep.isUsable())
     return nullptr;
+  if (!SemaRef.Context.hasSameType(NewStep.get()->getType(),
+                                   StepNoImp->getType())) {
+    NewStep = SemaRef.PerformImplicitConversion(
+        NewStep.get(), StepNoImp->getType(), Sema::AA_Converting,
+        /*AllowExplicit=*/true);
+    if (NewStep.isInvalid())
+      return nullptr;
+  }
   Diff = SemaRef.BuildBinOp(S, DefaultLoc, BO_Add, Diff.get(), NewStep.get());
   if (!Diff.isUsable())
     return nullptr;
@@ -3650,6 +3658,14 @@ BuildCounterUpdate(Sema &SemaRef, Scope *S, SourceLocation Loc,
     NewStep = tryBuildCapture(SemaRef, Step.get(), *Captures);
   if (NewStep.isInvalid())
     return ExprError();
+  if (!SemaRef.Context.hasSameType(NewStep.get()->getType(),
+                                   StepNoImp->getType())) {
+    NewStep = SemaRef.PerformImplicitConversion(
+        NewStep.get(), StepNoImp->getType(), Sema::AA_Converting,
+        /*AllowExplicit=*/true);
+    if (NewStep.isInvalid())
+      return ExprError();
+  }
   ExprResult Update =
       SemaRef.BuildBinOp(S, Loc, BO_Mul, Iter.get(), NewStep.get());
   if (!Update.isUsable())
