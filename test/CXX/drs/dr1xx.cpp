@@ -1,10 +1,11 @@
 // RUN: %clang_cc1 -std=c++98 -triple x86_64-unknown-unknown %s -verify -fexceptions -fcxx-exceptions -pedantic-errors
 // RUN: %clang_cc1 -std=c++11 -triple x86_64-unknown-unknown %s -verify -fexceptions -fcxx-exceptions -pedantic-errors
-// RUN: %clang_cc1 -std=c++1y -triple x86_64-unknown-unknown %s -verify -fexceptions -fcxx-exceptions -pedantic-errors
+// RUN: %clang_cc1 -std=c++14 -triple x86_64-unknown-unknown %s -verify -fexceptions -fcxx-exceptions -pedantic-errors
+// RUN: %clang_cc1 -std=c++1z -triple x86_64-unknown-unknown %s -verify -fexceptions -fcxx-exceptions -pedantic-errors
 
 namespace dr100 { // dr100: yes
-  template<const char *> struct A {}; // expected-note {{declared here}}
-  template<const char (&)[4]> struct B {}; // expected-note {{declared here}}
+  template<const char *> struct A {}; // expected-note 0-1{{declared here}}
+  template<const char (&)[4]> struct B {}; // expected-note 0-1{{declared here}}
   A<"foo"> a; // expected-error {{does not refer to any declaration}}
   B<"bar"> b; // expected-error {{does not refer to any declaration}}
 }
@@ -233,7 +234,7 @@ namespace dr125 {
     friend dr125_A::dr125_B (::dr125_C)(); // ok
     friend dr125_A (::dr125_B::dr125_C)(); // ok
     friend dr125_A::dr125_B::dr125_C(); // expected-error {{did you mean the constructor name 'dr125_B'?}}
-    // expected-warning@-1 {{missing exception specification}}
+    // expected-error@-1 {{missing exception specification}}
 #if __cplusplus >= 201103L
     // expected-error@-3 {{follows constexpr declaration}} expected-note@-10 {{here}}
 #endif
@@ -523,8 +524,13 @@ namespace dr143 { // dr143: yes
 
 namespace dr145 { // dr145: yes
   void f(bool b) {
+#if __cplusplus <= 201402L
     ++b; // expected-warning {{deprecated}}
     b++; // expected-warning {{deprecated}}
+#else
+    ++b; // expected-error {{increment}}
+    b++; // expected-error {{increment}}
+#endif
   }
 }
 
@@ -942,10 +948,10 @@ namespace dr188 { // dr188: yes
 namespace dr194 { // dr194: yes
   struct A {
     A();
-    void A(); // expected-error {{has the same name as its class}} expected-error {{constructor cannot have a return type}}
+    void A(); // expected-error {{constructor cannot have a return type}}
   };
   struct B {
-    void B(); // expected-error {{has the same name as its class}} expected-error {{constructor cannot have a return type}}
+    void B(); // expected-error {{constructor cannot have a return type}}
     B();
   };
   struct C {

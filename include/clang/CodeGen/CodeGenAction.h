@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_CODEGEN_CODE_GEN_ACTION_H
-#define LLVM_CLANG_CODEGEN_CODE_GEN_ACTION_H
+#ifndef LLVM_CLANG_CODEGEN_CODEGENACTION_H
+#define LLVM_CLANG_CODEGEN_CODEGENACTION_H
 
 #include "clang/Frontend/FrontendAction.h"
 #include <memory>
@@ -25,7 +25,9 @@ class CodeGenAction : public ASTFrontendAction {
 private:
   unsigned Act;
   std::unique_ptr<llvm::Module> TheModule;
-  llvm::Module *LinkModule;
+  // Vector of {Linker::Flags, Module*} pairs to specify bitcode
+  // modules to link in using corresponding linker flags.
+  SmallVector<std::pair<unsigned, llvm::Module *>, 4> LinkModules;
   llvm::LLVMContext *VMContext;
   bool OwnsVMContext;
 
@@ -37,24 +39,26 @@ protected:
 
   bool hasIRSupport() const override;
 
-  ASTConsumer *CreateASTConsumer(CompilerInstance &CI,
-                                 StringRef InFile) override;
+  std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
+                                                 StringRef InFile) override;
 
   void ExecuteAction() override;
 
   void EndSourceFileAction() override;
 
 public:
-  ~CodeGenAction();
+  ~CodeGenAction() override;
 
   /// setLinkModule - Set the link module to be used by this action.  If a link
   /// module is not provided, and CodeGenOptions::LinkBitcodeFile is non-empty,
   /// the action will load it from the specified file.
-  void setLinkModule(llvm::Module *Mod) { LinkModule = Mod; }
+  void addLinkModule(llvm::Module *Mod, unsigned LinkFlags) {
+    LinkModules.push_back(std::make_pair(LinkFlags, Mod));
+  }
 
-  /// takeModule - Take the generated LLVM module, for use after the action has
-  /// been run. The result may be null on failure.
-  llvm::Module *takeModule();
+  /// Take the generated LLVM module, for use after the action has been run.
+  /// The result may be null on failure.
+  std::unique_ptr<llvm::Module> takeModule();
 
   /// Take the LLVM context used by this action.
   llvm::LLVMContext *takeLLVMContext();

@@ -1,6 +1,8 @@
+import ctypes
 import gc
 
 from clang.cindex import CursorKind
+from clang.cindex import TemplateArgumentKind
 from clang.cindex import TranslationUnit
 from clang.cindex import TypeKind
 from .util import get_cursor
@@ -95,6 +97,36 @@ def test_canonical():
     assert len(cursors) == 3
     assert cursors[1].canonical == cursors[2].canonical
 
+def test_is_const_method():
+    """Ensure Cursor.is_const_method works."""
+    source = 'class X { void foo() const; void bar(); };'
+    tu = get_tu(source, lang='cpp')
+
+    cls = get_cursor(tu, 'X')
+    foo = get_cursor(tu, 'foo')
+    bar = get_cursor(tu, 'bar')
+    assert cls is not None
+    assert foo is not None
+    assert bar is not None
+
+    assert foo.is_const_method()
+    assert not bar.is_const_method()
+
+def test_is_mutable_field():
+    """Ensure Cursor.is_mutable_field works."""
+    source = 'class X { int x_; mutable int y_; };'
+    tu = get_tu(source, lang='cpp')
+
+    cls = get_cursor(tu, 'X')
+    x_ = get_cursor(tu, 'x_')
+    y_ = get_cursor(tu, 'y_')
+    assert cls is not None
+    assert x_ is not None
+    assert y_ is not None
+
+    assert not x_.is_mutable_field()
+    assert y_.is_mutable_field()
+
 def test_is_static_method():
     """Ensure Cursor.is_static_method works."""
 
@@ -110,6 +142,36 @@ def test_is_static_method():
 
     assert foo.is_static_method()
     assert not bar.is_static_method()
+
+def test_is_pure_virtual_method():
+    """Ensure Cursor.is_pure_virtual_method works."""
+    source = 'class X { virtual void foo() = 0; virtual void bar(); };'
+    tu = get_tu(source, lang='cpp')
+
+    cls = get_cursor(tu, 'X')
+    foo = get_cursor(tu, 'foo')
+    bar = get_cursor(tu, 'bar')
+    assert cls is not None
+    assert foo is not None
+    assert bar is not None
+
+    assert foo.is_pure_virtual_method()
+    assert not bar.is_pure_virtual_method()
+
+def test_is_virtual_method():
+    """Ensure Cursor.is_virtual_method works."""
+    source = 'class X { virtual void foo(); void bar(); };'
+    tu = get_tu(source, lang='cpp')
+
+    cls = get_cursor(tu, 'X')
+    foo = get_cursor(tu, 'foo')
+    bar = get_cursor(tu, 'bar')
+    assert cls is not None
+    assert foo is not None
+    assert bar is not None
+
+    assert foo.is_virtual_method()
+    assert not bar.is_virtual_method()
 
 def test_underlying_type():
     tu = get_tu('typedef int foo;')
@@ -244,6 +306,48 @@ def test_get_arguments():
     assert arguments[0].spelling == "i"
     assert arguments[1].spelling == "j"
 
+kTemplateArgTest = """\
+        template <int kInt, typename T, bool kBool>
+        void foo();
+
+        template<>
+        void foo<-7, float, true>();
+    """
+
+def test_get_num_template_arguments():
+    tu = get_tu(kTemplateArgTest, lang='cpp')
+    foos = get_cursors(tu, 'foo')
+
+    assert foos[1].get_num_template_arguments() == 3
+
+def test_get_template_argument_kind():
+    tu = get_tu(kTemplateArgTest, lang='cpp')
+    foos = get_cursors(tu, 'foo')
+
+    assert foos[1].get_template_argument_kind(0) == TemplateArgumentKind.INTEGRAL
+    assert foos[1].get_template_argument_kind(1) == TemplateArgumentKind.TYPE
+    assert foos[1].get_template_argument_kind(2) == TemplateArgumentKind.INTEGRAL
+
+def test_get_template_argument_type():
+    tu = get_tu(kTemplateArgTest, lang='cpp')
+    foos = get_cursors(tu, 'foo')
+
+    assert foos[1].get_template_argument_type(1).kind == TypeKind.FLOAT
+
+def test_get_template_argument_value():
+    tu = get_tu(kTemplateArgTest, lang='cpp')
+    foos = get_cursors(tu, 'foo')
+
+    assert foos[1].get_template_argument_value(0) == -7
+    assert foos[1].get_template_argument_value(2) == True
+
+def test_get_template_argument_unsigned_value():
+    tu = get_tu(kTemplateArgTest, lang='cpp')
+    foos = get_cursors(tu, 'foo')
+
+    assert foos[1].get_template_argument_unsigned_value(0) == 2 ** 32 - 7
+    assert foos[1].get_template_argument_unsigned_value(2) == True
+
 def test_referenced():
     tu = get_tu('void foo(); void bar() { foo(); }')
     foo = get_cursor(tu, 'foo')
@@ -252,3 +356,17 @@ def test_referenced():
         if c.kind == CursorKind.CALL_EXPR:
             assert c.referenced.spelling == foo.spelling
             break
+
+def test_mangled_name():
+    kInputForMangling = """\
+    int foo(int, int);
+    """
+    tu = get_tu(kInputForMangling, lang='cpp')
+    foo = get_cursor(tu, 'foo')
+
+    # Since libclang does not link in targets, we cannot pass a triple to it
+    # and force the target. To enable this test to pass on all platforms, accept
+    # all valid manglings.
+    # [c-index-test handles this by running the source through clang, emitting
+    #  an AST file and running libclang on that AST file]
+    assert foo.mangled_name in ('_Z3fooii', '__Z3fooii', '?foo@@YAHHH')

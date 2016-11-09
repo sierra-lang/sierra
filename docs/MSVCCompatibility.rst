@@ -72,22 +72,35 @@ The status of major ABI-impacting C++ features:
 .. _/vm: http://msdn.microsoft.com/en-us/library/yad46a6z.aspx
 .. _pointer to a member of a virtual base class: http://llvm.org/PR15713
 
-* Debug info: :partial:`Minimal`.  Clang emits CodeView line tables into the
-  object file, similar to what MSVC emits when given the ``/Z7`` flag.
-  Microsoft's link.exe will read this information and use it to create a PDB,
+* Debug info: :partial:`Minimal`.  Clang emits both CodeView line tables
+  (similar to what MSVC emits when given the ``/Z7`` flag) and DWARF debug
+  information into the object file.
+  Microsoft's link.exe will transform the CodeView line tables into a PDB,
   enabling stack traces in all modern Windows debuggers.  Clang does not emit
-  any type info or description of variable layout.
+  any CodeView-compatible type info or description of variable layout.
+  Binaries linked with either binutils' ld or LLVM's lld should be usable with
+  GDB however sophisticated C++ expressions are likely to fail.
 
 * RTTI: :good:`Complete`.  Generation of RTTI data structures has been
   finished, along with support for the ``/GR`` flag.
 
-* Exceptions and SEH: :none:`Unstarted`.  Clang can parse both constructs, but
-  does not know how to emit compatible handlers.
+* Exceptions and SEH: :partial:`Partial`.
+  C++ exceptions (``try`` / ``catch`` / ``throw``) and
+  structured exceptions (``__try`` / ``__except`` / ``__finally``) mostly
+  work on x64. 32-bit exception handling support is being worked on.  LLVM does
+  not model asynchronous exceptions, so it is currently impossible to catch an
+  asynchronous exception generated in the same frame as the catching ``__try``.
+  C++ exception specifications are ignored, but this is `consistent with Visual
+  C++`_.
 
-* Thread-safe initialization of local statics: :none:`Unstarted`.  We are ABI
-  compatible with MSVC 2013, which does not support thread-safe local statics.
-  MSVC "14" changed the ABI to make initialization of local statics thread safe,
-  and we have not yet implemented this.
+.. _consistent with Visual C++:
+  https://msdn.microsoft.com/en-us/library/wfa0edys.aspx
+
+* Thread-safe initialization of local statics: :good:`Complete`.  MSVC 2015
+  added support for thread-safe initialization of such variables by taking an
+  ABI break.
+  We are ABI compatible with both the MSVC 2013 and 2015 ABI for static local
+  variables.
 
 * Lambdas: :good:`Mostly complete`.  Clang is compatible with Microsoft's
   implementation of lambdas except for providing overloads for conversion to
@@ -108,7 +121,7 @@ time.  By default on Windows, Clang attempts to follow suit.  This behavior is
 controlled by the ``-fdelayed-template-parsing`` flag.  While Clang delays
 parsing of method bodies, it still parses the bodies *before* template argument
 substitution, which is not what MSVC does.  The following compatibility tweaks
-are necessary to parse the the template in those cases.
+are necessary to parse the template in those cases.
 
 MSVC allows some name lookup into dependent base classes.  Even on other
 platforms, this has been a `frequently asked question`_ for Clang users.  A

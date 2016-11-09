@@ -16,6 +16,7 @@
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/OperatorKinds.h"
+#include "clang/Basic/Specifiers.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/SmallString.h"
@@ -35,7 +36,7 @@ IdentifierInfo::IdentifierInfo() {
   HasMacro = false;
   HadMacro = false;
   IsExtension = false;
-  IsCXX11CompatKeyword = false;
+  IsFutureCompatKeyword = false;
   IsPoisoned = false;
   IsCPPOperatorKeyword = false;
   NeedsHandleIdentifier = false;
@@ -70,8 +71,6 @@ IdentifierIterator *IdentifierInfoLookup::getIdentifiers() {
   return new EmptyLookupIterator();
 }
 
-ExternalIdentifierLookup::~ExternalIdentifierLookup() {}
-
 IdentifierTable::IdentifierTable(const LangOptions &LangOpts,
                                  IdentifierInfoLookup* externalLookup)
   : HashTable(8192), // Start with space for 8K identifiers.
@@ -80,7 +79,7 @@ IdentifierTable::IdentifierTable(const LangOptions &LangOpts,
   // Populate the identifier table with info about keywords for the current
   // language.
   AddKeywords(LangOpts);
-      
+
 
   // Add the '_experimental_modules_import' contextual keyword.
   get("import").setModulesImport(true);
@@ -105,56 +104,81 @@ namespace {
     KEYOPENCL = 0x200,
     KEYC11 = 0x400,
     KEYARC = 0x800,
-    KEYNOMS = 0x01000,
-    WCHARSUPPORT = 0x02000,
-    HALFSUPPORT = 0x04000,
-    KEYSIERRA = 0x8000,
-    KEYALL = (0xffff & ~KEYNOMS) // Because KEYNOMS is used to exclude.
+    KEYNOMS18 = 0x01000,
+    KEYNOOPENCL = 0x02000,
+    WCHARSUPPORT = 0x04000,
+    HALFSUPPORT = 0x08000,
+    KEYCONCEPTS = 0x10000,
+    KEYOBJC2    = 0x20000,
+    KEYZVECTOR  = 0x40000,
+    KEYCOROUTINES = 0x80000,
+    KEYSIERRA = 0x100000,
+    KEYALL = (0xffffff & ~KEYNOMS18 &
+              ~KEYNOOPENCL) // KEYNOMS18 and KEYNOOPENCL are used to exclude.
   };
+
+  /// \brief How a keyword is treated in the selected standard.
+  enum KeywordStatus {
+    KS_Disabled,    // Disabled
+    KS_Extension,   // Is an extension
+    KS_Enabled,     // Enabled
+    KS_Future       // Is a keyword in future standard
+  };
+}
+
+/// \brief Translates flags as specified in TokenKinds.def into keyword status
+/// in the given language standard.
+static KeywordStatus getKeywordStatus(const LangOptions &LangOpts,
+                                      unsigned Flags) {
+  if (Flags == KEYALL) return KS_Enabled;
+  if (LangOpts.CPlusPlus && (Flags & KEYCXX)) return KS_Enabled;
+  if (LangOpts.CPlusPlus11 && (Flags & KEYCXX11)) return KS_Enabled;
+  if (LangOpts.C99 && (Flags & KEYC99)) return KS_Enabled;
+  if (LangOpts.GNUKeywords && (Flags & KEYGNU)) return KS_Extension;
+  if (LangOpts.MicrosoftExt && (Flags & KEYMS)) return KS_Extension;
+  if (LangOpts.Borland && (Flags & KEYBORLAND)) return KS_Extension;
+  if (LangOpts.Bool && (Flags & BOOLSUPPORT)) return KS_Enabled;
+  if (LangOpts.Half && (Flags & HALFSUPPORT)) return KS_Enabled;
+  if (LangOpts.WChar && (Flags & WCHARSUPPORT)) return KS_Enabled;
+  if (LangOpts.AltiVec && (Flags & KEYALTIVEC)) return KS_Enabled;
+  if (LangOpts.OpenCL && (Flags & KEYOPENCL)) return KS_Enabled;
+  if (!LangOpts.CPlusPlus && (Flags & KEYNOCXX)) return KS_Enabled;
+  if (LangOpts.C11 && (Flags & KEYC11)) return KS_Enabled;
+  // We treat bridge casts as objective-C keywords so we can warn on them
+  // in non-arc mode.
+  if (LangOpts.ObjC2 && (Flags & KEYARC)) return KS_Enabled;
+  if (LangOpts.ConceptsTS && (Flags & KEYCONCEPTS)) return KS_Enabled;
+  if (LangOpts.ObjC2 && (Flags & KEYOBJC2)) return KS_Enabled;
+  if (LangOpts.Coroutines && (Flags & KEYCOROUTINES)) return KS_Enabled;
+  if (LangOpts.CPlusPlus && (Flags & KEYCXX11)) return KS_Future;
+  if (LangOpts.Sierra && (Flags & KEYSIERRA)) return KS_Enabled;
+  return KS_Disabled;
 }
 
 /// AddKeyword - This method is used to associate a token ID with specific
 /// identifiers because they are language keywords.  This causes the lexer to
 /// automatically map matching identifiers to specialized token codes.
-///
-/// The C90/C99/CPP/CPP0x flags are set to 3 if the token is a keyword in a
-/// future language standard, set to 2 if the token should be enabled in the
-/// specified language, set to 1 if it is an extension in the specified
-/// language, and set to 0 if disabled in the specified language.
 static void AddKeyword(StringRef Keyword,
                        tok::TokenKind TokenCode, unsigned Flags,
                        const LangOptions &LangOpts, IdentifierTable &Table) {
-  unsigned AddResult = 0;
-  if (Flags == KEYALL) AddResult = 2;
-  else if (LangOpts.CPlusPlus && (Flags & KEYCXX)) AddResult = 2;
-  else if (LangOpts.CPlusPlus11 && (Flags & KEYCXX11)) AddResult = 2;
-  else if (LangOpts.C99 && (Flags & KEYC99)) AddResult = 2;
-  else if (LangOpts.GNUKeywords && (Flags & KEYGNU)) AddResult = 1;
-  else if (LangOpts.MicrosoftExt && (Flags & KEYMS)) AddResult = 1;
-  else if (LangOpts.Borland && (Flags & KEYBORLAND)) AddResult = 1;
-  else if (LangOpts.Sierra && (Flags & KEYSIERRA)) AddResult = 1;
-  else if (LangOpts.Bool && (Flags & BOOLSUPPORT)) AddResult = 2;
-  else if (LangOpts.Half && (Flags & HALFSUPPORT)) AddResult = 2;
-  else if (LangOpts.WChar && (Flags & WCHARSUPPORT)) AddResult = 2;
-  else if (LangOpts.AltiVec && (Flags & KEYALTIVEC)) AddResult = 2;
-  else if (LangOpts.OpenCL && (Flags & KEYOPENCL)) AddResult = 2;
-  else if (!LangOpts.CPlusPlus && (Flags & KEYNOCXX)) AddResult = 2;
-  else if (LangOpts.C11 && (Flags & KEYC11)) AddResult = 2;
-  // We treat bridge casts as objective-C keywords so we can warn on them
-  // in non-arc mode.
-  else if (LangOpts.ObjC2 && (Flags & KEYARC)) AddResult = 2;
-  else if (LangOpts.CPlusPlus && (Flags & KEYCXX11)) AddResult = 3;
+  KeywordStatus AddResult = getKeywordStatus(LangOpts, Flags);
 
   // Don't add this keyword under MSVCCompat.
-  if (LangOpts.MSVCCompat && (Flags & KEYNOMS))
-     return;
+  if (LangOpts.MSVCCompat && (Flags & KEYNOMS18) &&
+      !LangOpts.isCompatibleWithMSVC(LangOptions::MSVC2015))
+    return;
+
+  // Don't add this keyword under OpenCL.
+  if (LangOpts.OpenCL && (Flags & KEYNOOPENCL))
+    return;
+
   // Don't add this keyword if disabled in this language.
-  if (AddResult == 0) return;
+  if (AddResult == KS_Disabled) return;
 
   IdentifierInfo &Info =
-      Table.get(Keyword, AddResult == 3 ? tok::identifier : TokenCode);
-  Info.setIsExtensionToken(AddResult == 1);
-  Info.setIsCXX11CompatKeyword(AddResult == 3);
+      Table.get(Keyword, AddResult == KS_Future ? tok::identifier : TokenCode);
+  Info.setIsExtensionToken(AddResult == KS_Extension);
+  Info.setIsFutureCompatKeyword(AddResult == KS_Future);
 }
 
 /// AddCXXOperatorKeyword - Register a C++ operator keyword alternative
@@ -199,6 +223,34 @@ void IdentifierTable::AddKeywords(const LangOptions &LangOpts) {
   if (LangOpts.ParseUnknownAnytype)
     AddKeyword("__unknown_anytype", tok::kw___unknown_anytype, KEYALL,
                LangOpts, *this);
+
+  if (LangOpts.DeclSpecKeyword)
+    AddKeyword("__declspec", tok::kw___declspec, KEYALL, LangOpts, *this);
+}
+
+/// \brief Checks if the specified token kind represents a keyword in the
+/// specified language.
+/// \returns Status of the keyword in the language.
+static KeywordStatus getTokenKwStatus(const LangOptions &LangOpts,
+                                      tok::TokenKind K) {
+  switch (K) {
+#define KEYWORD(NAME, FLAGS) \
+  case tok::kw_##NAME: return getKeywordStatus(LangOpts, FLAGS);
+#include "clang/Basic/TokenKinds.def"
+  default: return KS_Disabled;
+  }
+}
+
+/// \brief Returns true if the identifier represents a keyword in the
+/// specified language.
+bool IdentifierInfo::isKeyword(const LangOptions &LangOpts) {
+  switch (getTokenKwStatus(LangOpts, getTokenID())) {
+  case KS_Enabled:
+  case KS_Extension:
+    return true;
+  default:
+    return false;
+  }
 }
 
 tok::PPKeywordKind IdentifierInfo::getPPKeywordID() const {
@@ -234,7 +286,7 @@ tok::PPKeywordKind IdentifierInfo::getPPKeywordID() const {
   CASE( 6, 'i', 'n', ifndef);
   CASE( 6, 'i', 'p', import);
   CASE( 6, 'p', 'a', pragma);
-      
+
   CASE( 7, 'd', 'f', defined);
   CASE( 7, 'i', 'c', include);
   CASE( 7, 'w', 'r', warning);
@@ -243,7 +295,7 @@ tok::PPKeywordKind IdentifierInfo::getPPKeywordID() const {
   CASE(12, 'i', 'c', include_next);
 
   CASE(14, '_', 'p', __public_macro);
-      
+
   CASE(15, '_', 'p', __private_macro);
 
   CASE(16, '_', 'i', __include_macros);
@@ -430,8 +482,9 @@ ObjCMethodFamily Selector::getMethodFamilyImpl(Selector sel) {
     if (name == "retain") return OMF_retain;
     if (name == "retainCount") return OMF_retainCount;
     if (name == "self") return OMF_self;
+    if (name == "initialize") return OMF_initialize;
   }
- 
+
   if (name == "performSelector") return OMF_performSelector;
 
   // The other method families may begin with a prefix of underscores.
@@ -465,9 +518,9 @@ ObjCMethodFamily Selector::getMethodFamilyImpl(Selector sel) {
 ObjCInstanceTypeFamily Selector::getInstTypeMethodFamily(Selector sel) {
   IdentifierInfo *first = sel.getIdentifierInfoForSlot(0);
   if (!first) return OIT_None;
-  
+
   StringRef name = first->getName();
-  
+
   if (name.empty()) return OIT_None;
   switch (name.front()) {
     case 'a':
@@ -486,6 +539,33 @@ ObjCInstanceTypeFamily Selector::getInstTypeMethodFamily(Selector sel) {
       break;
   }
   return OIT_None;
+}
+
+ObjCStringFormatFamily Selector::getStringFormatFamilyImpl(Selector sel) {
+  IdentifierInfo *first = sel.getIdentifierInfoForSlot(0);
+  if (!first) return SFF_None;
+
+  StringRef name = first->getName();
+
+  switch (name.front()) {
+    case 'a':
+      if (name == "appendFormat") return SFF_NSString;
+      break;
+
+    case 'i':
+      if (name == "initWithFormat") return SFF_NSString;
+      break;
+
+    case 'l':
+      if (name == "localizedStringWithFormat") return SFF_NSString;
+      break;
+
+    case 's':
+      if (name == "stringByAppendingFormat" ||
+          name == "stringWithFormat") return SFF_NSString;
+      break;
+  }
+  return SFF_None;
 }
 
 namespace {
@@ -567,4 +647,19 @@ const char *clang::getOperatorSpelling(OverloadedOperatorKind Operator) {
   }
 
   llvm_unreachable("Invalid OverloadedOperatorKind!");
+}
+
+StringRef clang::getNullabilitySpelling(NullabilityKind kind,
+                                        bool isContextSensitive) {
+  switch (kind) {
+  case NullabilityKind::NonNull:
+    return isContextSensitive ? "nonnull" : "_Nonnull";
+
+  case NullabilityKind::Nullable:
+    return isContextSensitive ? "nullable" : "_Nullable";
+
+  case NullabilityKind::Unspecified:
+    return isContextSensitive ? "null_unspecified" : "_Null_unspecified";
+  }
+  llvm_unreachable("Unknown nullability kind.");
 }

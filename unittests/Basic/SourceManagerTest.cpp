@@ -61,21 +61,20 @@ class VoidModuleLoader : public ModuleLoader {
 
   void makeModuleVisible(Module *Mod,
                          Module::NameVisibilityKind Visibility,
-                         SourceLocation ImportLoc,
-                         bool Complain) override { }
+                         SourceLocation ImportLoc) override { }
 
   GlobalModuleIndex *loadGlobalModuleIndex(SourceLocation TriggerLoc) override
     { return nullptr; }
   bool lookupMissingImports(StringRef Name, SourceLocation TriggerLoc) override
-    { return 0; };
+    { return 0; }
 };
 
 TEST_F(SourceManagerTest, isBeforeInTranslationUnit) {
   const char *source =
     "#define M(x) [x]\n"
     "M(foo)";
-  MemoryBuffer *buf = MemoryBuffer::getMemBuffer(source);
-  FileID mainFileID = SourceMgr.createFileID(buf);
+  std::unique_ptr<MemoryBuffer> Buf = MemoryBuffer::getMemBuffer(source);
+  FileID mainFileID = SourceMgr.createFileID(std::move(Buf));
   SourceMgr.setMainFileID(mainFileID);
 
   VoidModuleLoader ModLoader;
@@ -127,8 +126,8 @@ TEST_F(SourceManagerTest, getColumnNumber) {
     "int x;\n"
     "int y;";
 
-  MemoryBuffer *Buf = MemoryBuffer::getMemBuffer(Source);
-  FileID MainFileID = SourceMgr.createFileID(Buf);
+  std::unique_ptr<MemoryBuffer> Buf = MemoryBuffer::getMemBuffer(Source);
+  FileID MainFileID = SourceMgr.createFileID(std::move(Buf));
   SourceMgr.setMainFileID(MainFileID);
 
   bool Invalid;
@@ -186,14 +185,14 @@ TEST_F(SourceManagerTest, getMacroArgExpandedLocation) {
     "#define CONCAT(X, Y) X##Y\n"
     "CONCAT(1,1)\n";
 
-  MemoryBuffer *headerBuf = MemoryBuffer::getMemBuffer(header);
-  MemoryBuffer *mainBuf = MemoryBuffer::getMemBuffer(main);
-  FileID mainFileID = SourceMgr.createFileID(mainBuf);
+  std::unique_ptr<MemoryBuffer> HeaderBuf = MemoryBuffer::getMemBuffer(header);
+  std::unique_ptr<MemoryBuffer> MainBuf = MemoryBuffer::getMemBuffer(main);
+  FileID mainFileID = SourceMgr.createFileID(std::move(MainBuf));
   SourceMgr.setMainFileID(mainFileID);
 
   const FileEntry *headerFile = FileMgr.getVirtualFile("/test-header.h",
-                                                 headerBuf->getBufferSize(), 0);
-  SourceMgr.overrideFileContents(headerFile, headerBuf);
+                                                 HeaderBuf->getBufferSize(), 0);
+  SourceMgr.overrideFileContents(headerFile, std::move(HeaderBuf));
 
   VoidModuleLoader ModLoader;
   HeaderSearch HeaderInfo(new HeaderSearchOptions, SourceMgr, Diags, LangOpts, 
@@ -257,15 +256,15 @@ class MacroTracker : public PPCallbacks {
 
 public:
   explicit MacroTracker(std::vector<MacroAction> &Macros) : Macros(Macros) { }
-  
-  virtual void MacroDefined(const Token &MacroNameTok,
-                            const MacroDirective *MD) {
+
+  void MacroDefined(const Token &MacroNameTok,
+                    const MacroDirective *MD) override {
     Macros.push_back(MacroAction(MD->getLocation(),
                                  MacroNameTok.getIdentifierInfo()->getName(),
                                  true));
   }
-  virtual void MacroExpands(const Token &MacroNameTok, const MacroDirective *MD,
-                            SourceRange Range, const MacroArgs *Args) {
+  void MacroExpands(const Token &MacroNameTok, const MacroDefinition &MD,
+                    SourceRange Range, const MacroArgs *Args) override {
     Macros.push_back(MacroAction(MacroNameTok.getLocation(),
                                  MacroNameTok.getIdentifierInfo()->getName(),
                                  false));
@@ -285,13 +284,13 @@ TEST_F(SourceManagerTest, isBeforeInTranslationUnitWithMacroInInclude) {
     "#define INC2 </test-header.h>\n"
     "#include M(INC2)\n";
 
-  MemoryBuffer *headerBuf = MemoryBuffer::getMemBuffer(header);
-  MemoryBuffer *mainBuf = MemoryBuffer::getMemBuffer(main);
-  SourceMgr.setMainFileID(SourceMgr.createFileID(mainBuf));
+  std::unique_ptr<MemoryBuffer> HeaderBuf = MemoryBuffer::getMemBuffer(header);
+  std::unique_ptr<MemoryBuffer> MainBuf = MemoryBuffer::getMemBuffer(main);
+  SourceMgr.setMainFileID(SourceMgr.createFileID(std::move(MainBuf)));
 
   const FileEntry *headerFile = FileMgr.getVirtualFile("/test-header.h",
-                                                 headerBuf->getBufferSize(), 0);
-  SourceMgr.overrideFileContents(headerFile, headerBuf);
+                                                 HeaderBuf->getBufferSize(), 0);
+  SourceMgr.overrideFileContents(headerFile, std::move(HeaderBuf));
 
   VoidModuleLoader ModLoader;
   HeaderSearch HeaderInfo(new HeaderSearchOptions, SourceMgr, Diags, LangOpts, 
@@ -303,7 +302,7 @@ TEST_F(SourceManagerTest, isBeforeInTranslationUnitWithMacroInInclude) {
   PP.Initialize(*Target);
 
   std::vector<MacroAction> Macros;
-  PP.addPPCallbacks(new MacroTracker(Macros));
+  PP.addPPCallbacks(llvm::make_unique<MacroTracker>(Macros));
 
   PP.EnterMainSourceFile();
 

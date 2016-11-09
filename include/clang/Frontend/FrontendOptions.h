@@ -11,6 +11,7 @@
 #define LLVM_CLANG_FRONTEND_FRONTENDOPTIONS_H
 
 #include "clang/Frontend/CommandLineSourceLoc.h"
+#include "clang/Serialization/ModuleFileExtension.h"
 #include "clang/Sema/CodeCompleteOptions.h"
 #include "llvm/ADT/StringRef.h"
 #include <string>
@@ -71,6 +72,7 @@ enum InputKind {
   IK_PreprocessedObjCXX,
   IK_OpenCL,
   IK_CUDA,
+  IK_PreprocessedCuda,
   IK_AST,
   IK_LLVM_IR
 };
@@ -90,7 +92,7 @@ class FrontendInputFile {
   bool IsSystem;
 
 public:
-  FrontendInputFile() : Buffer(nullptr), Kind(IK_None) { }
+  FrontendInputFile() : Buffer(nullptr), Kind(IK_None), IsSystem(false) { }
   FrontendInputFile(StringRef File, InputKind Kind, bool IsSystem = false)
     : File(File.str()), Buffer(nullptr), Kind(Kind), IsSystem(IsSystem) { }
   FrontendInputFile(llvm::MemoryBuffer *buffer, InputKind Kind,
@@ -142,8 +144,14 @@ public:
                                            ///< global module index if available.
   unsigned GenerateGlobalModuleIndex : 1;  ///< Whether we can generate the
                                            ///< global module index if needed.
+  unsigned ASTDumpDecls : 1;               ///< Whether we include declaration
+                                           ///< dumps in AST dumps.
   unsigned ASTDumpLookups : 1;             ///< Whether we include lookup table
                                            ///< dumps in AST dumps.
+  unsigned BuildingImplicitModule : 1;     ///< Whether we are performing an
+                                           ///< implicit module build.
+  unsigned ModulesEmbedAllFiles : 1;       ///< Whether we should embed all used
+                                           ///< files into the PCM file.
 
   CodeCompleteOptions CodeCompleteOpts;
 
@@ -182,12 +190,15 @@ public:
     ObjCMT_NsAtomicIOSOnlyProperty = 0x400,
     /// \brief Enable inferring NS_DESIGNATED_INITIALIZER for ObjC methods.
     ObjCMT_DesignatedInitializer = 0x800,
+    /// \brief Enable converting setter/getter expressions to property-dot syntx.
+    ObjCMT_PropertyDotSyntax = 0x1000,
     ObjCMT_MigrateDecls = (ObjCMT_ReadonlyProperty | ObjCMT_ReadwriteProperty |
                            ObjCMT_Annotation | ObjCMT_Instancetype |
                            ObjCMT_NsMacros | ObjCMT_ProtocolConformance |
                            ObjCMT_NsAtomicIOSOnlyProperty |
                            ObjCMT_DesignatedInitializer),
-    ObjCMT_MigrateAll = (ObjCMT_Literals | ObjCMT_Subscripting | ObjCMT_MigrateDecls)
+    ObjCMT_MigrateAll = (ObjCMT_Literals | ObjCMT_Subscripting |
+                         ObjCMT_MigrateDecls | ObjCMT_PropertyDotSyntax)
   };
   unsigned ObjCMTAction;
   std::string ObjCMTWhiteListPath;
@@ -228,6 +239,19 @@ public:
   /// The list of plugins to load.
   std::vector<std::string> Plugins;
 
+  /// The list of module file extensions.
+  std::vector<IntrusiveRefCntPtr<ModuleFileExtension>> ModuleFileExtensions;
+
+  /// \brief The list of module map files to load before processing the input.
+  std::vector<std::string> ModuleMapFiles;
+
+  /// \brief The list of additional prebuilt module files to load before
+  /// processing the input.
+  std::vector<std::string> ModuleFiles;
+
+  /// \brief The list of files to embed into the compiled module file.
+  std::vector<std::string> ModulesEmbedFiles;
+
   /// \brief The list of AST files to merge.
   std::vector<std::string> ASTMergeFiles;
 
@@ -238,7 +262,10 @@ public:
   /// \brief File name of the file that will provide record layouts
   /// (in the format produced by -fdump-record-layouts).
   std::string OverrideRecordLayoutsFile;
-  
+
+  /// \brief Auxiliary triple for CUDA compilation.
+  std::string AuxTriple;
+
 public:
   FrontendOptions() :
     DisableFree(false), RelocatablePCH(false), ShowHelp(false),
@@ -246,7 +273,8 @@ public:
     FixWhatYouCan(false), FixOnlyWarnings(false), FixAndRecompile(false),
     FixToTemporaries(false), ARCMTMigrateEmitARCErrors(false),
     SkipFunctionBodies(false), UseGlobalModuleIndex(true),
-    GenerateGlobalModuleIndex(true), ASTDumpLookups(false),
+    GenerateGlobalModuleIndex(true), ASTDumpDecls(false), ASTDumpLookups(false),
+    BuildingImplicitModule(false), ModulesEmbedAllFiles(false),
     ARCMTAction(ARCMT_None), ObjCMTAction(ObjCMT_None),
     ProgramAction(frontend::ParseSyntaxOnly)
   {}

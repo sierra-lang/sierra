@@ -8,11 +8,11 @@
 
 // RUN: %clang_cc1 -triple i686-unknown-win32 -emit-llvm -o - %s | \
 // RUN:     FileCheck --check-prefix=I686-WIN32 %s
-// I686-WIN32: target datalayout = "e-m:w-p:32:32-i64:64-f80:32-n8:16:32-S32"
+// I686-WIN32: target datalayout = "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32"
 
 // RUN: %clang_cc1 -triple i686-unknown-cygwin -emit-llvm -o - %s | \
 // RUN:     FileCheck --check-prefix=I686-CYGWIN %s
-// I686-CYGWIN: target datalayout = "e-m:w-p:32:32-i64:64-f80:32-n8:16:32-S32"
+// I686-CYGWIN: target datalayout = "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32"
 
 // RUN: %clang_cc1 -triple x86_64-unknown-unknown -emit-llvm -o - %s | \
 // RUN:     FileCheck --check-prefix=X86_64 %s
@@ -66,9 +66,9 @@
 // RUN: FileCheck %s -check-prefix=X86_64-NACL
 // X86_64-NACL: target datalayout = "e-m:e-p:32:32-i64:64-n8:16:32:64-S128"
 
-// RUN: %clang_cc1 -triple arm-nacl-gnueabi -o - -emit-llvm %s | \
+// RUN: %clang_cc1 -triple arm-nacl -o - -emit-llvm %s | \
 // RUN: FileCheck %s -check-prefix=ARM-NACL
-// ARM-NACL: target datalayout = "e-m:e-p:32:32-i64:64-v128:64:128-n32-S128"
+// ARM-NACL: target datalayout = "e-m:e-p:32:32-i64:64-v128:64:128-a:0:32-n32-S128"
 
 // RUN: %clang_cc1 -triple mipsel-nacl -o - -emit-llvm %s | \
 // RUN: FileCheck %s -check-prefix=MIPS-NACL
@@ -77,6 +77,14 @@
 // RUN: %clang_cc1 -triple le32-nacl -o - -emit-llvm %s | \
 // RUN: FileCheck %s -check-prefix=LE32-NACL
 // LE32-NACL: target datalayout = "e-p:32:32-i64:64"
+
+// RUN: %clang_cc1 -triple wasm32-unknown-unknown -o - -emit-llvm %s | \
+// RUN: FileCheck %s -check-prefix=WEBASSEMBLY32
+// WEBASSEMBLY32: target datalayout = "e-m:e-p:32:32-i64:64-n32:64-S128"
+
+// RUN: %clang_cc1 -triple wasm64-unknown-unknown -o - -emit-llvm %s | \
+// RUN: FileCheck %s -check-prefix=WEBASSEMBLY64
+// WEBASSEMBLY64: target datalayout = "e-m:e-p:64:64-i64:64-n32:64-S128"
 
 // RUN: %clang_cc1 -triple powerpc-unknown -o - -emit-llvm %s | \
 // RUN: FileCheck %s -check-prefix=PPC
@@ -118,9 +126,14 @@
 // RUN: | FileCheck %s -check-prefix=R600D
 // R600D: target datalayout = "e-p:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64"
 
-// RUN: %clang_cc1 -triple r600-unknown -target-cpu hawaii -o - -emit-llvm %s \
+// RUN: %clang_cc1 -triple amdgcn-unknown -target-cpu hawaii -o - -emit-llvm %s \
 // RUN: | FileCheck %s -check-prefix=R600SI
 // R600SI: target datalayout = "e-p:32:32-p1:64:64-p2:64:64-p3:32:32-p4:64:64-p5:32:32-p24:64:64-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64"
+
+// Test default -target-cpu
+// RUN: %clang_cc1 -triple amdgcn-unknown -o - -emit-llvm %s \
+// RUN: | FileCheck %s -check-prefix=R600SIDefault
+// R600SIDefault: target datalayout = "e-p:32:32-p1:64:64-p2:64:64-p3:32:32-p4:64:64-p5:32:32-p24:64:64-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64"
 
 // RUN: %clang_cc1 -triple arm64-unknown -o - -emit-llvm %s | \
 // RUN: FileCheck %s -check-prefix=AARCH64
@@ -128,15 +141,15 @@
 
 // RUN: %clang_cc1 -triple thumb-unknown-gnueabi -o - -emit-llvm %s | \
 // RUN: FileCheck %s -check-prefix=THUMB
-// THUMB: target datalayout = "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i64:64-v128:64:128-a:0:32-n32-S64"
+// THUMB: target datalayout = "e-m:e-p:32:32-i64:64-v128:64:128-a:0:32-n32-S64"
 
 // RUN: %clang_cc1 -triple arm-unknown-gnueabi -o - -emit-llvm %s | \
 // RUN: FileCheck %s -check-prefix=ARM
-// ARM: target datalayout = "e-m:e-p:32:32-i64:64-v128:64:128-n32-S64"
+// ARM: target datalayout = "e-m:e-p:32:32-i64:64-v128:64:128-a:0:32-n32-S64"
 
 // RUN: %clang_cc1 -triple thumb-unknown -o - -emit-llvm -target-abi apcs-gnu \
 // RUN: %s | FileCheck %s -check-prefix=THUMB-GNU
-// THUMB-GNU: target datalayout = "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-f64:32:64-v64:32:64-v128:32:128-a:0:32-n32-S32"
+// THUMB-GNU: target datalayout = "e-m:e-p:32:32-f64:32:64-v64:32:64-v128:32:128-a:0:32-n32-S32"
 
 // RUN: %clang_cc1 -triple arm-unknown -o - -emit-llvm -target-abi apcs-gnu \
 // RUN: %s | FileCheck %s -check-prefix=ARM-GNU
@@ -144,15 +157,19 @@
 
 // RUN: %clang_cc1 -triple hexagon-unknown -o - -emit-llvm %s | \
 // RUN: FileCheck %s -check-prefix=HEXAGON
-// HEXAGON: target datalayout = "e-m:e-p:32:32-i1:32-i64:64-a:0-n32"
+// HEXAGON: target datalayout = "e-m:e-p:32:32:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f64:64:64-f32:32:32-v64:64:64-v32:32:32-a:0-n16:32"
 
 // RUN: %clang_cc1 -triple s390x-unknown -o - -emit-llvm %s | \
 // RUN: FileCheck %s -check-prefix=SYSTEMZ
 // SYSTEMZ: target datalayout = "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-a:8:16-n32:64"
 
+// RUN: %clang_cc1 -triple s390x-unknown -target-cpu z13 -o - -emit-llvm %s | \
+// RUN: FileCheck %s -check-prefix=SYSTEMZ-VECTOR
+// SYSTEMZ-VECTOR: target datalayout = "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64"
+
 // RUN: %clang_cc1 -triple msp430-unknown -o - -emit-llvm %s | \
 // RUN: FileCheck %s -check-prefix=MSP430
-// MSP430: target datalayout = "e-m:e-p:16:16-i32:16:32-n8:16"
+// MSP430: target datalayout = "e-m:e-p:16:16-i32:16:32-a:16-n8:16"
 
 // RUN: %clang_cc1 -triple tce-unknown -o - -emit-llvm %s | \
 // RUN: FileCheck %s -check-prefix=TCE
@@ -165,3 +182,11 @@
 // RUN: %clang_cc1 -triple spir64-unknown -o - -emit-llvm %s | \
 // RUN: FileCheck %s -check-prefix=SPIR64
 // SPIR64: target datalayout = "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024"
+
+// RUN: %clang_cc1 -triple bpfel -o - -emit-llvm %s | \
+// RUN: FileCheck %s -check-prefix=BPFEL
+// BPFEL: target datalayout = "e-m:e-p:64:64-i64:64-n32:64-S128"
+
+// RUN: %clang_cc1 -triple bpfeb -o - -emit-llvm %s | \
+// RUN: FileCheck %s -check-prefix=BPFEB
+// BPFEB: target datalayout = "E-m:e-p:64:64-i64:64-n32:64-S128"

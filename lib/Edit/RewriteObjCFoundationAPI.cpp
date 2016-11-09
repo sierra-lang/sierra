@@ -1077,6 +1077,9 @@ static bool rewriteToNumericBoxedExpression(const ObjCMessageExpr *Msg,
     case CK_BuiltinFnToFnPtr:
     case CK_ZeroToOCLEvent:
       return false;
+
+    case CK_BooleanToSignedIntegral:
+      llvm_unreachable("OpenCL-specific cast in Objective-C?");
     }
   }
 
@@ -1149,7 +1152,8 @@ static bool rewriteToStringBoxedExpression(const ObjCMessageExpr *Msg,
   Selector Sel = Msg->getSelector();
 
   if (Sel == NS.getNSStringSelector(NSAPI::NSStr_stringWithUTF8String) ||
-      Sel == NS.getNSStringSelector(NSAPI::NSStr_stringWithCString)) {
+      Sel == NS.getNSStringSelector(NSAPI::NSStr_stringWithCString) ||
+      Sel == NS.getNSStringSelector(NSAPI::NSStr_initWithUTF8String)) {
     if (Msg->getNumArgs() != 1)
       return false;
     return doRewriteToUTF8StringBoxedExpressionHelper(Msg, NS, commit);

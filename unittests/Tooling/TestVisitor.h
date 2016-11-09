@@ -12,8 +12,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_TEST_VISITOR_H
-#define LLVM_CLANG_TEST_VISITOR_H
+#ifndef LLVM_CLANG_UNITTESTS_TOOLING_TESTVISITOR_H
+#define LLVM_CLANG_UNITTESTS_TOOLING_TESTVISITOR_H
 
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
@@ -82,7 +82,7 @@ protected:
   public:
     FindConsumer(TestVisitor *Visitor) : Visitor(Visitor) {}
 
-    virtual void HandleTranslationUnit(clang::ASTContext &Context) {
+    void HandleTranslationUnit(clang::ASTContext &Context) override {
       Visitor->Context = &Context;
       Visitor->TraverseDecl(Context.getTranslationUnitDecl());
     }
@@ -95,10 +95,10 @@ protected:
   public:
     TestAction(TestVisitor *Visitor) : Visitor(Visitor) {}
 
-    virtual clang::ASTConsumer* CreateASTConsumer(
-        CompilerInstance&, llvm::StringRef dummy) {
+    std::unique_ptr<clang::ASTConsumer>
+    CreateASTConsumer(CompilerInstance &, llvm::StringRef dummy) override {
       /// TestConsumer will be deleted by the framework calling us.
-      return new FindConsumer(Visitor);
+      return llvm::make_unique<FindConsumer>(Visitor);
     }
 
   protected:
@@ -133,7 +133,7 @@ public:
   }
 
   /// \brief Checks that all expected matches have been found.
-  virtual ~ExpectedLocationVisitor() {
+  ~ExpectedLocationVisitor() override {
     for (typename std::vector<ExpectedMatch>::const_iterator
              It = ExpectedMatches.begin(), End = ExpectedMatches.end();
          It != End; ++It) {
@@ -231,4 +231,4 @@ protected:
 };
 }
 
-#endif /* LLVM_CLANG_TEST_VISITOR_H */
+#endif

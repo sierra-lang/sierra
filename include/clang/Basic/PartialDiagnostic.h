@@ -13,8 +13,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_PARTIALDIAGNOSTIC_H
-#define LLVM_CLANG_PARTIALDIAGNOSTIC_H
+#ifndef LLVM_CLANG_BASIC_PARTIALDIAGNOSTIC_H
+#define LLVM_CLANG_BASIC_PARTIALDIAGNOSTIC_H
 
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/SourceLocation.h"
@@ -377,7 +377,7 @@ public:
   }
 
   friend inline const PartialDiagnostic &operator<<(const PartialDiagnostic &PD,
-                                                    const SourceRange &R) {
+                                                    SourceRange R) {
     PD.AddSourceRange(CharSourceRange::getTokenRange(R));
     return PD;
   }

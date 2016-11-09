@@ -7,10 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_CODEGEN_BACKEND_UTIL_H
-#define LLVM_CLANG_CODEGEN_BACKEND_UTIL_H
+#ifndef LLVM_CLANG_CODEGEN_BACKENDUTIL_H
+#define LLVM_CLANG_CODEGEN_BACKENDUTIL_H
 
 #include "clang/Basic/LLVM.h"
+#include "llvm/IR/FunctionInfo.h"
+#include <memory>
 
 namespace llvm {
   class Module;
@@ -34,7 +36,7 @@ namespace clang {
   void EmitBackendOutput(DiagnosticsEngine &Diags, const CodeGenOptions &CGOpts,
                          const TargetOptions &TOpts, const LangOptions &LOpts,
                          StringRef TDesc, llvm::Module *M, BackendAction Action,
-                         raw_ostream *OS);
+                         raw_pwrite_stream *OS);
 }
 
 #endif

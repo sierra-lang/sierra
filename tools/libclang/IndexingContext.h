@@ -7,6 +7,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#ifndef LLVM_CLANG_TOOLS_LIBCLANG_INDEXINGCONTEXT_H
+#define LLVM_CLANG_TOOLS_LIBCLANG_INDEXINGCONTEXT_H
+
 #include "CXCursor.h"
 #include "Index_Internal.h"
 #include "clang/AST/DeclGroup.h"
@@ -242,8 +245,8 @@ class AttrListInfo {
   SmallVector<CXIdxAttrInfo *, 2> CXAttrs;
   unsigned ref_cnt;
 
-  AttrListInfo(const AttrListInfo &) LLVM_DELETED_FUNCTION;
-  void operator=(const AttrListInfo &) LLVM_DELETED_FUNCTION;
+  AttrListInfo(const AttrListInfo &) = delete;
+  void operator=(const AttrListInfo &) = delete;
 public:
   AttrListInfo(const Decl *D, IndexingContext &IdxCtx);
 
@@ -517,3 +520,5 @@ inline T *ScratchAlloc::allocate() {
 }
 
 }} // end clang::cxindex
+
+#endif

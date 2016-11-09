@@ -33,6 +33,43 @@ The ``.clang-format`` file uses YAML format:
   # A comment.
   ...
 
+The configuration file can consist of several sections each having different
+``Language:`` parameter denoting the programming language this section of the
+configuration is targeted at. See the description of the **Language** option
+below for the list of supported languages. The first section may have no
+language set, it will set the default style options for all lanugages.
+Configuration sections for specific language will override options set in the
+default section.
+
+When :program:`clang-format` formats a file, it auto-detects the language using
+the file name. When formatting standard input or a file that doesn't have the
+extension corresponding to its language, ``-assume-filename=`` option can be
+used to override the file name :program:`clang-format` uses to detect the
+language.
+
+An example of a configuration file for multiple languages:
+
+.. code-block:: yaml
+
+  ---
+  # We'll use defaults from the LLVM style, but with 4 columns indentation.
+  BasedOnStyle: LLVM
+  IndentWidth: 4
+  ---
+  Language: Cpp
+  # Force pointers to the type for C++.
+  DerivePointerAlignment: false
+  PointerAlignment: Left
+  ---
+  Language: JavaScript
+  # Use 100 columns for JS.
+  ColumnLimit: 100
+  ---
+  Language: Proto
+  # Don't format .proto files.
+  DisableFormat: true
+  ...
+
 An easy way to get a valid ``.clang-format`` file containing all configuration
 options of a certain predefined style is:
 
@@ -46,6 +83,24 @@ is applied for all input files. The format of the configuration is:
 .. code-block:: console
 
   -style='{key1: value1, key2: value2, ...}'
+
+
+Disabling Formatting on a Piece of Code
+=======================================
+
+Clang-format understands also special comments that switch formatting in a
+delimited range. The code between a comment ``// clang-format off`` or
+``/* clang-format off */`` up to a comment ``// clang-format on`` or
+``/* clang-format on */`` will not be formatted. The comments themselves
+will be formatted (aligned) normally.
+
+.. code-block:: c++
+
+  int formatted_code;
+  // clang-format off
+      void    unformatted_code  ;
+  // clang-format on
+  void formatted_code_again;
 
 
 Configuring Style in Code
@@ -95,9 +150,69 @@ the configuration (without a prefix: ``Auto``).
 **AccessModifierOffset** (``int``)
   The extra indent or outdent of access modifiers, e.g. ``public:``.
 
+**AlignAfterOpenBracket** (``BracketAlignmentStyle``)
+  If ``true``, horizontally aligns arguments after an open bracket.
+
+  This applies to round brackets (parentheses), angle brackets and square
+  brackets. This will result in formattings like
+
+  Possible values:
+
+  * ``BAS_Align`` (in configuration: ``Align``)
+    Align parameters on the open bracket, e.g.:
+
+    .. code-block:: c++
+
+      someLongFunction(argument1,
+                       argument2);
+  * ``BAS_DontAlign`` (in configuration: ``DontAlign``)
+    Don't align, instead use ``ContinuationIndentWidth``, e.g.:
+
+    .. code-block:: c++
+
+      someLongFunction(argument1,
+          argument2);
+  * ``BAS_AlwaysBreak`` (in configuration: ``AlwaysBreak``)
+    Always break after an open bracket, if the parameters don't fit
+    on a single line, e.g.:
+
+    .. code-block:: c++
+
+      someLongFunction(
+          argument1, argument2);
+
+
+**AlignConsecutiveAssignments** (``bool``)
+  If ``true``, aligns consecutive assignments.
+
+  This will align the assignment operators of consecutive lines. This
+  will result in formattings like
+
+  .. code-block:: c++
+
+    int aaaa = 12;
+    int b    = 23;
+    int ccc  = 23;
+
+**AlignConsecutiveDeclarations** (``bool``)
+  If ``true``, aligns consecutive declarations.
+
+  This will align the declaration names of consecutive lines. This
+  will result in formattings like
+
+  .. code-block:: c++
+
+    int         aaaa = 12;
+    float       b = 23;
+    std::string ccc = 23;
+
 **AlignEscapedNewlinesLeft** (``bool``)
   If ``true``, aligns escaped newlines as far left as possible.
   Otherwise puts them into the right-most column.
+
+**AlignOperands** (``bool``)
+  If ``true``, horizontally align operands of binary and ternary
+  expressions.
 
 **AlignTrailingComments** (``bool``)
   If ``true``, aligns trailing comments.
@@ -111,6 +226,9 @@ the configuration (without a prefix: ``Auto``).
 
   E.g., this allows ``if (a) { return; }`` to be put on a single line.
 
+**AllowShortCaseLabelsOnASingleLine** (``bool``)
+  If ``true``, short case labels will be contracted to a single line.
+
 **AllowShortFunctionsOnASingleLine** (``ShortFunctionStyle``)
   Dependent on the value, ``int f() { return 0; }`` can be put
   on a single line.
@@ -119,8 +237,10 @@ the configuration (without a prefix: ``Auto``).
 
   * ``SFS_None`` (in configuration: ``None``)
     Never merge functions into a single line.
+  * ``SFS_Empty`` (in configuration: ``Empty``)
+    Only merge empty functions.
   * ``SFS_Inline`` (in configuration: ``Inline``)
-    Only merge functions defined inside a class.
+    Only merge functions defined inside a class. Implies "empty".
   * ``SFS_All`` (in configuration: ``All``)
     Merge all functions fitting on a single line.
 
@@ -133,19 +253,95 @@ the configuration (without a prefix: ``Auto``).
   If ``true``, ``while (true) continue;`` can be put on a
   single line.
 
+**AlwaysBreakAfterDefinitionReturnType** (``DefinitionReturnTypeBreakingStyle``)
+  The function definition return type breaking style to use.  This
+  option is deprecated and is retained for backwards compatibility.
+
+  Possible values:
+
+  * ``DRTBS_None`` (in configuration: ``None``)
+    Break after return type automatically.
+    ``PenaltyReturnTypeOnItsOwnLine`` is taken into account.
+  * ``DRTBS_All`` (in configuration: ``All``)
+    Always break after the return type.
+  * ``DRTBS_TopLevel`` (in configuration: ``TopLevel``)
+    Always break after the return types of top-level functions.
+
+
+**AlwaysBreakAfterReturnType** (``ReturnTypeBreakingStyle``)
+  The function declaration return type breaking style to use.
+
+  Possible values:
+
+  * ``RTBS_None`` (in configuration: ``None``)
+    Break after return type automatically.
+    ``PenaltyReturnTypeOnItsOwnLine`` is taken into account.
+  * ``RTBS_All`` (in configuration: ``All``)
+    Always break after the return type.
+  * ``RTBS_TopLevel`` (in configuration: ``TopLevel``)
+    Always break after the return types of top-level functions.
+  * ``RTBS_AllDefinitions`` (in configuration: ``AllDefinitions``)
+    Always break after the return type of function definitions.
+  * ``RTBS_TopLevelDefinitions`` (in configuration: ``TopLevelDefinitions``)
+    Always break after the return type of top-level definitions.
+
+
 **AlwaysBreakBeforeMultilineStrings** (``bool``)
   If ``true``, always break before multiline string literals.
+
+  This flag is mean to make cases where there are multiple multiline strings
+  in a file look more consistent. Thus, it will only take effect if wrapping
+  the string at that point leads to it being indented
+  ``ContinuationIndentWidth`` spaces from the start of the line.
 
 **AlwaysBreakTemplateDeclarations** (``bool``)
   If ``true``, always break after the ``template<...>`` of a
   template declaration.
 
-**BinPackParameters** (``bool``)
-  If ``false``, a function call's or function definition's parameters
-  will either all be on the same line or will have one line each.
+**BinPackArguments** (``bool``)
+  If ``false``, a function call's arguments will either be all on the
+  same line or will have one line each.
 
-**BreakBeforeBinaryOperators** (``bool``)
-  If ``true``, binary operators will be placed after line breaks.
+**BinPackParameters** (``bool``)
+  If ``false``, a function declaration's or function definition's
+  parameters will either all be on the same line or will have one line each.
+
+**BraceWrapping** (``BraceWrappingFlags``)
+  Control of individual brace wrapping cases.
+
+  If ``BreakBeforeBraces`` is set to ``custom``, use this to specify how each
+  individual brace case should be handled. Otherwise, this is ignored.
+
+  Nested configuration flags:
+
+  * ``bool AfterClass`` Wrap class definitions.
+  * ``bool AfterControlStatement`` Wrap control statements (if/for/while/switch/..).
+  * ``bool AfterEnum`` Wrap enum definitions.
+  * ``bool AfterFunction`` Wrap function definitions.
+  * ``bool AfterNamespace`` Wrap namespace definitions.
+  * ``bool AfterObjCDeclaration`` Wrap ObjC definitions (@autoreleasepool, interfaces, ..).
+  * ``bool AfterStruct`` Wrap struct definitions.
+  * ``bool AfterUnion`` Wrap union definitions.
+  * ``bool BeforeCatch`` Wrap before ``catch``.
+  * ``bool BeforeElse`` Wrap before ``else``.
+  * ``bool IndentBraces`` Indent the wrapped braces themselves.
+
+
+**BreakAfterJavaFieldAnnotations** (``bool``)
+  Break after each annotation on a field in Java files.
+
+**BreakBeforeBinaryOperators** (``BinaryOperatorStyle``)
+  The way to wrap binary operators.
+
+  Possible values:
+
+  * ``BOS_None`` (in configuration: ``None``)
+    Break after operators.
+  * ``BOS_NonAssignment`` (in configuration: ``NonAssignment``)
+    Break before operators that aren't assignments.
+  * ``BOS_All`` (in configuration: ``All``)
+    Break before operators.
+
 
 **BreakBeforeBraces** (``BraceBreakingStyle``)
   The brace breaking style to use.
@@ -157,14 +353,21 @@ the configuration (without a prefix: ``Auto``).
   * ``BS_Linux`` (in configuration: ``Linux``)
     Like ``Attach``, but break before braces on function, namespace and
     class definitions.
+  * ``BS_Mozilla`` (in configuration: ``Mozilla``)
+    Like ``Attach``, but break before braces on enum, function, and record
+    definitions.
   * ``BS_Stroustrup`` (in configuration: ``Stroustrup``)
-    Like ``Attach``, but break before function definitions.
+    Like ``Attach``, but break before function definitions, 'catch', and 'else'.
   * ``BS_Allman`` (in configuration: ``Allman``)
     Always break before braces.
   * ``BS_GNU`` (in configuration: ``GNU``)
     Always break before braces and add an extra level of indentation to
     braces of control statements, not to those of class, function
     or other definitions.
+  * ``BS_WebKit`` (in configuration: ``WebKit``)
+    Like ``Attach``, but break before functions.
+  * ``BS_Custom`` (in configuration: ``Custom``)
+    Configure each individual brace in ``BraceWrapping``.
 
 
 **BreakBeforeTernaryOperators** (``bool``)
@@ -216,7 +419,7 @@ the configuration (without a prefix: ``Auto``).
   alignment of & and \*. ``PointerAlignment`` is then used only as fallback.
 
 **DisableFormat** (``bool``)
-  Disables formatting at all.
+  Disables formatting completely.
 
 **ExperimentalAutoDetectBinPacking** (``bool``)
   If ``true``, clang-format detects whether function calls and
@@ -235,12 +438,46 @@ the configuration (without a prefix: ``Auto``).
   instead of as function calls.
 
   These are expected to be macros of the form:
-  \code
-  FOREACH(<variable-declaration>, ...)
-  <loop-body>
-  \endcode
+
+  .. code-block:: c++
+
+    FOREACH(<variable-declaration>, ...)
+      <loop-body>
+
+  In the .clang-format configuration file, this can be configured like:
+
+  .. code-block:: c++
+
+    ForEachMacros: ['RANGES_FOR', 'FOREACH']
 
   For example: BOOST_FOREACH.
+
+**IncludeCategories** (``std::vector<IncludeCategory>``)
+  Regular expressions denoting the different #include categories used
+  for ordering #includes.
+
+  These regular expressions are matched against the filename of an include
+  (including the <> or "") in order. The value belonging to the first
+  matching regular expression is assigned and #includes are sorted first
+  according to increasing category number and then alphabetically within
+  each category.
+
+  If none of the regular expressions match, UINT_MAX is assigned as
+  category. The main header for a source file automatically gets category 0,
+  so that it is kept at the beginning of the #includes
+  (http://llvm.org/docs/CodingStandards.html#include-style).
+
+  To configure this in the .clang-format file, use:
+
+  .. code-block:: c++
+
+    IncludeCategories:
+      - Regex:           '^"(llvm|llvm-c|clang|clang-c)/'
+        Priority:        2
+      - Regex:           '^(<|"(gtest|isl|json)/)'
+        Priority:        3
+      - Regex:           '.\*'
+        Priority:        1
 
 **IndentCaseLabels** (``bool``)
   Indent case labels one level from the switch statement.
@@ -267,12 +504,20 @@ the configuration (without a prefix: ``Auto``).
     Do not use.
   * ``LK_Cpp`` (in configuration: ``Cpp``)
     Should be used for C, C++, ObjectiveC, ObjectiveC++.
+  * ``LK_Java`` (in configuration: ``Java``)
+    Should be used for Java.
   * ``LK_JavaScript`` (in configuration: ``JavaScript``)
     Should be used for JavaScript.
   * ``LK_Proto`` (in configuration: ``Proto``)
     Should be used for Protocol Buffers
     (https://developers.google.com/protocol-buffers/).
 
+
+**MacroBlockBegin** (``std::string``)
+  A regular expression matching macros that start a block.
+
+**MacroBlockEnd** (``std::string``)
+  A regular expression matching macros that end a block.
 
 **MaxEmptyLinesToKeep** (``unsigned``)
   The maximum number of consecutive empty lines to keep.
@@ -289,6 +534,9 @@ the configuration (without a prefix: ``Auto``).
   * ``NI_All`` (in configuration: ``All``)
     Indent in all namespaces.
 
+
+**ObjCBlockIndentWidth** (``unsigned``)
+  The number of characters to use for indentation of ObjC blocks.
 
 **ObjCSpaceAfterProperty** (``bool``)
   Add a space after ``@property`` in Objective-C, i.e. use
@@ -329,6 +577,9 @@ the configuration (without a prefix: ``Auto``).
   * ``PAS_Middle`` (in configuration: ``Middle``)
     Align pointer in the middle.
 
+
+**SpaceAfterCStyleCast** (``bool``)
+  If ``true``, a space may be inserted after C style casts.
 
 **SpaceBeforeAssignmentOperators** (``bool``)
   If ``false``, spaces will be removed before assignment operators.
@@ -374,6 +625,9 @@ the configuration (without a prefix: ``Auto``).
 **SpacesInParentheses** (``bool``)
   If ``true``, spaces will be inserted after '(' and before ')'.
 
+**SpacesInSquareBrackets** (``bool``)
+  If ``true``, spaces will be inserted after '[' and before ']'.
+
 **Standard** (``LanguageStandard``)
   Format compatible with this standard, e.g. use
   ``A<A<int> >`` instead of ``A<A<int>>`` for LS_Cpp03.
@@ -407,6 +661,26 @@ the configuration (without a prefix: ``Auto``).
 
 
 .. END_FORMAT_STYLE_OPTIONS
+
+Adding additional style options
+===============================
+
+Each additional style option adds costs to the clang-format project. Some of
+these costs affect the clang-format developement itself, as we need to make
+sure that any given combination of options work and that new features don't
+break any of the existing options in any way. There are also costs for end users
+as options become less discoverable and people have to think about and make a
+decision on options they don't really care about.
+
+The goal of the clang-format project is more on the side of supporting a
+limited set of styles really well as opposed to supporting every single style
+used by a codebase somewhere in the wild. Of course, we do want to support all
+major projects and thus have established the following bar for adding style
+options. Each new style option must ..
+
+  * be used in a project of significant size (have dozens of contributors)
+  * have a publicly accessible style guide
+  * have a person willing to contribute and maintain patches
 
 Examples
 ========

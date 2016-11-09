@@ -47,9 +47,7 @@ CXRemapping clang_getRemappings(const char *migrate_dir_path) {
     return nullptr;
   }
 
-  bool exists = false;
-  llvm::sys::fs::exists(migrate_dir_path, exists);
-  if (!exists) {
+  if (!llvm::sys::fs::exists(migrate_dir_path)) {
     if (Logging) {
       llvm::errs() << "Error by clang_getRemappings(\"" << migrate_dir_path
                    << "\")\n";
@@ -103,9 +101,7 @@ CXRemapping clang_getRemappingsFromFileList(const char **filePaths,
   }
 
   TextDiagnosticBuffer diagBuffer;
-  SmallVector<StringRef, 32> Files;
-  for (unsigned i = 0; i != numFiles; ++i)
-    Files.push_back(filePaths[i]);
+  SmallVector<StringRef, 32> Files(filePaths, filePaths + numFiles);
 
   bool err = arcmt::getFileRemappingsFromFileList(remap->Vec, Files,
                                                   &diagBuffer);

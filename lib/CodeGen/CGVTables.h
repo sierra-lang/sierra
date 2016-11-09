@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CLANG_CODEGEN_CGVTABLE_H
-#define CLANG_CODEGEN_CGVTABLE_H
+#ifndef LLVM_CLANG_LIB_CODEGEN_CGVTABLES_H
+#define LLVM_CLANG_LIB_CODEGEN_CGVTABLES_H
 
 #include "clang/AST/BaseSubobject.h"
 #include "clang/AST/CharUnits.h"
@@ -85,10 +85,6 @@ public:
   uint64_t getSecondaryVirtualPointerIndex(const CXXRecordDecl *RD,
                                            BaseSubobject Base);
 
-  /// getAddressPoint - Get the address point of the given subobject in the
-  /// class decl.
-  uint64_t getAddressPoint(BaseSubobject Base, const CXXRecordDecl *RD);
-  
   /// GenerateConstructionVTable - Generate a construction vtable for the given 
   /// base subobject.
   llvm::GlobalVariable *

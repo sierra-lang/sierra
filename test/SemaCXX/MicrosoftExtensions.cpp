@@ -79,6 +79,7 @@ struct M {
 
 // __unaligned handling
 typedef char __unaligned *aligned_type;
+typedef struct UnalignedTag { int f; } __unaligned *aligned_type2;
 
 
 template<typename T> void h1(T (__stdcall M::* const )()) { }
@@ -151,16 +152,6 @@ static void static_func() // expected-warning {{redeclaring non-static 'static_f
 
 extern const int static_var; // expected-note {{previous declaration is here}}
 static const int static_var = 3; // expected-warning {{redeclaring non-static 'static_var' as static is a Microsoft extension}}
-
-long function_prototype(int a);
-long (*function_ptr)(int a);
-
-void function_to_voidptr_conv() {
-   void *a1 = function_prototype;
-   void *a2 = &function_prototype;
-   void *a3 = function_ptr;
-}
-
 
 void pointer_to_integral_type_conv(char* ptr) {
    char ch = (char)ptr;
@@ -343,6 +334,18 @@ struct StructWithUnnamedMember {
   __declspec(property(get=GetV)) int : 10; // expected-error {{anonymous property is not supported}}
 };
 
+struct MSPropertyClass {
+  int get() { return 42; }
+  int __declspec(property(get = get)) n;
+};
+
+int *f(MSPropertyClass &x) {
+  return &x.n; // expected-error {{address of property expression requested}}
+}
+int MSPropertyClass::*g() {
+  return &MSPropertyClass::n; // expected-error {{address of property expression requested}}
+}
+
 namespace rdar14250378 {
   class Bar {};
 
@@ -372,14 +375,15 @@ struct SomeBase {
 
   // expected-note@+2 {{overridden virtual function is here}}
   // expected-warning@+1 {{'sealed' keyword is a Microsoft extension}}
-  virtual void SealedFunction() sealed;
+  virtual void SealedFunction() sealed; // expected-note {{overridden virtual function is here}}
 };
 
 // expected-note@+2 {{'SealedType' declared here}}
 // expected-warning@+1 {{'sealed' keyword is a Microsoft extension}}
 struct SealedType sealed : SomeBase {
-  // expected-error@+1 {{declaration of 'SealedFunction' overrides a 'sealed' function}}
-  virtual void SealedFunction();
+  // expected-error@+2 {{declaration of 'SealedFunction' overrides a 'sealed' function}}
+  // FIXME. warning can be suppressed if we're also issuing error for overriding a 'final' function.
+  virtual void SealedFunction(); // expected-warning {{'SealedFunction' overrides a member function but is not marked 'override'}}
 
   // expected-warning@+1 {{'override' keyword is a C++11 extension}}
   virtual void OverrideMe() override;
@@ -397,4 +401,22 @@ void AfterClassBody() {
   _Static_assert(__alignof(S) == 4, "");
   _Static_assert(__alignof(s1) == 8, "");
   _Static_assert(__alignof(s2) == 4, "");
+}
+
+namespace PR24246 {
+template <typename TX> struct A {
+  template <bool> struct largest_type_select;
+  // expected-warning@+1 {{explicit specialization of 'largest_type_select' within class scope is a Microsoft extension}}
+  template <> struct largest_type_select<false> {
+    blah x;  // expected-error {{unknown type name 'blah'}}
+  };
+};
+}
+
+namespace PR25265 {
+struct S {
+  int fn() throw(); // expected-note {{previous declaration is here}}
+};
+
+int S::fn() { return 0; } // expected-warning {{is missing exception specification}}
 }

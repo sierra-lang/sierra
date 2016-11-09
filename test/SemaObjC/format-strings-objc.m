@@ -243,11 +243,24 @@ void testByValueObjectInFormat(Foo *obj) {
 
 // <rdar://problem/13557053>
 void testTypeOf(NSInteger dW, NSInteger dH) {
-  NSLog(@"dW %d  dH %d",({ __typeof__(dW) __a = (dW); __a < 0 ? -__a : __a; }),({ __typeof__(dH) __a = (dH); __a < 0 ? -__a : __a; })); // expected-warning 2 {{values of type 'NSInteger' should not be used as format arguments; add an explicit cast to 'long' instead}}
+  NSLog(@"dW %d  dH %d",({ __typeof__(dW) __a = (dW); __a < 0 ? -__a : __a; }),({ __typeof__(dH) __a = (dH); __a < 0 ? -__a : __a; })); // expected-warning 2 {{format specifies type 'int' but the argument has type 'long'}}
 }
 
 void testUnicode() {
   NSLog(@"%C", 0x2022); // no-warning
   NSLog(@"%C", 0x202200); // expected-warning{{format specifies type 'unichar' (aka 'unsigned short') but the argument has type 'int'}}
+}
+
+// Test Objective-C modifier flags.
+void testObjCModifierFlags() {
+  NSLog(@"%[]@", @"Foo"); // expected-warning {{missing object format flag}}
+  NSLog(@"%[", @"Foo"); // expected-warning {{incomplete format specifier}}
+  NSLog(@"%[tt", @"Foo");  // expected-warning {{incomplete format specifier}}
+  NSLog(@"%[tt]@", @"Foo"); // no-warning
+  NSLog(@"%[tt]@ %s", @"Foo", "hello"); // no-warning
+  NSLog(@"%s %[tt]@", "hello", @"Foo"); // no-warning
+  NSLog(@"%[blark]@", @"Foo"); // expected-warning {{'blark' is not a valid object format flag}}
+  NSLog(@"%2$[tt]@ %1$[tt]@", @"Foo", @"Bar"); // no-warning
+  NSLog(@"%2$[tt]@ %1$[tt]s", @"Foo", @"Bar"); // expected-warning {{object format flags cannot be used with 's' conversion specifier}}
 }
 

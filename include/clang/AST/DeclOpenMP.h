@@ -12,13 +12,14 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_AST_OPENMP_H
-#define LLVM_CLANG_AST_OPENMP_H
+#ifndef LLVM_CLANG_AST_DECLOPENMP_H
+#define LLVM_CLANG_AST_DECLOPENMP_H
 
 #include "clang/AST/DeclBase.h"
 #include "llvm/ADT/ArrayRef.h"
 
 namespace clang {
+class Expr;
 
 /// \brief This represents '#pragma omp threadprivate ...' directive.
 /// For example, in the following, both 'a' and 'A::b' are threadprivate:
@@ -32,8 +33,12 @@ namespace clang {
 /// };
 /// \endcode
 ///
-class OMPThreadPrivateDecl : public Decl {
+class OMPThreadPrivateDecl final
+    : public Decl,
+      private llvm::TrailingObjects<OMPThreadPrivateDecl, Expr *> {
   friend class ASTDeclReader;
+  friend TrailingObjects;
+
   unsigned NumVars;
 
   virtual void anchor();
@@ -42,15 +47,11 @@ class OMPThreadPrivateDecl : public Decl {
     Decl(DK, DC, L), NumVars(0) { }
 
   ArrayRef<const Expr *> getVars() const {
-    return ArrayRef<const Expr *>(
-                   reinterpret_cast<const Expr * const *>(this + 1),
-                   NumVars);
+    return llvm::makeArrayRef(getTrailingObjects<Expr *>(), NumVars);
   }
 
   MutableArrayRef<Expr *> getVars() {
-    return MutableArrayRef<Expr *>(
-                           reinterpret_cast<Expr **>(this + 1),
-                           NumVars);
+    return MutableArrayRef<Expr *>(getTrailingObjects<Expr *>(), NumVars);
   }
 
   void setVars(ArrayRef<Expr *> VL);

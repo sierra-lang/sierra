@@ -16,8 +16,8 @@ clang_CompilationDatabase_fromDirectory(const char *BuildDir,
   std::string ErrorMsg;
   CXCompilationDatabase_Error Err = CXCompilationDatabase_NoError;
 
-  CompilationDatabase *db = CompilationDatabase::loadFromDirectory(BuildDir,
-                                                                   ErrorMsg);
+  std::unique_ptr<CompilationDatabase> db =
+      CompilationDatabase::loadFromDirectory(BuildDir, ErrorMsg);
 
   if (!db) {
     fprintf(stderr, "LIBCLANG TOOLING ERROR: %s\n", ErrorMsg.c_str());
@@ -27,7 +27,7 @@ clang_CompilationDatabase_fromDirectory(const char *BuildDir,
   if (ErrorCode)
     *ErrorCode = Err;
 
-  return db;
+  return db.release();
 }
 
 void
@@ -109,6 +109,16 @@ clang_CompileCommand_getDirectory(CXCompileCommand CCmd)
 
   CompileCommand *cmd = static_cast<CompileCommand *>(CCmd);
   return cxstring::createRef(cmd->Directory.c_str());
+}
+
+CXString
+clang_CompileCommand_getFilename(CXCompileCommand CCmd)
+{
+  if (!CCmd)
+    return cxstring::createNull();
+
+  CompileCommand *cmd = static_cast<CompileCommand *>(CCmd);
+  return cxstring::createRef(cmd->Filename.c_str());
 }
 
 unsigned

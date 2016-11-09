@@ -61,13 +61,12 @@ class VoidModuleLoader : public ModuleLoader {
 
   void makeModuleVisible(Module *Mod,
                          Module::NameVisibilityKind Visibility,
-                         SourceLocation ImportLoc,
-                         bool Complain) override { }
+                         SourceLocation ImportLoc) override { }
 
   GlobalModuleIndex *loadGlobalModuleIndex(SourceLocation TriggerLoc) override
     { return nullptr; }
   bool lookupMissingImports(StringRef Name, SourceLocation TriggerLoc) override
-    { return 0; };
+    { return 0; }
 };
 
 TEST_F(PPConditionalDirectiveRecordTest, PPRecAPI) {
@@ -90,8 +89,8 @@ TEST_F(PPConditionalDirectiveRecordTest, PPRecAPI) {
       "#endif\n"
       "9\n";
 
-  MemoryBuffer *buf = MemoryBuffer::getMemBuffer(source);
-  SourceMgr.setMainFileID(SourceMgr.createFileID(buf));
+  std::unique_ptr<MemoryBuffer> Buf = MemoryBuffer::getMemBuffer(source);
+  SourceMgr.setMainFileID(SourceMgr.createFileID(std::move(Buf)));
 
   VoidModuleLoader ModLoader;
   HeaderSearch HeaderInfo(new HeaderSearchOptions, SourceMgr, Diags, LangOpts, 
@@ -103,7 +102,7 @@ TEST_F(PPConditionalDirectiveRecordTest, PPRecAPI) {
   PP.Initialize(*Target);
   PPConditionalDirectiveRecord *
     PPRec = new PPConditionalDirectiveRecord(SourceMgr);
-  PP.addPPCallbacks(PPRec);
+  PP.addPPCallbacks(std::unique_ptr<PPCallbacks>(PPRec));
   PP.EnterMainSourceFile();
 
   std::vector<Token> toks;

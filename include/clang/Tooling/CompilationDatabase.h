@@ -25,8 +25,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_TOOLING_COMPILATION_DATABASE_H
-#define LLVM_CLANG_TOOLING_COMPILATION_DATABASE_H
+#ifndef LLVM_CLANG_TOOLING_COMPILATIONDATABASE_H
+#define LLVM_CLANG_TOOLING_COMPILATIONDATABASE_H
 
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -42,11 +42,17 @@ namespace tooling {
 /// \brief Specifies the working directory and command of a compilation.
 struct CompileCommand {
   CompileCommand() {}
-  CompileCommand(Twine Directory, std::vector<std::string> CommandLine)
-      : Directory(Directory.str()), CommandLine(std::move(CommandLine)) {}
+  CompileCommand(Twine Directory, Twine Filename,
+                 std::vector<std::string> CommandLine)
+      : Directory(Directory.str()),
+        Filename(Filename.str()),
+        CommandLine(std::move(CommandLine)) {}
 
   /// \brief The working directory the command was executed from.
   std::string Directory;
+
+  /// The source file associated with the command.
+  std::string Filename;
 
   /// \brief The command line that was executed.
   std::vector<std::string> CommandLine;
@@ -84,22 +90,22 @@ public:
   /// FIXME: Currently only supports JSON compilation databases, which
   /// are named 'compile_commands.json' in the given directory. Extend this
   /// for other build types (like ninja build files).
-  static CompilationDatabase *loadFromDirectory(StringRef BuildDirectory,
-                                                std::string &ErrorMessage);
+  static std::unique_ptr<CompilationDatabase>
+  loadFromDirectory(StringRef BuildDirectory, std::string &ErrorMessage);
 
   /// \brief Tries to detect a compilation database location and load it.
   ///
   /// Looks for a compilation database in all parent paths of file 'SourceFile'
   /// by calling loadFromDirectory.
-  static CompilationDatabase *autoDetectFromSource(StringRef SourceFile,
-                                                   std::string &ErrorMessage);
+  static std::unique_ptr<CompilationDatabase>
+  autoDetectFromSource(StringRef SourceFile, std::string &ErrorMessage);
 
   /// \brief Tries to detect a compilation database location and load it.
   ///
   /// Looks for a compilation database in directory 'SourceDir' and all
   /// its parent paths by calling loadFromDirectory.
-  static CompilationDatabase *autoDetectFromDirectory(StringRef SourceDir,
-                                                      std::string &ErrorMessage);
+  static std::unique_ptr<CompilationDatabase>
+  autoDetectFromDirectory(StringRef SourceDir, std::string &ErrorMessage);
 
   /// \brief Returns all compile commands in which the specified file was
   /// compiled.
@@ -142,8 +148,8 @@ public:
   /// \brief Loads a compilation database from a build directory.
   ///
   /// \see CompilationDatabase::loadFromDirectory().
-  virtual CompilationDatabase *loadFromDirectory(StringRef Directory,
-                                                 std::string &ErrorMessage) = 0;
+  virtual std::unique_ptr<CompilationDatabase>
+  loadFromDirectory(StringRef Directory, std::string &ErrorMessage) = 0;
 };
 
 /// \brief A compilation database that returns a single compile command line.
@@ -178,7 +184,7 @@ public:
   /// \param Argv Points to the command line arguments.
   /// \param Directory The base directory used in the FixedCompilationDatabase.
   static FixedCompilationDatabase *loadFromCommandLine(int &Argc,
-                                                       const char **Argv,
+                                                       const char *const *Argv,
                                                        Twine Directory = ".");
 
   /// \brief Constructs a compilation data base from a specified directory
@@ -213,4 +219,4 @@ private:
 } // end namespace tooling
 } // end namespace clang
 
-#endif // LLVM_CLANG_TOOLING_COMPILATION_DATABASE_H
+#endif

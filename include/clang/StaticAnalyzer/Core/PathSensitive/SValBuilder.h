@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_GR_SVALBUILDER
-#define LLVM_CLANG_GR_SVALBUILDER
+#ifndef LLVM_CLANG_STATICANALYZER_CORE_PATHSENSITIVE_SVALBUILDER_H
+#define LLVM_CLANG_STATICANALYZER_CORE_PATHSENSITIVE_SVALBUILDER_H
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Expr.h"
@@ -83,7 +83,11 @@ public:
   }
 
   SVal evalCast(SVal val, QualType castTy, QualType originalType);
-  
+
+  // Handles casts of type CK_IntegralCast.
+  SVal evalIntegralCast(ProgramStateRef state, SVal val, QualType castTy,
+                        QualType originalType);
+
   virtual SVal evalMinus(NonLoc val) = 0;
 
   virtual SVal evalComplement(NonLoc val) = 0;

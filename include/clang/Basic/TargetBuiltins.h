@@ -13,9 +13,10 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_BASIC_TARGET_BUILTINS_H
-#define LLVM_CLANG_BASIC_TARGET_BUILTINS_H
+#ifndef LLVM_CLANG_BASIC_TARGETBUILTINS_H
+#define LLVM_CLANG_BASIC_TARGETBUILTINS_H
 
+#include <stdint.h>
 #include "clang/Basic/Builtins.h"
 #undef PPC
 
@@ -72,12 +73,12 @@ namespace clang {
     };
   }
 
-  /// \brief R600 builtins
-  namespace R600 {
+  /// \brief AMDGPU builtins
+  namespace AMDGPU {
   enum {
     LastTIBuiltin = clang::Builtin::FirstTSBuiltin - 1,
   #define BUILTIN(ID, TYPE, ATTRS) BI##ID,
-  #include "clang/Basic/BuiltinsR600.def"
+  #include "clang/Basic/BuiltinsAMDGPU.def"
     LastTSBuiltin
   };
   }
@@ -164,6 +165,37 @@ namespace clang {
         LastTSBuiltin
     };
   }
+
+  /// \brief Le64 builtins
+  namespace Le64 {
+  enum {
+    LastTIBuiltin = clang::Builtin::FirstTSBuiltin - 1,
+  #define BUILTIN(ID, TYPE, ATTRS) BI##ID,
+  #include "clang/Basic/BuiltinsLe64.def"
+    LastTSBuiltin
+  };
+  }
+
+  /// \brief SystemZ builtins
+  namespace SystemZ {
+    enum {
+        LastTIBuiltin = clang::Builtin::FirstTSBuiltin-1,
+#define BUILTIN(ID, TYPE, ATTRS) BI##ID,
+#include "clang/Basic/BuiltinsSystemZ.def"
+        LastTSBuiltin
+    };
+  }
+
+  /// \brief WebAssembly builtins
+  namespace WebAssembly {
+    enum {
+      LastTIBuiltin = clang::Builtin::FirstTSBuiltin-1,
+#define BUILTIN(ID, TYPE, ATTRS) BI##ID,
+#include "clang/Basic/BuiltinsWebAssembly.def"
+      LastTSBuiltin
+    };
+  }
+
 } // end namespace clang.
 
 #endif

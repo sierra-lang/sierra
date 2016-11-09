@@ -57,7 +57,7 @@ void f() {
   template<typename T> class X; // expected-error{{expression}}
 }
 
-template<typename T> class X1 var; // expected-warning{{variable templates are a C++1y extension}} \
+template<typename T> class X1 var; // expected-warning{{variable templates are a C++14 extension}} \
                                    // expected-error {{variable has incomplete type 'class X1'}} \
                                    // expected-note {{forward declaration of 'X1'}}
 
@@ -145,4 +145,17 @@ namespace redecl {
       template<typename T> friend struct K; // ok, redecl::K
     };
   };
+}
+
+extern "C" template <typename T> // expected-error{{templates must have C++ linkage}}
+void DontCrashOnThis() {
+  T &pT = T();
+  pT;
+}
+
+namespace abstract_dependent_class {
+  template<typename T> struct A {
+    virtual A<T> *clone() = 0; // expected-note {{pure virtual}}
+  };
+  template<typename T> A<T> *A<T>::clone() { return new A<T>; } // expected-error {{abstract class type 'A<T>'}}
 }

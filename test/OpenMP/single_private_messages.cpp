@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify -fopenmp=libiomp5 %s
+// RUN: %clang_cc1 -verify -fopenmp %s
 
 void foo() {
 }
@@ -24,16 +24,16 @@ public:
   S3() : a(0) {}
 };
 const S3 ca[5];
-class S4 { // expected-note {{'S4' declared here}}
+class S4 {
   int a;
-  S4();
+  S4(); // expected-note {{implicitly declared private here}}
 
 public:
   S4(int v) : a(v) {}
 };
-class S5 { // expected-note {{'S5' declared here}}
+class S5 {
   int a;
-  S5() : a(0) {}
+  S5() : a(0) {} // expected-note {{implicitly declared private here}}
 
 public:
   S5(int v) : a(v) {}
@@ -47,7 +47,7 @@ int foomain(I argc, C **argv) {
   I e(4);
   I g(5);
   int i;
-  int &j = i;                // expected-note {{'j' defined here}}
+  int &j = i;
 #pragma omp single private // expected-error {{expected '(' after 'private'}}
   foo();
 #pragma omp single private( // expected-error {{expected expression}} expected-error {{expected ')'}} expected-note {{to match this '('}}
@@ -84,18 +84,26 @@ int foomain(I argc, C **argv) {
   }
 #pragma omp parallel shared(i)
 #pragma omp parallel private(i)
-#pragma omp single private(j) // expected-error {{arguments of OpenMP clause 'private' cannot be of reference type}}
+#pragma omp single private(j)
   foo();
 #pragma omp single private(i)
   foo();
   return 0;
 }
 
+namespace A {
+double x;
+#pragma omp threadprivate(x) // expected-note {{defined as threadprivate or thread local}}
+}
+namespace B {
+using A::x;
+}
+
 int main(int argc, char **argv) {
-  S4 e(4); // expected-note {{'e' defined here}}
-  S5 g(5); // expected-note {{'g' defined here}}
+  S4 e(4);
+  S5 g(5);
   int i;
-  int &j = i;                // expected-note {{'j' defined here}}
+  int &j = i;
 #pragma omp single private // expected-error {{expected '(' after 'private'}}
   foo();
 #pragma omp single private( // expected-error {{expected expression}} expected-error {{expected ')'}} expected-note {{to match this '('}}
@@ -116,9 +124,9 @@ int main(int argc, char **argv) {
   foo();
 #pragma omp single private(argv[1]) // expected-error {{expected variable name}}
   foo();
-#pragma omp single private(e, g) // expected-error 2 {{private variable must have an accessible, unambiguous default constructor}}
+#pragma omp single private(e, g) // expected-error {{calling a private constructor of class 'S4'}} expected-error {{calling a private constructor of class 'S5'}}
   foo();
-#pragma omp single private(h) // expected-error {{threadprivate or thread local variable cannot be private}}
+#pragma omp single private(h, B::x) // expected-error 2 {{threadprivate or thread local variable cannot be private}}
   foo();
 #pragma omp single shared(i) // expected-error {{unexpected OpenMP clause 'shared' in directive '#pragma omp single'}}
   foo();
@@ -130,9 +138,12 @@ int main(int argc, char **argv) {
   }
 #pragma omp parallel shared(i)
 #pragma omp parallel private(i)
-#pragma omp single private(j) // expected-error {{arguments of OpenMP clause 'private' cannot be of reference type}}
+#pragma omp single private(j)
   foo();
 #pragma omp single private(i)
+  foo();
+  static int m;
+#pragma omp single private(m) // OK
   foo();
 
   return 0;

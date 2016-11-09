@@ -859,11 +859,13 @@ namespace ns1 {
 struct X1 {  
   struct X2 {
     enum { E = [](auto i) { return i; }(3) }; //expected-error{{inside of a constant expression}}\
-                                          //expected-error{{not an integral constant}}
+                                          //expected-error{{constant}}\
+                                          //expected-note{{non-literal type}}
     int L = ([] (int i) { return i; })(2);
     void foo(int i = ([] (int i) { return i; })(2)) { }
     int B : ([](int i) { return i; })(3); //expected-error{{inside of a constant expression}}\
-                                          //expected-error{{not an integral constant}}
+                                          //expected-error{{not an integral constant}}\
+                                          //expected-note{{non-literal type}}
     int arr[([](int i) { return i; })(3)]; //expected-error{{inside of a constant expression}}\
                                            //expected-error{{must have a constant size}}
     int (*fp)(int) = [](int i) { return i; };
@@ -871,9 +873,10 @@ struct X1 {
     int L2 = ([](auto i) { return i; })(2);
     void fooG(int i = ([] (auto i) { return i; })(2)) { }
     int BG : ([](auto i) { return i; })(3); //expected-error{{inside of a constant expression}}  \
-                                             //expected-error{{not an integral constant}}
+                                            //expected-error{{not an integral constant}}\
+                                            //expected-note{{non-literal type}}
     int arrG[([](auto i) { return i; })(3)]; //expected-error{{inside of a constant expression}}\
-                                           //expected-error{{must have a constant size}}
+                                             //expected-error{{must have a constant size}}
     int (*fpG)(int) = [](auto i) { return i; };
     void fooptrG(int (*fp)(char) = [](auto c) { return 0; }) { }
   };
@@ -887,15 +890,19 @@ struct X1 {
     int L = ([] (T i) { return i; })(2);
     void foo(int i = ([] (int i) { return i; })(2)) { }
     int B : ([](T i) { return i; })(3); //expected-error{{inside of a constant expression}}\
-                                          //expected-error{{not an integral constant}}
+                                        //expected-error{{not an integral constant}}\
+                                        //expected-note{{non-literal type}}
     int arr[([](T i) { return i; })(3)]; //expected-error{{inside of a constant expression}}\
-                                           //expected-error{{must have a constant size}}
+                                         //expected-error{{must have a constant size}}
     int (*fp)(T) = [](T i) { return i; };
     void fooptr(T (*fp)(char) = [](char c) { return 0; }) { }
     int L2 = ([](auto i) { return i; })(2);
     void fooG(T i = ([] (auto i) { return i; })(2)) { }
-    int BG : ([](auto i) { return i; })(3); //expected-error{{not an integral constant}}
-    int arrG[([](auto i) { return i; })(3)]; //expected-error{{must have a constant size}}
+    int BG : ([](auto i) { return i; })(3); //expected-error{{not an integral constant}}\
+                                            //expected-note{{non-literal type}}\
+                                            //expected-error{{inside of a constant expression}}
+    int arrG[([](auto i) { return i; })(3)]; //expected-error{{must have a constant size}} \
+                                             //expected-error{{inside of a constant expression}}
     int (*fpG)(T) = [](auto i) { return i; };
     void fooptrG(T (*fp)(char) = [](auto c) { return 0; }) { }
     template<class U = char> int fooG2(T (*fp)(U) = [](auto a) { return 0; }) { return 0; }
@@ -913,3 +920,69 @@ int run2 = x2.fooG3();
 
 
 } //end ns inclass_lambdas_within_nested_classes
+
+namespace pr21684_disambiguate_auto_followed_by_ellipsis_no_id {
+int a = [](auto ...) { return 0; }();
+}
+
+namespace PR22117 {
+  int x = [](auto) {
+    return [](auto... run_args) {
+      using T = int(decltype(run_args)...);
+      return 0;
+    };
+  }(0)(0);
+}
+
+namespace PR23716 {
+template<typename T>
+auto f(T x) {
+  auto g = [](auto&&... args) {
+    auto h = [args...]() -> int {
+      return 0;
+    };
+    return h;
+  };
+  return g;
+}
+
+auto x = f(0)();
+}
+
+namespace PR13987 {
+class Enclosing {
+  void Method(char c = []()->char {
+    int d = [](auto x)->int {
+        struct LocalClass {
+          int Method() { return 0; }
+        };
+      return 0;
+    }(0);
+    return d; }()
+  );
+};
+
+class Enclosing2 {
+  void Method(char c = [](auto x)->char {
+    int d = []()->int {
+        struct LocalClass {
+          int Method() { return 0; }
+        };
+      return 0;
+    }();
+    return d; }(0)
+  );
+};
+
+class Enclosing3 {
+  void Method(char c = [](auto x)->char {
+    int d = [](auto y)->int {
+        struct LocalClass {
+          int Method() { return 0; }
+        };
+      return 0;
+    }(0);
+    return d; }(0)
+  );
+};
+}

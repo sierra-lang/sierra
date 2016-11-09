@@ -15,7 +15,6 @@
 #include "clang/AST/CommentVisitor.h"
 #include "clang/Format/Format.h"
 #include "clang/Index/USRGeneration.h"
-#include "clang/Lex/Lexer.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/Support/raw_ostream.h"
@@ -482,7 +481,6 @@ void CommentASTToHTMLConverter::visitFullComment(const FullComment *C) {
     Result << "</div>";
   }
 
-  Result.flush();
 }
 
 void CommentASTToHTMLConverter::visitNonStandaloneParagraphComment(
@@ -609,14 +607,9 @@ void CommentASTToXMLConverter::formatTextOfDeclaration(
       .getLocWithOffset(0);
   unsigned Length = Declaration.size();
 
-  std::vector<CharSourceRange> Ranges(
-      1, CharSourceRange::getCharRange(Start, Start.getLocWithOffset(Length)));
-  ASTContext &Context = DI->CurrentDecl->getASTContext();
-  const LangOptions &LangOpts = Context.getLangOpts();
-  Lexer Lex(ID, FormatRewriterContext.Sources.getBuffer(ID),
-            FormatRewriterContext.Sources, LangOpts);
   tooling::Replacements Replace = reformat(
-      format::getLLVMStyle(), Lex, FormatRewriterContext.Sources, Ranges);
+      format::getLLVMStyle(), FormatRewriterContext.Sources, ID,
+      CharSourceRange::getCharRange(Start, Start.getLocWithOffset(Length)));
   applyAllReplacements(Replace, FormatRewriterContext.Rewrite);
   Declaration = FormatRewriterContext.getRewrittenText(ID);
 }
@@ -901,7 +894,7 @@ void CommentASTToXMLConverter::visitFullComment(const FullComment *C) {
       FileID FID = LocInfo.first;
       unsigned FileOffset = LocInfo.second;
 
-      if (!FID.isInvalid()) {
+      if (FID.isValid()) {
         if (const FileEntry *FE = SM.getFileEntryForID(FID)) {
           Result << " file=\"";
           appendToResultWithXMLEscaping(FE->getName());
@@ -1084,8 +1077,6 @@ void CommentASTToXMLConverter::visitFullComment(const FullComment *C) {
   }
 
   Result << RootEndTag;
-
-  Result.flush();
 }
 
 void CommentASTToXMLConverter::appendToResultWithXMLEscaping(StringRef S) {

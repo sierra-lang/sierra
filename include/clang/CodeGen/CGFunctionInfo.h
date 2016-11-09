@@ -13,10 +13,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_CODEGEN_FUNCTION_INFO_H
-#define LLVM_CLANG_CODEGEN_FUNCTION_INFO_H
+#ifndef LLVM_CLANG_CODEGEN_CGFUNCTIONINFO_H
+#define LLVM_CLANG_CODEGEN_CGFUNCTIONINFO_H
 
 #include "clang/AST/CanonicalType.h"
+#include "clang/AST/CharUnits.h"
 #include "clang/AST/Type.h"
 #include "llvm/ADT/FoldingSet.h"
 #include <cassert>
@@ -63,10 +64,10 @@ public:
     Expand,
 
     /// InAlloca - Pass the argument directly using the LLVM inalloca attribute.
-    /// This is similar to 'direct', except it only applies to arguments stored
-    /// in memory and forbids any implicit copies.  When applied to a return
-    /// type, it means the value is returned indirectly via an implicit sret
-    /// parameter stored in the argument struct.
+    /// This is similar to indirect with byval, except it only applies to
+    /// arguments stored in memory and forbids any implicit copies.  When
+    /// applied to a return type, it means the value is returned indirectly via
+    /// an implicit sret parameter stored in the argument struct.
     InAlloca,
     KindFirst = Direct,
     KindLast = InAlloca
@@ -87,6 +88,7 @@ private:
   bool IndirectRealign : 1; // isIndirect()
   bool SRetAfterThis : 1;   // isIndirect()
   bool InReg : 1;           // isDirect() || isExtend() || isIndirect()
+  bool CanBeFlattened: 1;   // isDirect()
 
   ABIArgInfo(Kind K)
       : PaddingType(nullptr), TheKind(K), PaddingInReg(false), InReg(false) {}
@@ -97,11 +99,13 @@ public:
         TheKind(Direct), PaddingInReg(false), InReg(false) {}
 
   static ABIArgInfo getDirect(llvm::Type *T = nullptr, unsigned Offset = 0,
-                              llvm::Type *Padding = nullptr) {
+                              llvm::Type *Padding = nullptr,
+                              bool CanBeFlattened = true) {
     auto AI = ABIArgInfo(Direct);
     AI.setCoerceToType(T);
     AI.setDirectOffset(Offset);
     AI.setPaddingType(Padding);
+    AI.setCanBeFlattened(CanBeFlattened);
     return AI;
   }
   static ABIArgInfo getDirectInReg(llvm::Type *T = nullptr) {
@@ -123,7 +127,7 @@ public:
   static ABIArgInfo getIgnore() {
     return ABIArgInfo(Ignore);
   }
-  static ABIArgInfo getIndirect(unsigned Alignment, bool ByVal = true,
+  static ABIArgInfo getIndirect(CharUnits Alignment, bool ByVal = true,
                                 bool Realign = false,
                                 llvm::Type *Padding = nullptr) {
     auto AI = ABIArgInfo(Indirect);
@@ -134,7 +138,7 @@ public:
     AI.setPaddingType(Padding);
     return AI;
   }
-  static ABIArgInfo getIndirectInReg(unsigned Alignment, bool ByVal = true,
+  static ABIArgInfo getIndirectInReg(CharUnits Alignment, bool ByVal = true,
                                      bool Realign = false) {
     auto AI = getIndirect(Alignment, ByVal, Realign);
     AI.setInReg(true);
@@ -208,20 +212,20 @@ public:
   }
 
   // Indirect accessors
-  unsigned getIndirectAlign() const {
+  CharUnits getIndirectAlign() const {
     assert(isIndirect() && "Invalid kind!");
-    return IndirectAlign;
+    return CharUnits::fromQuantity(IndirectAlign);
   }
-  void setIndirectAlign(unsigned IA) {
+  void setIndirectAlign(CharUnits IA) {
     assert(isIndirect() && "Invalid kind!");
-    IndirectAlign = IA;
+    IndirectAlign = IA.getQuantity();
   }
 
   bool getIndirectByVal() const {
     assert(isIndirect() && "Invalid kind!");
     return IndirectByVal;
   }
-  void setIndirectByVal(unsigned IBV) {
+  void setIndirectByVal(bool IBV) {
     assert(isIndirect() && "Invalid kind!");
     IndirectByVal = IBV;
   }
@@ -263,6 +267,16 @@ public:
   void setInAllocaSRet(bool SRet) {
     assert(isInAlloca() && "Invalid kind!");
     InAllocaSRet = SRet;
+  }
+
+  bool getCanBeFlattened() const {
+    assert(isDirect() && "Invalid kind!");
+    return CanBeFlattened;
+  }
+
+  void setCanBeFlattened(bool Flatten) {
+    assert(isDirect() && "Invalid kind!");
+    CanBeFlattened = Flatten;
   }
 
   void dump() const;
@@ -339,6 +353,9 @@ class CGFunctionInfo : public llvm::FoldingSetNode {
   /// Whether this is an instance method.
   unsigned InstanceMethod : 1;
 
+  /// Whether this is a chain call.
+  unsigned ChainCall : 1;
+
   /// Whether this function is noreturn.
   unsigned NoReturn : 1;
 
@@ -347,7 +364,7 @@ class CGFunctionInfo : public llvm::FoldingSetNode {
 
   /// How many arguments to pass inreg.
   unsigned HasRegParm : 1;
-  unsigned RegParm : 4;
+  unsigned RegParm : 3;
   unsigned SierraSpmd;
 
   RequiredArgs Required;
@@ -355,6 +372,7 @@ class CGFunctionInfo : public llvm::FoldingSetNode {
   /// The struct representing all arguments passed in memory.  Only used when
   /// passing non-trivial types with inalloca.  Not part of the profile.
   llvm::StructType *ArgStruct;
+  unsigned ArgStructAlign;
 
   unsigned NumArgs;
   ArgInfo *getArgsBuffer() {
@@ -368,7 +386,8 @@ class CGFunctionInfo : public llvm::FoldingSetNode {
 
 public:
   static CGFunctionInfo *create(unsigned llvmCC,
-                                bool InstanceMethod,
+                                bool instanceMethod,
+                                bool chainCall,
                                 const FunctionType::ExtInfo &extInfo,
                                 CanQualType resultType,
                                 ArrayRef<CanQualType> argTypes,
@@ -394,8 +413,13 @@ public:
 
   bool isVariadic() const { return Required.allowsOptionalArgs(); }
   RequiredArgs getRequiredArgs() const { return Required; }
+  unsigned getNumRequiredArgs() const {
+    return isVariadic() ? getRequiredArgs().getNumRequiredArgs() : arg_size();
+  }
 
   bool isInstanceMethod() const { return InstanceMethod; }
+
+  bool isChainCall() const { return ChainCall; }
 
   bool isNoReturn() const { return NoReturn; }
 
@@ -443,11 +467,18 @@ public:
 
   /// \brief Get the struct type used to represent all the arguments in memory.
   llvm::StructType *getArgStruct() const { return ArgStruct; }
-  void setArgStruct(llvm::StructType *Ty) { ArgStruct = Ty; }
+  CharUnits getArgStructAlignment() const {
+    return CharUnits::fromQuantity(ArgStructAlign);
+  }
+  void setArgStruct(llvm::StructType *Ty, CharUnits Align) {
+    ArgStruct = Ty;
+    ArgStructAlign = Align.getQuantity();
+  }
 
   void Profile(llvm::FoldingSetNodeID &ID) {
     ID.AddInteger(getASTCallingConvention());
     ID.AddBoolean(InstanceMethod);
+    ID.AddBoolean(ChainCall);
     ID.AddBoolean(NoReturn);
     ID.AddBoolean(ReturnsRetained);
     ID.AddBoolean(HasRegParm);
@@ -460,12 +491,14 @@ public:
   }
   static void Profile(llvm::FoldingSetNodeID &ID,
                       bool InstanceMethod,
+                      bool ChainCall,
                       const FunctionType::ExtInfo &info,
                       RequiredArgs required,
                       CanQualType resultType,
                       ArrayRef<CanQualType> argTypes) {
     ID.AddInteger(info.getCC());
     ID.AddBoolean(InstanceMethod);
+    ID.AddBoolean(ChainCall);
     ID.AddBoolean(info.getNoReturn());
     ID.AddBoolean(info.getProducesResult());
     ID.AddBoolean(info.getHasRegParm());
@@ -478,6 +511,29 @@ public:
       i->Profile(ID);
     }
   }
+};
+
+/// CGCalleeInfo - Class to encapsulate the information about a callee to be
+/// used during the generation of call/invoke instructions.
+class CGCalleeInfo {
+  /// \brief The function proto type of the callee.
+  const FunctionProtoType *CalleeProtoTy;
+  /// \brief The function declaration of the callee.
+  const Decl *CalleeDecl;
+
+public:
+  explicit CGCalleeInfo() : CalleeProtoTy(nullptr), CalleeDecl(nullptr) {}
+  CGCalleeInfo(const FunctionProtoType *calleeProtoTy, const Decl *calleeDecl)
+      : CalleeProtoTy(calleeProtoTy), CalleeDecl(calleeDecl) {}
+  CGCalleeInfo(const FunctionProtoType *calleeProtoTy)
+      : CalleeProtoTy(calleeProtoTy), CalleeDecl(nullptr) {}
+  CGCalleeInfo(const Decl *calleeDecl)
+      : CalleeProtoTy(nullptr), CalleeDecl(calleeDecl) {}
+
+  const FunctionProtoType *getCalleeFunctionProtoType() {
+    return CalleeProtoTy;
+  }
+  const Decl *getCalleeDecl() { return CalleeDecl; }
 };
 
 }  // end namespace CodeGen

@@ -3,9 +3,9 @@
 #include "llvm/ADT/StringSwitch.h"
 using namespace clang;
 
-bool clang::hasAttribute(AttrSyntax Syntax, const IdentifierInfo *Scope,
-                         const IdentifierInfo *Attr, const llvm::Triple &T,
-                         const LangOptions &LangOpts) {
+int clang::hasAttribute(AttrSyntax Syntax, const IdentifierInfo *Scope,
+                        const IdentifierInfo *Attr, const TargetInfo &Target,
+                        const LangOptions &LangOpts) {
   StringRef Name = Attr->getName();
   // Normalize the attribute name, __foo__ becomes foo.
   if (Name.size() >= 4 && Name.startswith("__") && Name.endswith("__"))
@@ -13,5 +13,5 @@ bool clang::hasAttribute(AttrSyntax Syntax, const IdentifierInfo *Scope,
 
 #include "clang/Basic/AttrHasAttributeImpl.inc"
 
-  return false;
+  return 0;
 }

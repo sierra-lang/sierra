@@ -28,16 +28,16 @@ public:
   TestFrontendAction(ExternalASTSource *Source) : Source(Source) {}
 
 private:
-  virtual void ExecuteAction() {
+  void ExecuteAction() override {
     getCompilerInstance().getASTContext().setExternalSource(Source);
     getCompilerInstance().getASTContext().getTranslationUnitDecl()
         ->setHasExternalVisibleStorage();
     return ASTFrontendAction::ExecuteAction();
   }
 
-  virtual ASTConsumer *CreateASTConsumer(CompilerInstance &CI,
-                                         StringRef InFile) {
-    return new ASTConsumer;
+  std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
+                                                 StringRef InFile) override {
+    return llvm::make_unique<ASTConsumer>();
   }
 
   IntrusiveRefCntPtr<ExternalASTSource> Source;
@@ -50,7 +50,7 @@ bool testExternalASTSource(ExternalASTSource *Source,
 
   CompilerInvocation *Invocation = new CompilerInvocation;
   Invocation->getPreprocessorOpts().addRemappedFile(
-    "test.cc", MemoryBuffer::getMemBuffer(FileContents));
+      "test.cc", MemoryBuffer::getMemBuffer(FileContents).release());
   const char *Args[] = { "test.cc" };
   CompilerInvocation::CreateFromArgs(*Invocation, Args,
                                      Args + array_lengthof(Args),
@@ -67,8 +67,8 @@ TEST(ExternalASTSourceTest, FailedLookupOccursOnce) {
   struct TestSource : ExternalASTSource {
     TestSource(unsigned &Calls) : Calls(Calls) {}
 
-    bool FindExternalVisibleDeclsByName(const DeclContext*,
-                                        DeclarationName Name) {
+    bool FindExternalVisibleDeclsByName(const DeclContext *,
+                                        DeclarationName Name) override {
       if (Name.getAsString() == "j")
         ++Calls;
       return false;

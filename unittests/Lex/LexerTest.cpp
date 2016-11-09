@@ -37,13 +37,12 @@ class VoidModuleLoader : public ModuleLoader {
 
   void makeModuleVisible(Module *Mod,
                          Module::NameVisibilityKind Visibility,
-                         SourceLocation ImportLoc,
-                         bool Complain) override { }
+                         SourceLocation ImportLoc) override { }
 
   GlobalModuleIndex *loadGlobalModuleIndex(SourceLocation TriggerLoc) override
     { return nullptr; }
   bool lookupMissingImports(StringRef Name, SourceLocation TriggerLoc) override
-    { return 0; };
+    { return 0; }
 };
 
 // The test fixture.
@@ -62,8 +61,8 @@ protected:
 
   std::vector<Token> CheckLex(StringRef Source,
                               ArrayRef<tok::TokenKind> ExpectedTokens) {
-    MemoryBuffer *buf = MemoryBuffer::getMemBuffer(Source);
-    SourceMgr.setMainFileID(SourceMgr.createFileID(buf));
+    std::unique_ptr<MemoryBuffer> Buf = MemoryBuffer::getMemBuffer(Source);
+    SourceMgr.setMainFileID(SourceMgr.createFileID(std::move(Buf)));
 
     VoidModuleLoader ModLoader;
     HeaderSearch HeaderInfo(new HeaderSearchOptions, SourceMgr, Diags, LangOpts,

@@ -39,3 +39,17 @@ int rvarr(int n, int a[restrict static n]) {
   return a[2];
 }
 
+typedef struct {
+  int f;
+} T __attribute__ ((__aligned__));
+
+// CHECK: struct __attribute__((visibility("default"))) S;
+struct __attribute__((visibility("default"))) S;
+
+struct pair_t {
+  int a;
+  int b;
+};
+
+// CHECK: struct pair_t p = {a: 3, .b = 4};
+struct pair_t p = {a: 3, .b = 4};

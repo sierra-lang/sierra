@@ -12,8 +12,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_SOURCELOCATION_H
-#define LLVM_CLANG_SOURCELOCATION_H
+#ifndef LLVM_CLANG_BASIC_SOURCELOCATION_H
+#define LLVM_CLANG_BASIC_SOURCELOCATION_H
 
 #include "clang/Basic/LLVM.h"
 #include "llvm/Support/Compiler.h"
@@ -43,6 +43,7 @@ class FileID {
 public:
   FileID() : ID(0) {}
 
+  bool isValid() const { return ID != 0; }
   bool isInvalid() const { return ID == 0; }
 
   bool operator==(const FileID &RHS) const { return ID == RHS.ID; }
@@ -252,7 +253,7 @@ public:
   
   SourceLocation getBegin() const { return Range.getBegin(); }
   SourceLocation getEnd() const { return Range.getEnd(); }
-  const SourceRange &getAsRange() const { return Range; }
+  SourceRange getAsRange() const { return Range; }
  
   void setBegin(SourceLocation b) { Range.setBegin(b); }
   void setEnd(SourceLocation e) { Range.setEnd(e); }
@@ -292,7 +293,6 @@ public:
 
   const char *getCharacterData(bool *Invalid = nullptr) const;
 
-  const llvm::MemoryBuffer* getBuffer(bool *Invalid = nullptr) const;
 
   /// \brief Return a StringRef to the source buffer data for the
   /// specified FileID.

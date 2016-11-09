@@ -1,7 +1,11 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -verify -Wbind-to-temporary-copy %s
+// RUN: %clang_cc1 -fsyntax-only -verify -Wbind-to-temporary-copy -std=c++98 %s
+// RUN: %clang_cc1 -fsyntax-only -verify -Wbind-to-temporary-copy -std=c++11 %s
 
 // Make sure we don't produce invalid IR.
 // RUN: %clang_cc1 -emit-llvm-only %s
+// RUN: %clang_cc1 -emit-llvm-only -std=c++98 %s
+// RUN: %clang_cc1 -emit-llvm-only -std=c++11 %s
 
 namespace test1 {
   static void foo(); // expected-warning {{function 'test1::foo' has internal linkage but is not defined}}
@@ -119,7 +123,12 @@ namespace PR9323 {
   }
   void f(const Uncopyable&) {}
   void test() {
-    f(Uncopyable()); // expected-warning {{C++98 requires an accessible copy constructor}}
+    f(Uncopyable()); 
+#if __cplusplus <= 199711L // C++03 or earlier modes
+    // expected-warning@-2 {{C++98 requires an accessible copy constructor}}
+#else
+    // expected-warning@-4 {{copying parameter of type 'PR9323::(anonymous namespace)::Uncopyable' when binding a reference to a temporary would invoke an inaccessible constructor in C++98}}
+#endif
   };
 }
 
@@ -163,7 +172,7 @@ namespace cxx11_odr_rules {
 
     // Check that the checks work with unevaluated contexts
     (void)sizeof(p(A::used1));
-    (void)typeid(p(A::used1)); // xpected-note {{used here}}
+    (void)typeid(p(A::used1)); // expected-warning {{expression with side effects will be evaluated despite being used as an operand to 'typeid'}} xpected-note {{used here}}
 
     // Misc other testing
     a(A::unused, 1 ? A::used2 : A::used2); // xpected-note {{used here}}

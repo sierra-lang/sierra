@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_GR_VALUESTATE_H
-#define LLVM_CLANG_GR_VALUESTATE_H
+#ifndef LLVM_CLANG_STATICANALYZER_CORE_PATHSENSITIVE_PROGRAMSTATE_H
+#define LLVM_CLANG_STATICANALYZER_CORE_PATHSENSITIVE_PROGRAMSTATE_H
 
 #include "clang/Basic/LLVM.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ConstraintManager.h"
@@ -39,9 +39,10 @@ namespace ento {
 class CallEvent;
 class CallEventManager;
 
-typedef ConstraintManager* (*ConstraintManagerCreator)(ProgramStateManager&,
-                                                       SubEngine*);
-typedef StoreManager* (*StoreManagerCreator)(ProgramStateManager&);
+typedef std::unique_ptr<ConstraintManager>(*ConstraintManagerCreator)(
+    ProgramStateManager &, SubEngine *);
+typedef std::unique_ptr<StoreManager>(*StoreManagerCreator)(
+    ProgramStateManager &);
 
 //===----------------------------------------------------------------------===//
 // ProgramStateTrait - Traits used by the Generic Data Map of a ProgramState.
@@ -75,7 +76,7 @@ public:
   typedef llvm::ImmutableMap<void*, void*>                 GenericDataMap;
 
 private:
-  void operator=(const ProgramState& R) LLVM_DELETED_FUNCTION;
+  void operator=(const ProgramState& R) = delete;
 
   friend class ProgramStateManager;
   friend class ExplodedGraph;
@@ -189,6 +190,27 @@ public:
                                DefinedOrUnknownSVal upperBound,
                                bool assumption,
                                QualType IndexType = QualType()) const;
+
+  /// Assumes that the value of \p Val is bounded with [\p From; \p To]
+  /// (if \p assumption is "true") or it is fully out of this range
+  /// (if \p assumption is "false").
+  ///
+  /// This returns a new state with the added constraint on \p cond.
+  /// If no new state is feasible, NULL is returned.
+  ProgramStateRef assumeWithinInclusiveRange(DefinedOrUnknownSVal Val,
+                                             const llvm::APSInt &From,
+                                             const llvm::APSInt &To,
+                                             bool assumption) const;
+
+  /// Assumes given range both "true" and "false" for \p Val, and returns both
+  /// corresponding states (respectively).
+  ///
+  /// This is more efficient than calling assume() twice. Note that one (but not
+  /// both) of the returned states may be NULL.
+  std::pair<ProgramStateRef, ProgramStateRef>
+  assumeWithinInclusiveRange(DefinedOrUnknownSVal Val, const llvm::APSInt &From,
+                             const llvm::APSInt &To) const;
+
   
   /// \brief Check if the given SVal is constrained to zero or is a zero
   ///        constant.
@@ -335,20 +357,6 @@ public:
   bool isTainted(SVal V, TaintTagType Kind = TaintTagGeneric) const;
   bool isTainted(SymbolRef Sym, TaintTagType Kind = TaintTagGeneric) const;
   bool isTainted(const MemRegion *Reg, TaintTagType Kind=TaintTagGeneric) const;
-
-  /// \brief Get dynamic type information for a region.
-  DynamicTypeInfo getDynamicTypeInfo(const MemRegion *Reg) const;
-
-  /// \brief Set dynamic type information of the region; return the new state.
-  ProgramStateRef setDynamicTypeInfo(const MemRegion *Reg,
-                                     DynamicTypeInfo NewTy) const;
-
-  /// \brief Set dynamic type information of the region; return the new state.
-  ProgramStateRef setDynamicTypeInfo(const MemRegion *Reg,
-                                     QualType NewTy,
-                                     bool CanBeSubClassed = true) const {
-    return setDynamicTypeInfo(Reg, DynamicTypeInfo(NewTy, CanBeSubClassed));
-  }
 
   //==---------------------------------------------------------------------==//
   // Accessing the Generic Data Map (GDM).
@@ -647,6 +655,33 @@ ProgramState::assume(DefinedOrUnknownSVal Cond) const {
 
   return getStateManager().ConstraintMgr
       ->assumeDual(this, Cond.castAs<DefinedSVal>());
+}
+
+inline ProgramStateRef
+ProgramState::assumeWithinInclusiveRange(DefinedOrUnknownSVal Val,
+                                         const llvm::APSInt &From,
+                                         const llvm::APSInt &To,
+                                         bool Assumption) const {
+  if (Val.isUnknown())
+    return this;
+
+  assert(Val.getAs<NonLoc>() && "Only NonLocs are supported!");
+
+  return getStateManager().ConstraintMgr->assumeWithinInclusiveRange(
+        this, Val.castAs<NonLoc>(), From, To, Assumption);
+}
+
+inline std::pair<ProgramStateRef, ProgramStateRef>
+ProgramState::assumeWithinInclusiveRange(DefinedOrUnknownSVal Val,
+                                         const llvm::APSInt &From,
+                                         const llvm::APSInt &To) const {
+  if (Val.isUnknown())
+    return std::make_pair(this, this);
+
+  assert(Val.getAs<NonLoc>() && "Only NonLocs are supported!");
+
+  return getStateManager().ConstraintMgr
+      ->assumeWithinInclusiveRangeDual(this, Val.castAs<NonLoc>(), From, To);
 }
 
 inline ProgramStateRef ProgramState::bindLoc(SVal LV, SVal V) const {

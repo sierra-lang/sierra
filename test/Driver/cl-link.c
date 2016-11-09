@@ -1,6 +1,3 @@
-// Don't attempt slash switches on msys bash.
-// REQUIRES: shell-preserves-root
-
 // Note: %s must be preceded by -- or bound to another option, otherwise it may
 // be interpreted as a command-line option, e.g. on Mac where %s is commonly
 // under /Users.
@@ -11,7 +8,7 @@
 // LINK: "bar"
 // LINK: "baz"
 
-// RUN: %clang_cl /Tc%s -### -fsanitize=address 2>&1 | FileCheck --check-prefix=ASAN %s
+// RUN: %clang_cl -m32 -arch:IA32 --target=i386-pc-win32 /Tc%s -### -fsanitize=address 2>&1 | FileCheck --check-prefix=ASAN %s
 // ASAN: link.exe
 // ASAN: "-debug"
 // ASAN: "-incremental:no"
@@ -19,13 +16,22 @@
 // ASAN: "{{.*}}clang_rt.asan_cxx-i386.lib"
 // ASAN: "{{.*}}cl-link{{.*}}.obj"
 
+// RUN: %clang_cl -m32 -arch:IA32 --target=i386-pc-win32 /MD /Tc%s -### -fsanitize=address 2>&1 | FileCheck --check-prefix=ASAN-MD %s
+// ASAN-MD: link.exe
+// ASAN-MD: "-debug"
+// ASAN-MD: "-incremental:no"
+// ASAN-MD: "{{.*}}clang_rt.asan_dynamic-i386.lib"
+// ASAN-MD: "{{.*}}clang_rt.asan_dynamic_runtime_thunk-i386.lib"
+// ASAN-MD: "-include:___asan_seh_interceptor"
+// ASAN-MD: "{{.*}}cl-link{{.*}}.obj"
+
 // RUN: %clang_cl /LD -### /Tc%s 2>&1 | FileCheck --check-prefix=DLL %s
 // RUN: %clang_cl /LDd -### /Tc%s 2>&1 | FileCheck --check-prefix=DLL %s
 // DLL: link.exe
 // "-dll"
 
-// RUN: %clang_cl /LD /Tc%s -### -fsanitize=address 2>&1 | FileCheck --check-prefix=ASAN-DLL %s
-// RUN: %clang_cl /LDd /Tc%s -### -fsanitize=address 2>&1 | FileCheck --check-prefix=ASAN-DLL %s
+// RUN: %clang_cl -m32 -arch:IA32 --target=i386-pc-win32 /LD /Tc%s -### -fsanitize=address 2>&1 | FileCheck --check-prefix=ASAN-DLL %s
+// RUN: %clang_cl -m32 -arch:IA32 --target=i386-pc-win32 /LDd /Tc%s -### -fsanitize=address 2>&1 | FileCheck --check-prefix=ASAN-DLL %s
 // ASAN-DLL: link.exe
 // ASAN-DLL: "-dll"
 // ASAN-DLL: "-debug"

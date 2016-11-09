@@ -35,13 +35,40 @@ static const FunctionProtoType *GetUnderlyingFunction(QualType T)
   return T->getAs<FunctionProtoType>();
 }
 
+/// HACK: libstdc++ has a bug where it shadows std::swap with a member
+/// swap function then tries to call std::swap unqualified from the exception
+/// specification of that function. This function detects whether we're in
+/// such a case and turns off delay-parsing of exception specifications.
+bool Sema::isLibstdcxxEagerExceptionSpecHack(const Declarator &D) {
+  auto *RD = dyn_cast<CXXRecordDecl>(CurContext);
+
+  // All the problem cases are member functions named "swap" within class
+  // templates declared directly within namespace std.
+  if (!RD || RD->getEnclosingNamespaceContext() != getStdNamespace() ||
+      !RD->getIdentifier() || !RD->getDescribedClassTemplate() ||
+      !D.getIdentifier() || !D.getIdentifier()->isStr("swap"))
+    return false;
+
+  // Only apply this hack within a system header.
+  if (!Context.getSourceManager().isInSystemHeader(D.getLocStart()))
+    return false;
+
+  return llvm::StringSwitch<bool>(RD->getIdentifier()->getName())
+      .Case("array", true)
+      .Case("pair", true)
+      .Case("priority_queue", true)
+      .Case("stack", true)
+      .Case("queue", true)
+      .Default(false);
+}
+
 /// CheckSpecifiedExceptionType - Check if the given type is valid in an
 /// exception specification. Incomplete types, or pointers to incomplete types
 /// other than void are not allowed.
 ///
 /// \param[in,out] T  The exception type. This will be decayed to a pointer type
 ///                   when the input is an array or a function type.
-bool Sema::CheckSpecifiedExceptionType(QualType &T, const SourceRange &Range) {
+bool Sema::CheckSpecifiedExceptionType(QualType &T, SourceRange Range) {
   // C++11 [except.spec]p2:
   //   A type cv T, "array of T", or "function returning T" denoted
   //   in an exception-specification is adjusted to type T, "pointer to T", or
@@ -112,6 +139,11 @@ bool Sema::CheckDistantExceptionSpec(QualType T) {
 
 const FunctionProtoType *
 Sema::ResolveExceptionSpec(SourceLocation Loc, const FunctionProtoType *FPT) {
+  if (FPT->getExceptionSpecType() == EST_Unparsed) {
+    Diag(Loc, diag::err_exception_spec_not_parsed);
+    return nullptr;
+  }
+
   if (!isUnresolvedExceptionSpec(FPT->getExceptionSpecType()))
     return FPT;
 
@@ -129,26 +161,25 @@ Sema::ResolveExceptionSpec(SourceLocation Loc, const FunctionProtoType *FPT) {
   else
     InstantiateExceptionSpec(Loc, SourceDecl);
 
-  return SourceDecl->getType()->castAs<FunctionProtoType>();
+  const FunctionProtoType *Proto =
+    SourceDecl->getType()->castAs<FunctionProtoType>();
+  if (Proto->getExceptionSpecType() == clang::EST_Unparsed) {
+    Diag(Loc, diag::err_exception_spec_not_parsed);
+    Proto = nullptr;
+  }
+  return Proto;
 }
 
-void Sema::UpdateExceptionSpec(FunctionDecl *FD,
-                               const FunctionProtoType::ExtProtoInfo &EPI) {
-  const FunctionProtoType *Proto = FD->getType()->castAs<FunctionProtoType>();
-
-  // Overwrite the exception spec and rebuild the function type.
-  FunctionProtoType::ExtProtoInfo NewEPI = Proto->getExtProtoInfo();
-  NewEPI.ExceptionSpecType = EPI.ExceptionSpecType;
-  NewEPI.NumExceptions = EPI.NumExceptions;
-  NewEPI.Exceptions = EPI.Exceptions;
-  NewEPI.NoexceptExpr = EPI.NoexceptExpr;
-  FD->setType(Context.getFunctionType(Proto->getReturnType(),
-                                      Proto->getParamTypes(), NewEPI));
-
+void
+Sema::UpdateExceptionSpec(FunctionDecl *FD,
+                          const FunctionProtoType::ExceptionSpecInfo &ESI) {
   // If we've fully resolved the exception specification, notify listeners.
-  if (!isUnresolvedExceptionSpec(EPI.ExceptionSpecType))
+  if (!isUnresolvedExceptionSpec(ESI.Type))
     if (auto *Listener = getASTMutationListener())
       Listener->ResolvedExceptionSpec(FD);
+
+  for (auto *Redecl : FD->redecls())
+    Context.adjustExceptionSpec(cast<FunctionDecl>(Redecl), ESI);
 }
 
 /// Determine whether a function has an implicitly-generated exception
@@ -201,7 +232,7 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
         hasImplicitExceptionSpec(Old) != hasImplicitExceptionSpec(New)) {
       Diag(New->getLocation(), diag::ext_implicit_exception_spec_mismatch)
         << hasImplicitExceptionSpec(Old);
-      if (!Old->getLocation().isInvalid())
+      if (Old->getLocation().isValid())
         Diag(Old->getLocation(), diag::note_previous_declaration);
     }
     return false;
@@ -227,32 +258,47 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
       (Old->getLocation().isInvalid() ||
        Context.getSourceManager().isInSystemHeader(Old->getLocation())) &&
       Old->isExternC()) {
-    FunctionProtoType::ExtProtoInfo EPI = NewProto->getExtProtoInfo();
-    EPI.ExceptionSpecType = EST_DynamicNone;
-    QualType NewType = Context.getFunctionType(NewProto->getReturnType(),
-                                               NewProto->getParamTypes(), EPI);
-    New->setType(NewType);
+    New->setType(Context.getFunctionType(
+        NewProto->getReturnType(), NewProto->getParamTypes(),
+        NewProto->getExtProtoInfo().withExceptionSpec(EST_DynamicNone)));
     return false;
   }
 
   const FunctionProtoType *OldProto =
     Old->getType()->castAs<FunctionProtoType>();
 
-  FunctionProtoType::ExtProtoInfo EPI = NewProto->getExtProtoInfo();
-  EPI.ExceptionSpecType = OldProto->getExceptionSpecType();
-  if (EPI.ExceptionSpecType == EST_Dynamic) {
-    EPI.NumExceptions = OldProto->getNumExceptions();
-    EPI.Exceptions = OldProto->exception_begin();
-  } else if (EPI.ExceptionSpecType == EST_ComputedNoexcept) {
-    // FIXME: We can't just take the expression from the old prototype. It
-    // likely contains references to the old prototype's parameters.
+  FunctionProtoType::ExceptionSpecInfo ESI = OldProto->getExceptionSpecType();
+  if (ESI.Type == EST_Dynamic) {
+    ESI.Exceptions = OldProto->exceptions();
   }
 
-  // Update the type of the function with the appropriate exception
-  // specification.
-  QualType NewType = Context.getFunctionType(NewProto->getReturnType(),
-                                             NewProto->getParamTypes(), EPI);
-  New->setType(NewType);
+  if (ESI.Type == EST_ComputedNoexcept) {
+    // For computed noexcept, we can't just take the expression from the old
+    // prototype. It likely contains references to the old prototype's
+    // parameters.
+    New->setInvalidDecl();
+  } else {
+    // Update the type of the function with the appropriate exception
+    // specification.
+    New->setType(Context.getFunctionType(
+        NewProto->getReturnType(), NewProto->getParamTypes(),
+        NewProto->getExtProtoInfo().withExceptionSpec(ESI)));
+  }
+
+  if (getLangOpts().MicrosoftExt && ESI.Type != EST_ComputedNoexcept) {
+    // Allow missing exception specifications in redeclarations as an extension.
+    DiagID = diag::ext_ms_missing_exception_specification;
+    ReturnValueOnError = false;
+  } else if (New->isReplaceableGlobalAllocationFunction() &&
+             ESI.Type != EST_ComputedNoexcept) {
+    // Allow missing exception specifications in redeclarations as an extension,
+    // when declaring a replaceable global allocation function.
+    DiagID = diag::ext_missing_exception_specification;
+    ReturnValueOnError = false;
+  } else {
+    DiagID = diag::err_missing_exception_specification;
+    ReturnValueOnError = true;
+  }
 
   // Warn about the lack of exception specification.
   SmallString<128> ExceptionSpecString;
@@ -291,30 +337,30 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
   default:
     llvm_unreachable("This spec type is compatible with none.");
   }
-  OS.flush();
 
   SourceLocation FixItLoc;
   if (TypeSourceInfo *TSInfo = New->getTypeSourceInfo()) {
     TypeLoc TL = TSInfo->getTypeLoc().IgnoreParens();
-    if (FunctionTypeLoc FTLoc = TL.getAs<FunctionTypeLoc>())
-      FixItLoc = getLocForEndOfToken(FTLoc.getLocalRangeEnd());
+    // FIXME: Preserve enough information so that we can produce a correct fixit
+    // location when there is a trailing return type.
+    if (auto FTLoc = TL.getAs<FunctionProtoTypeLoc>())
+      if (!FTLoc.getTypePtr()->hasTrailingReturn())
+        FixItLoc = getLocForEndOfToken(FTLoc.getLocalRangeEnd());
   }
 
   if (FixItLoc.isInvalid())
-    Diag(New->getLocation(), diag::warn_missing_exception_specification)
+    Diag(New->getLocation(), DiagID)
       << New << OS.str();
   else {
-    // FIXME: This will get more complicated with C++0x
-    // late-specified return types.
-    Diag(New->getLocation(), diag::warn_missing_exception_specification)
+    Diag(New->getLocation(), DiagID)
       << New << OS.str()
       << FixItHint::CreateInsertion(FixItLoc, " " + OS.str().str());
   }
 
-  if (!Old->getLocation().isInvalid())
+  if (Old->getLocation().isValid())
     Diag(Old->getLocation(), diag::note_previous_declaration);
 
-  return false;
+  return ReturnValueOnError;
 }
 
 /// CheckEquivalentExceptionSpec - Check if the two types have equivalent
@@ -376,7 +422,7 @@ bool Sema::CheckEquivalentExceptionSpec(const PartialDiagnostic &DiagID,
   //   - both are dynamic-exception-specifications that have the same set of
   //     adjusted types.
   //
-  // C++0x [except.spec]p12: An exception-specifcation is non-throwing if it is
+  // C++0x [except.spec]p12: An exception-specification is non-throwing if it is
   //   of the form throw(), noexcept, or noexcept(constant-expression) where the
   //   constant-expression yields true.
   //
@@ -416,7 +462,7 @@ bool Sema::CheckEquivalentExceptionSpec(const PartialDiagnostic &DiagID,
       OldNR != FunctionProtoType::NR_NoNoexcept &&
       NewNR != FunctionProtoType::NR_NoNoexcept) {
     Diag(NewLoc, DiagID);
-    if (NoteID.getDiagID() != 0)
+    if (NoteID.getDiagID() != 0 && OldLoc.isValid())
       Diag(OldLoc, NoteID);
     return true;
   }
@@ -497,7 +543,7 @@ bool Sema::CheckEquivalentExceptionSpec(const PartialDiagnostic &DiagID,
     }
 
     Diag(NewLoc, DiagID);
-    if (NoteID.getDiagID() != 0)
+    if (NoteID.getDiagID() != 0 && OldLoc.isValid())
       Diag(OldLoc, NoteID);
     return true;
   }
@@ -526,7 +572,7 @@ bool Sema::CheckEquivalentExceptionSpec(const PartialDiagnostic &DiagID,
     return false;
   }
   Diag(NewLoc, DiagID);
-  if (NoteID.getDiagID() != 0)
+  if (NoteID.getDiagID() != 0 && OldLoc.isValid())
     Diag(OldLoc, NoteID);
   return true;
 }
@@ -667,7 +713,7 @@ bool Sema::CheckExceptionSpecSubset(
         continue;
 
       Paths.clear();
-      if (!IsDerivedFrom(CanonicalSubT, CanonicalSuperT, Paths))
+      if (!IsDerivedFrom(SubLoc, CanonicalSubT, CanonicalSuperT, Paths))
         continue;
 
       if (Paths.isAmbiguous(Context.getCanonicalType(CanonicalSuperT)))
@@ -723,10 +769,11 @@ static bool CheckSpecForTypesEquivalent(Sema &S,
 /// assignment and override compatibility check. We do not check the parameters
 /// of parameter function pointers recursively, as no sane programmer would
 /// even be able to write such a function type.
-bool Sema::CheckParamExceptionSpec(const PartialDiagnostic & NoteID,
-    const FunctionProtoType *Target, SourceLocation TargetLoc,
-    const FunctionProtoType *Source, SourceLocation SourceLoc)
-{
+bool Sema::CheckParamExceptionSpec(const PartialDiagnostic &NoteID,
+                                   const FunctionProtoType *Target,
+                                   SourceLocation TargetLoc,
+                                   const FunctionProtoType *Source,
+                                   SourceLocation SourceLoc) {
   if (CheckSpecForTypesEquivalent(
           *this, PDiag(diag::err_deep_exception_specs_differ) << 0, PDiag(),
           Target->getReturnType(), TargetLoc, Source->getReturnType(),
@@ -747,23 +794,30 @@ bool Sema::CheckParamExceptionSpec(const PartialDiagnostic & NoteID,
   return false;
 }
 
-bool Sema::CheckExceptionSpecCompatibility(Expr *From, QualType ToType)
-{
+bool Sema::CheckExceptionSpecCompatibility(Expr *From, QualType ToType) {
   // First we check for applicability.
   // Target type must be a function, function pointer or function reference.
   const FunctionProtoType *ToFunc = GetUnderlyingFunction(ToType);
-  if (!ToFunc)
+  if (!ToFunc || ToFunc->hasDependentExceptionSpec())
     return false;
 
   // SourceType must be a function or function pointer.
   const FunctionProtoType *FromFunc = GetUnderlyingFunction(From->getType());
-  if (!FromFunc)
+  if (!FromFunc || FromFunc->hasDependentExceptionSpec())
     return false;
 
   // Now we've got the correct types on both sides, check their compatibility.
   // This means that the source of the conversion can only throw a subset of
   // the exceptions of the target, and any exception specs on arguments or
   // return types must be equivalent.
+  //
+  // FIXME: If there is a nested dependent exception specification, we should
+  // not be checking it here. This is fine:
+  //   template<typename T> void f() {
+  //     void (*p)(void (*) throw(T));
+  //     void (*q)(void (*) throw(int)) = p;
+  //   }
+  // ... because it might be instantiated with T=int.
   return CheckExceptionSpecSubset(PDiag(diag::err_incompatible_exception_specs),
                                   PDiag(), ToFunc, 
                                   From->getSourceRange().getBegin(),
@@ -772,6 +826,11 @@ bool Sema::CheckExceptionSpecCompatibility(Expr *From, QualType ToType)
 
 bool Sema::CheckOverridingFunctionExceptionSpec(const CXXMethodDecl *New,
                                                 const CXXMethodDecl *Old) {
+  // If the new exception specification hasn't been parsed yet, skip the check.
+  // We'll get called again once it's been parsed.
+  if (New->getType()->castAs<FunctionProtoType>()->getExceptionSpecType() ==
+      EST_Unparsed)
+    return false;
   if (getLangOpts().CPlusPlus11 && isa<CXXDestructorDecl>(New)) {
     // Don't check uninstantiated template destructors at all. We can only
     // synthesize correct specs after the template is instantiated.
@@ -780,10 +839,17 @@ bool Sema::CheckOverridingFunctionExceptionSpec(const CXXMethodDecl *New,
     if (New->getParent()->isBeingDefined()) {
       // The destructor might be updated once the definition is finished. So
       // remember it and check later.
-      DelayedDestructorExceptionSpecChecks.push_back(std::make_pair(
-        cast<CXXDestructorDecl>(New), cast<CXXDestructorDecl>(Old)));
+      DelayedExceptionSpecChecks.push_back(std::make_pair(New, Old));
       return false;
     }
+  }
+  // If the old exception specification hasn't been parsed yet, remember that
+  // we need to perform this check when we get to the end of the outermost
+  // lexically-surrounding class.
+  if (Old->getType()->castAs<FunctionProtoType>()->getExceptionSpecType() ==
+      EST_Unparsed) {
+    DelayedExceptionSpecChecks.push_back(std::make_pair(New, Old));
+    return false;
   }
   unsigned DiagID = diag::err_override_exception_spec;
   if (getLangOpts().MicrosoftExt)
@@ -796,11 +862,13 @@ bool Sema::CheckOverridingFunctionExceptionSpec(const CXXMethodDecl *New,
                                   New->getLocation());
 }
 
-static CanThrowResult canSubExprsThrow(Sema &S, const Expr *CE) {
-  Expr *E = const_cast<Expr*>(CE);
+static CanThrowResult canSubExprsThrow(Sema &S, const Expr *E) {
   CanThrowResult R = CT_Cannot;
-  for (Expr::child_range I = E->children(); I && R != CT_Can; ++I)
-    R = mergeCanThrow(R, S.canThrow(cast<Expr>(*I)));
+  for (const Stmt *SubStmt : E->children()) {
+    R = mergeCanThrow(R, S.canThrow(cast<Expr>(SubStmt)));
+    if (R == CT_Can)
+      break;
+  }
   return R;
 }
 
@@ -930,8 +998,9 @@ CanThrowResult Sema::canThrow(const Expr *E) {
   case Expr::LambdaExprClass: {
     const LambdaExpr *Lambda = cast<LambdaExpr>(E);
     CanThrowResult CT = CT_Cannot;
-    for (LambdaExpr::capture_init_iterator Cap = Lambda->capture_init_begin(),
-                                        CapEnd = Lambda->capture_init_end();
+    for (LambdaExpr::const_capture_init_iterator
+             Cap = Lambda->capture_init_begin(),
+             CapEnd = Lambda->capture_init_end();
          Cap != CapEnd; ++Cap)
       CT = mergeCanThrow(CT, canThrow(*Cap));
     return CT;
@@ -994,12 +1063,15 @@ CanThrowResult Sema::canThrow(const Expr *E) {
 
     // Many other things have subexpressions, so we have to test those.
     // Some are simple:
+  case Expr::CoawaitExprClass:
   case Expr::ConditionalOperatorClass:
   case Expr::CompoundLiteralExprClass:
+  case Expr::CoyieldExprClass:
   case Expr::CXXConstCastExprClass:
   case Expr::CXXReinterpretCastExprClass:
   case Expr::CXXStdInitializerListExprClass:
   case Expr::DesignatedInitExprClass:
+  case Expr::DesignatedInitUpdateExprClass:
   case Expr::ExprWithCleanupsClass:
   case Expr::ExtVectorElementExprClass:
   case Expr::InitListExprClass:
@@ -1015,6 +1087,7 @@ CanThrowResult Sema::canThrow(const Expr *E) {
 
     // Some might be dependent for other reasons.
   case Expr::ArraySubscriptExprClass:
+  case Expr::OMPArraySectionExprClass:
   case Expr::BinaryOperatorClass:
   case Expr::CompoundAssignOperatorClass:
   case Expr::CStyleCastExprClass:
@@ -1051,6 +1124,7 @@ CanThrowResult Sema::canThrow(const Expr *E) {
   case Expr::CXXDependentScopeMemberExprClass:
   case Expr::CXXUnresolvedConstructExprClass:
   case Expr::DependentScopeDeclRefExprClass:
+  case Expr::CXXFoldExprClass:
     return CT_Dependent;
 
   case Expr::AsTypeExprClass:
@@ -1071,6 +1145,7 @@ CanThrowResult Sema::canThrow(const Expr *E) {
   case Expr::UnaryExprOrTypeTraitExprClass:
   case Expr::UnresolvedLookupExprClass:
   case Expr::UnresolvedMemberExprClass:
+  case Expr::TypoExprClass:
     // FIXME: Can any of the above throw?  If so, when?
     return CT_Cannot;
 
@@ -1092,6 +1167,7 @@ CanThrowResult Sema::canThrow(const Expr *E) {
   case Expr::ImaginaryLiteralClass:
   case Expr::ImplicitValueInitExprClass:
   case Expr::IntegerLiteralClass:
+  case Expr::NoInitExprClass:
   case Expr::ObjCEncodeExprClass:
   case Expr::ObjCStringLiteralClass:
   case Expr::ObjCBoolLiteralExprClass:
@@ -1103,6 +1179,7 @@ CanThrowResult Sema::canThrow(const Expr *E) {
     return CT_Cannot;
 
   case Expr::MSPropertyRefExprClass:
+  case Expr::MSPropertySubscriptExprClass:
     llvm_unreachable("Invalid class for expression");
 
 #define STMT(CLASS, PARENT) case Expr::CLASS##Class:

@@ -12,9 +12,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CLANG_CODEGEN_TARGETINFO_H
-#define CLANG_CODEGEN_TARGETINFO_H
+#ifndef LLVM_CLANG_LIB_CODEGEN_TARGETINFO_H
+#define LLVM_CLANG_LIB_CODEGEN_TARGETINFO_H
 
+#include "CGValue.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/SmallString.h"
@@ -46,18 +47,18 @@ class TargetCodeGenInfo {
 
 public:
   // WARNING: Acquires the ownership of ABIInfo.
-  TargetCodeGenInfo(ABIInfo *info = 0) : Info(info) {}
+  TargetCodeGenInfo(ABIInfo *info = nullptr) : Info(info) {}
   virtual ~TargetCodeGenInfo();
 
   /// getABIInfo() - Returns ABI info helper for the target.
   const ABIInfo &getABIInfo() const { return *Info; }
 
-  /// SetTargetAttributes - Provides a convenient hook to handle extra
+  /// setTargetAttributes - Provides a convenient hook to handle extra
   /// target-specific attributes for the given global.
-  virtual void SetTargetAttributes(const Decl *D, llvm::GlobalValue *GV,
+  virtual void setTargetAttributes(const Decl *D, llvm::GlobalValue *GV,
                                    CodeGen::CodeGenModule &M) const {}
 
-  /// EmitTargetMD - Provides a convenient hook to handle extra
+  /// emitTargetMD - Provides a convenient hook to handle extra
   /// target-specific metadata for the given global.
   virtual void emitTargetMD(const Decl *D, llvm::GlobalValue *GV,
                             CodeGen::CodeGenModule &M) const {}
@@ -128,6 +129,14 @@ public:
                                           llvm::Type *Ty) const {
     return Ty;
   }
+
+  /// Adds constraints and types for result registers.
+  virtual void addReturnRegisterOutputs(
+      CodeGen::CodeGenFunction &CGF, CodeGen::LValue ReturnValue,
+      std::string &Constraints, std::vector<llvm::Type *> &ResultRegTypes,
+      std::vector<llvm::Type *> &ResultTruncRegTypes,
+      std::vector<CodeGen::LValue> &ResultRegDests, std::string &AsmString,
+      unsigned NumOutputs) const {}
 
   /// doesReturnSlotInterfereWithArgs - Return true if the target uses an
   /// argument slot for an 'sret' type.
@@ -210,6 +219,6 @@ public:
                                        llvm::StringRef Value,
                                        llvm::SmallString<32> &Opt) const {}
 };
-}
+} // namespace clang
 
-#endif // CLANG_CODEGEN_TARGETINFO_H
+#endif // LLVM_CLANG_LIB_CODEGEN_TARGETINFO_H

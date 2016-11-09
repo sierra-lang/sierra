@@ -9,6 +9,10 @@
 // SSE4: #define __SSE__ 1
 // SSE4: #define __SSSE3__ 1
 
+// RUN: %clang -target i386-unknown-unknown -march=core2 -msse4.1 -mno-sse4 -x c -E -dM -o - %s | FileCheck --check-prefix=NOSSE4 %s
+
+// NOSSE4-NOT: #define __SSE4_1__ 1
+
 // RUN: %clang -target i386-unknown-unknown -march=core2 -msse4 -mno-sse2 -x c -E -dM -o - %s | FileCheck --check-prefix=SSE %s
 
 // SSE-NOT: #define __SSE2_MATH__ 1
@@ -113,6 +117,51 @@
 // AVX512PF: #define __SSE_MATH__ 1
 // AVX512PF: #define __SSE__ 1
 // AVX512PF: #define __SSSE3__ 1
+
+// RUN: %clang -target i386-unknown-unknown -march=atom -mavx512dq -x c -E -dM -o - %s | FileCheck --check-prefix=AVX512DQ %s
+
+// AVX512DQ: #define __AVX2__ 1
+// AVX512DQ: #define __AVX512DQ__ 1
+// AVX512DQ: #define __AVX512F__ 1
+// AVX512DQ: #define __AVX__ 1
+// AVX512DQ: #define __SSE2_MATH__ 1
+// AVX512DQ: #define __SSE2__ 1
+// AVX512DQ: #define __SSE3__ 1
+// AVX512DQ: #define __SSE4_1__ 1
+// AVX512DQ: #define __SSE4_2__ 1
+// AVX512DQ: #define __SSE_MATH__ 1
+// AVX512DQ: #define __SSE__ 1
+// AVX512DQ: #define __SSSE3__ 1
+
+// RUN: %clang -target i386-unknown-unknown -march=atom -mavx512bw -x c -E -dM -o - %s | FileCheck --check-prefix=AVX512BW %s
+
+// AVX512BW: #define __AVX2__ 1
+// AVX512BW: #define __AVX512BW__ 1
+// AVX512BW: #define __AVX512F__ 1
+// AVX512BW: #define __AVX__ 1
+// AVX512BW: #define __SSE2_MATH__ 1
+// AVX512BW: #define __SSE2__ 1
+// AVX512BW: #define __SSE3__ 1
+// AVX512BW: #define __SSE4_1__ 1
+// AVX512BW: #define __SSE4_2__ 1
+// AVX512BW: #define __SSE_MATH__ 1
+// AVX512BW: #define __SSE__ 1
+// AVX512BW: #define __SSSE3__ 1
+
+// RUN: %clang -target i386-unknown-unknown -march=atom -mavx512vl -x c -E -dM -o - %s | FileCheck --check-prefix=AVX512VL %s
+
+// AVX512VL: #define __AVX2__ 1
+// AVX512VL: #define __AVX512F__ 1
+// AVX512VL: #define __AVX512VL__ 1
+// AVX512VL: #define __AVX__ 1
+// AVX512VL: #define __SSE2_MATH__ 1
+// AVX512VL: #define __SSE2__ 1
+// AVX512VL: #define __SSE3__ 1
+// AVX512VL: #define __SSE4_1__ 1
+// AVX512VL: #define __SSE4_2__ 1
+// AVX512VL: #define __SSE_MATH__ 1
+// AVX512VL: #define __SSE__ 1
+// AVX512VL: #define __SSSE3__ 1
 
 // RUN: %clang -target i386-unknown-unknown -march=atom -mavx512pf -mno-avx512f -x c -E -dM -o - %s | FileCheck --check-prefix=AVX512F2 %s
 
@@ -236,3 +285,34 @@
 
 // NO3DNOWPRFCHW: #define __PRFCHW__ 1
 
+// RUN: %clang -target i386-unknown-unknown -march=atom -madx -x c -E -dM -o - %s | FileCheck --check-prefix=ADX %s
+
+// ADX: #define __ADX__ 1
+
+// RUN: %clang -target i386-unknown-unknown -march=atom -mrdseed -x c -E -dM -o - %s | FileCheck --check-prefix=RDSEED %s
+
+// RDSEED: #define __RDSEED__ 1
+
+// RUN: %clang -target i386-unknown-unknown -march=atom -mxsave -x c -E -dM -o - %s | FileCheck --check-prefix=XSAVE %s
+
+// XSAVE: #define __XSAVE__ 1
+
+// RUN: %clang -target i386-unknown-unknown -march=atom -mxsaveopt -x c -E -dM -o - %s | FileCheck --check-prefix=XSAVEOPT %s
+
+// XSAVEOPT: #define __XSAVEOPT__ 1
+// XSAVEOPT: #define __XSAVE__ 1
+
+// RUN: %clang -target i386-unknown-unknown -march=atom -mxsavec -x c -E -dM -o - %s | FileCheck --check-prefix=XSAVEC %s
+
+// XSAVEC: #define __XSAVEC__ 1
+// XSAVEC: #define __XSAVE__ 1
+
+// RUN: %clang -target i386-unknown-unknown -march=atom -mxsaves -x c -E -dM -o - %s | FileCheck --check-prefix=XSAVES %s
+
+// XSAVES: #define __XSAVES__ 1
+// XSAVES: #define __XSAVE__ 1
+
+// RUN: %clang -target i386-unknown-unknown -march=atom -mxsaveopt -mno-xsave -x c -E -dM -o - %s | FileCheck --check-prefix=NOXSAVE %s
+
+// NOXSAVE-NOT: #define __XSAVEOPT__ 1
+// NOXSAVE-NOT: #define __XSAVE__ 1

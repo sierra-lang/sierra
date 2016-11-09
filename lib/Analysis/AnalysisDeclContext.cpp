@@ -69,8 +69,9 @@ AnalysisDeclContextManager::AnalysisDeclContextManager(bool useUnoptimizedCFG,
                                                        bool addTemporaryDtors,
                                                        bool synthesizeBodies,
                                                        bool addStaticInitBranch,
-                                                       bool addCXXNewAllocator)
-  : SynthesizeBodies(synthesizeBodies)
+                                                       bool addCXXNewAllocator,
+                                                       CodeInjector *injector)
+  : Injector(injector), SynthesizeBodies(synthesizeBodies)
 {
   cfgBuildOptions.PruneTriviallyFalseEdges = !useUnoptimizedCFG;
   cfgBuildOptions.AddImplicitDtors = addImplicitDtors;
@@ -84,8 +85,8 @@ void AnalysisDeclContextManager::clear() {
   llvm::DeleteContainerSeconds(Contexts);
 }
 
-static BodyFarm &getBodyFarm(ASTContext &C) {
-  static BodyFarm *BF = new BodyFarm(C);
+static BodyFarm &getBodyFarm(ASTContext &C, CodeInjector *injector = nullptr) {
+  static BodyFarm *BF = new BodyFarm(C, injector);
   return *BF;
 }
 
@@ -94,7 +95,7 @@ Stmt *AnalysisDeclContext::getBody(bool &IsAutosynthesized) const {
   if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
     Stmt *Body = FD->getBody();
     if (!Body && Manager && Manager->synthesizeBodies()) {
-      Body = getBodyFarm(getASTContext()).getBody(FD);
+      Body = getBodyFarm(getASTContext(), Manager->Injector.get()).getBody(FD);
       if (Body)
         IsAutosynthesized = true;
     }
@@ -103,7 +104,7 @@ Stmt *AnalysisDeclContext::getBody(bool &IsAutosynthesized) const {
   else if (const ObjCMethodDecl *MD = dyn_cast<ObjCMethodDecl>(D)) {
     Stmt *Body = MD->getBody();
     if (!Body && Manager && Manager->synthesizeBodies()) {
-      Body = getBodyFarm(getASTContext()).getBody(MD);
+      Body = getBodyFarm(getASTContext(), Manager->Injector.get()).getBody(MD);
       if (Body)
         IsAutosynthesized = true;
     }
@@ -128,6 +129,13 @@ bool AnalysisDeclContext::isBodyAutosynthesized() const {
   return Tmp;
 }
 
+bool AnalysisDeclContext::isBodyAutosynthesizedFromModelFile() const {
+  bool Tmp;
+  Stmt *Body = getBody(Tmp);
+  return Tmp && Body->getLocStart().isValid();
+}
+
+
 const ImplicitParamDecl *AnalysisDeclContext::getSelfDecl() const {
   if (const ObjCMethodDecl *MD = dyn_cast<ObjCMethodDecl>(D))
     return MD->getSelfDecl();
@@ -138,6 +146,23 @@ const ImplicitParamDecl *AnalysisDeclContext::getSelfDecl() const {
       if (VD->getName() == "self")
         return dyn_cast<ImplicitParamDecl>(VD);
     }    
+  }
+
+  auto *CXXMethod = dyn_cast<CXXMethodDecl>(D);
+  if (!CXXMethod)
+    return nullptr;
+
+  const CXXRecordDecl *parent = CXXMethod->getParent();
+  if (!parent->isLambda())
+    return nullptr;
+
+  for (const LambdaCapture &LC : parent->captures()) {
+    if (!LC.capturesVariable())
+      continue;
+
+    VarDecl *VD = LC.getCapturedVar();
+    if (VD->getName() == "self")
+      return dyn_cast<ImplicitParamDecl>(VD);
   }
 
   return nullptr;
@@ -181,8 +206,7 @@ CFG *AnalysisDeclContext::getCFG() {
     return getUnoptimizedCFG();
 
   if (!builtCFG) {
-    cfg.reset(CFG::buildCFG(D, getBody(),
-                            &D->getASTContext(), cfgBuildOptions));
+    cfg = CFG::buildCFG(D, getBody(), &D->getASTContext(), cfgBuildOptions);
     // Even when the cfg is not successfully built, we don't
     // want to try building it again.
     builtCFG = true;
@@ -200,8 +224,8 @@ CFG *AnalysisDeclContext::getUnoptimizedCFG() {
   if (!builtCompleteCFG) {
     SaveAndRestore<bool> NotPrune(cfgBuildOptions.PruneTriviallyFalseEdges,
                                   false);
-    completeCFG.reset(CFG::buildCFG(D, getBody(), &D->getASTContext(),
-                                    cfgBuildOptions));
+    completeCFG =
+        CFG::buildCFG(D, getBody(), &D->getASTContext(), cfgBuildOptions);
     // Even when the cfg is not successfully built, we don't
     // want to try building it again.
     builtCompleteCFG = true;
@@ -465,16 +489,16 @@ public:
   : BEVals(bevals), BC(bc) {}
 
   void VisitStmt(Stmt *S) {
-    for (Stmt::child_range I = S->children(); I; ++I)
-      if (Stmt *child = *I)
-        Visit(child);
+    for (Stmt *Child : S->children())
+      if (Child)
+        Visit(Child);
   }
 
   void VisitDeclRefExpr(DeclRefExpr *DR) {
     // Non-local variables are also directly modified.
     if (const VarDecl *VD = dyn_cast<VarDecl>(DR->getDecl())) {
       if (!VD->hasLocalStorage()) {
-        if (Visited.insert(VD))
+        if (Visited.insert(VD).second)
           BEVals.push_back(VD, BC);
       }
     }
@@ -523,14 +547,14 @@ static DeclVec* LazyInitializeReferencedDecls(const BlockDecl *BD,
   return BV;
 }
 
-std::pair<AnalysisDeclContext::referenced_decls_iterator,
-          AnalysisDeclContext::referenced_decls_iterator>
+llvm::iterator_range<AnalysisDeclContext::referenced_decls_iterator>
 AnalysisDeclContext::getReferencedBlockVars(const BlockDecl *BD) {
   if (!ReferencedBlockVars)
     ReferencedBlockVars = new llvm::DenseMap<const BlockDecl*,void*>();
 
-  DeclVec *V = LazyInitializeReferencedDecls(BD, (*ReferencedBlockVars)[BD], A);
-  return std::make_pair(V->begin(), V->end());
+  const DeclVec *V =
+      LazyInitializeReferencedDecls(BD, (*ReferencedBlockVars)[BD], A);
+  return llvm::make_range(V->begin(), V->end());
 }
 
 ManagedAnalysis *&AnalysisDeclContext::getAnalysisImpl(const void *tag) {

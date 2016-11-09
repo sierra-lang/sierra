@@ -35,16 +35,41 @@ def err_fe_backend_plugin: Error<"%0">, BackendInfo;
 def remark_fe_backend_plugin: Remark<"%0">, BackendInfo, InGroup<RemarkBackendPlugin>;
 def note_fe_backend_plugin: Note<"%0">, BackendInfo;
 
+def warn_fe_override_module : Warning<
+    "overriding the module target triple with %0">, 
+    InGroup<DiagGroup<"override-module">>;
+
 def remark_fe_backend_optimization_remark : Remark<"%0">, BackendInfo,
     InGroup<BackendOptimizationRemark>;
 def remark_fe_backend_optimization_remark_missed : Remark<"%0">, BackendInfo,
     InGroup<BackendOptimizationRemarkMissed>;
 def remark_fe_backend_optimization_remark_analysis : Remark<"%0">, BackendInfo,
     InGroup<BackendOptimizationRemarkAnalysis>;
+def remark_fe_backend_optimization_remark_analysis_fpcommute : Remark<"%0; "
+    "allow reordering by specifying '#pragma clang loop vectorize(enable)' "
+    "before the loop or by providing the compiler option '-ffast-math'.">,
+    BackendInfo, InGroup<BackendOptimizationRemarkAnalysis>;
+def remark_fe_backend_optimization_remark_analysis_aliasing : Remark<"%0; "
+    "allow reordering by specifying '#pragma clang loop vectorize(enable)' "
+    "before the loop. If the arrays will always be independent specify "
+    "'#pragma clang loop vectorize(assume_safety)' before the loop or provide "
+    "the '__restrict__' qualifier with the independent array arguments. "
+    "Erroneous results will occur if these options are incorrectly applied!">,
+    BackendInfo, InGroup<BackendOptimizationRemarkAnalysis>;
 def warn_fe_backend_optimization_failure : Warning<"%0">, BackendInfo,
     InGroup<BackendOptimizationFailure>, DefaultWarn;
 def note_fe_backend_optimization_remark_invalid_loc : Note<"could "
   "not determine the original source location for %0:%1:%2">;
+
+def remark_sanitize_address_insert_extra_padding_accepted : Remark<
+    "-fsanitize-address-field-padding applied to %0">, ShowInSystemHeader,
+    InGroup<SanitizeAddressRemarks>;
+def remark_sanitize_address_insert_extra_padding_rejected : Remark<
+    "-fsanitize-address-field-padding ignored for %0 because it "
+    "%select{is not C++|is packed|is a union|is trivially copyable|"
+    "has trivial destructor|is standard layout|is in a blacklisted file|"
+    "is blacklisted}1">, ShowInSystemHeader,
+    InGroup<SanitizeAddressRemarks>;
 
 def err_fe_invalid_code_complete_file : Error<
     "cannot locate code-completion file %0">, DefaultFatal;
@@ -85,9 +110,12 @@ def err_fe_no_pch_in_dir : Error<
 def err_fe_action_not_available : Error<
     "action %0 not compiled in">;
 
+def warn_fe_serialized_diag_merge_failure : Warning<
+    "unable to merge a subprocess's serialized diagnostics">,
+    InGroup<SerializedDiagnostics>;
 def warn_fe_serialized_diag_failure : Warning<
     "unable to open file %0 for serializing diagnostics (%1)">,
-    InGroup<DiagGroup<"serialized-diagnostics">>;
+    InGroup<SerializedDiagnostics>;
 
 def err_verify_missing_line : Error<
     "missing or invalid line number following '@' in expected %0">;
@@ -135,12 +163,18 @@ def warn_unknown_warning_specifier : Warning<
 
 def err_unknown_analyzer_checker : Error<
     "no analyzer checkers are associated with '%0'">;
+def note_suggest_disabling_all_checkers : Note<
+    "use -analyzer-disable-all-checks to disable all static analyzer checkers">;
+
 def warn_incompatible_analyzer_plugin_api : Warning<
     "checker plugin '%0' is not compatible with this version of the analyzer">,
     InGroup<DiagGroup<"analyzer-incompatible-plugin"> >;
 def note_incompatible_analyzer_plugin_api : Note<
     "current API version is '%0', but plugin was compiled with version '%1'">;
-    
+
+def warn_module_config_mismatch : Warning<
+  "module file %0 cannot be loaded due to a configuration mismatch with the current "
+  "compilation">, InGroup<DiagGroup<"module-file-config-mismatch">>, DefaultError;
 def err_module_map_not_found : Error<"module map file '%0' not found">, 
   DefaultFatal;
 def err_missing_module_name : Error<
@@ -153,10 +187,6 @@ def err_no_submodule_suggest : Error<
   "no submodule named %0 in module '%1'; did you mean '%2'?">;
 def warn_missing_submodule : Warning<"missing submodule '%0'">,
   InGroup<IncompleteUmbrella>;
-def err_module_unavailable : Error<
-  "module '%0' %select{is incompatible with|requires}1 feature '%2'">;
-def err_module_header_missing : Error<
-  "%select{|umbrella }0header '%1' not found">;
 def err_module_cannot_create_includes : Error<
   "cannot create includes file for module %0: %1">;
 def warn_module_config_macro_undef : Warning<
@@ -167,7 +197,20 @@ def warn_module_config_macro_undef : Warning<
 def note_module_def_undef_here : Note<
   "macro was %select{defined|#undef'd}0 here">;
 def remark_module_build : Remark<"building module '%0' as '%1'">,
-  InGroup<DiagGroup<"module-build">>;
+  InGroup<ModuleBuild>;
+def remark_module_build_done : Remark<"finished building module '%0'">,
+  InGroup<ModuleBuild>;
+def err_modules_embed_file_not_found :
+  Error<"file '%0' specified by '-fmodules-embed-file=' not found">,
+  DefaultFatal;
+
+def err_test_module_file_extension_version : Error<
+  "test module file extension '%0' has different version (%1.%2) than expected "
+  "(%3.%4)">;
+
+def err_conflicting_module_names : Error<
+  "conflicting module names specified: '-fmodule-name=%0' and "
+  "'-fmodule-implementation-of %1'">;
 
 def err_missing_vfs_overlay_file : Error<
   "virtual filesystem overlay file '%0' not found">, DefaultFatal;

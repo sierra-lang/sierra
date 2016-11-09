@@ -1,7 +1,6 @@
 // RUN: %clang_cc1 %s -Wno-private-extern -triple i386-pc-linux-gnu -verify -fsyntax-only
 
 
-
 void f() {
   int i;
 
@@ -107,6 +106,7 @@ void test10(void){
 
   register int r asm ("cx");
   register int rr asm ("rr_asm"); // expected-error{{unknown register name 'rr_asm' in asm}}
+  register int rrr asm ("%"); // expected-error{{unknown register name '%' in asm}}
 }
 
 // This is just an assert because of the boolean conversion.
@@ -153,13 +153,100 @@ double test15() {
 // PR19837
 struct foo {
   int a;
-  char b;
 };
-register struct foo bar asm("sp"); // expected-error {{bad type for named register variable}}
-register float baz asm("sp"); // expected-error {{bad type for named register variable}}
+register struct foo bar asm("esp"); // expected-error {{bad type for named register variable}}
+register float baz asm("esp"); // expected-error {{bad type for named register variable}}
+
+register int r0 asm ("edi"); // expected-error {{register 'edi' unsuitable for global register variables on this target}}
+register long long r1 asm ("esp"); // expected-error {{size of register 'esp' does not match variable size}}
+register int r2 asm ("esp");
 
 double f_output_constraint(void) {
   double result;
   __asm("foo1": "=f" (result)); // expected-error {{invalid output constraint '=f' in asm}}
   return result;
 }
+
+void fn1() {
+  int l;
+  __asm__(""
+          : [l] "=r"(l)
+          : "[l],m"(l)); // expected-error {{asm constraint has an unexpected number of alternatives: 1 vs 2}}
+}
+
+void fn2() {
+  int l;
+ __asm__(""
+          : "+&m"(l)); // expected-error {{invalid output constraint '+&m' in asm}}
+}
+
+void fn3() {
+  int l;
+ __asm__(""
+          : "+#r"(l)); // expected-error {{invalid output constraint '+#r' in asm}}
+}
+
+void fn4() {
+  int l;
+ __asm__(""
+          : "=r"(l)
+          : "m#"(l));
+}
+
+void fn5() {
+  int l;
+    __asm__(""
+          : [g] "+r"(l)
+          : "[g]"(l)); // expected-error {{invalid input constraint '[g]' in asm}}
+}
+
+void fn6() {
+    int a;
+  __asm__(""
+            : "=rm"(a), "=rm"(a)
+            : "11m"(a)) // expected-error {{invalid input constraint '11m' in asm}}
+}
+
+// PR14269
+typedef struct test16_foo {
+  unsigned int field1 : 1;
+  unsigned int field2 : 2;
+  unsigned int field3 : 3;
+} test16_foo;
+typedef __attribute__((vector_size(16))) int test16_bar;
+register int test16_baz asm("esp");
+
+void test16()
+{
+  test16_foo a;
+  test16_bar b;
+
+  __asm__("movl $5, %0"
+          : "=rm" (a.field2)); // expected-error {{reference to a bit-field in asm input with a memory constraint '=rm'}}
+  __asm__("movl $5, %0"
+          :
+          : "m" (a.field3)); // expected-error {{reference to a bit-field in asm output with a memory constraint 'm'}}
+  __asm__("movl $5, %0"
+          : "=rm" (b[2])); // expected-error {{reference to a vector element in asm input with a memory constraint '=rm'}}
+  __asm__("movl $5, %0"
+          :
+          : "m" (b[3])); // expected-error {{reference to a vector element in asm output with a memory constraint 'm'}}
+  __asm__("movl $5, %0"
+          : "=rm" (test16_baz)); // expected-error {{reference to a global register variable in asm input with a memory constraint '=rm'}}
+  __asm__("movl $5, %0"
+          :
+          : "m" (test16_baz)); // expected-error {{reference to a global register variable in asm output with a memory constraint 'm'}}
+}
+
+int test17(int t0)
+{
+  int r0, r1;
+  __asm ("addl %2, %2\n\t"
+         "movl $123, %0"
+         : "=a" (r0),
+           "=&r" (r1)
+         : "1" (t0),   // expected-note {{constraint '1' is already present here}}
+           "1" (t0));  // expected-error {{more than one input constraint matches the same output '1'}}
+  return r0 + r1;
+}
+

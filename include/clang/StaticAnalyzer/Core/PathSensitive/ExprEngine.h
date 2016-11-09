@@ -13,8 +13,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_GR_EXPRENGINE
-#define LLVM_CLANG_GR_EXPRENGINE
+#ifndef LLVM_CLANG_STATICANALYZER_CORE_PATHSENSITIVE_EXPRENGINE_H
+#define LLVM_CLANG_STATICANALYZER_CORE_PATHSENSITIVE_EXPRENGINE_H
 
 #include "clang/AST/Expr.h"
 #include "clang/AST/Type.h"
@@ -102,7 +102,7 @@ public:
              FunctionSummariesTy *FS,
              InliningModes HowToInlineIn);
 
-  ~ExprEngine();
+  ~ExprEngine() override;
 
   /// Returns true if there is still simulation state on the worklist.
   bool ExecuteWorkList(const LocationContext *L, unsigned Steps = 150000) {
@@ -227,6 +227,15 @@ public:
                      const CFGBlock *DstT,
                      const CFGBlock *DstF) override;
 
+  /// Called by CoreEngine.
+  /// Used to generate successor nodes for temporary destructors depending
+  /// on whether the corresponding constructor was visited.
+  void processCleanupTemporaryBranch(const CXXBindTemporaryExpr *BTE,
+                                     NodeBuilderContext &BldCtx,
+                                     ExplodedNode *Pred, ExplodedNodeSet &Dst,
+                                     const CFGBlock *DstT,
+                                     const CFGBlock *DstF) override;
+
   /// Called by CoreEngine.  Used to processing branching behavior
   /// at static initalizers.
   void processStaticInitializer(const DeclStmt *DS,
@@ -332,6 +341,10 @@ public:
   void VisitBlockExpr(const BlockExpr *BE, ExplodedNode *Pred, 
                       ExplodedNodeSet &Dst);
 
+  /// VisitLambdaExpr - Transfer function logic for LambdaExprs.
+  void VisitLambdaExpr(const LambdaExpr *LE, ExplodedNode *Pred, 
+                       ExplodedNodeSet &Dst);
+
   /// VisitBinaryOperator - Transfer function logic for binary operators.
   void VisitBinaryOperator(const BinaryOperator* B, ExplodedNode *Pred, 
                            ExplodedNodeSet &Dst);
@@ -408,7 +421,11 @@ public:
   void VisitIncrementDecrementOperator(const UnaryOperator* U,
                                        ExplodedNode *Pred,
                                        ExplodedNodeSet &Dst);
-  
+
+  void VisitCXXBindTemporaryExpr(const CXXBindTemporaryExpr *BTE,
+                                 ExplodedNodeSet &PreVisit,
+                                 ExplodedNodeSet &Dst);
+
   void VisitCXXCatchStmt(const CXXCatchStmt *CS, ExplodedNode *Pred,
                          ExplodedNodeSet &Dst);
 
@@ -587,6 +604,28 @@ private:
                                                 const LocationContext *LC,
                                                 const Expr *E,
                                                 const Expr *ResultE = nullptr);
+
+  /// For a DeclStmt or CXXInitCtorInitializer, walk backward in the current CFG
+  /// block to find the constructor expression that directly constructed into
+  /// the storage for this statement. Returns null if the constructor for this
+  /// statement created a temporary object region rather than directly
+  /// constructing into an existing region.
+  const CXXConstructExpr *findDirectConstructorForCurrentCFGElement();
+
+  /// For a CXXConstructExpr, walk forward in the current CFG block to find the
+  /// CFGElement for the DeclStmt or CXXInitCtorInitializer for which is
+  /// directly constructed by this constructor. Returns None if the current
+  /// constructor expression did not directly construct into an existing
+  /// region.
+  Optional<CFGElement> findElementDirectlyInitializedByCurrentConstructor();
+
+  /// For a given constructor, look forward in the current CFG block to
+  /// determine the region into which an object will be constructed by \p CE.
+  /// Returns either a field or local variable region if the object will be
+  /// directly constructed in an existing region or a temporary object region
+  /// if not.
+  const MemRegion *getRegionForConstructedObject(const CXXConstructExpr *CE,
+                                                 ExplodedNode *Pred);
 };
 
 /// Traits for storing the call processing policy inside GDM.

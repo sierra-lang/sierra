@@ -38,7 +38,7 @@ template X captures(X, X);
 template<typename T>
 int infer_result(T x, T y) {
   auto lambda = [=](bool b) { return x + y; };
-  return lambda(true); // expected-error{{no viable conversion from 'X' to 'int'}}
+  return lambda(true); // expected-error{{no viable conversion from returned value of type 'X' to function return type 'int'}}
 }
 
 template int infer_result(int, int);
@@ -69,8 +69,7 @@ namespace p2 {
   template<typename T>
   struct Boom {
     Boom(const Boom&) { 
-      T* x = 1; // expected-error{{cannot initialize a variable of type 'int *' with an rvalue of type 'int'}} \
-      // expected-error{{cannot initialize a variable of type 'float *' with an rvalue of type 'int'}}
+      T* x = 1; // expected-error{{cannot initialize a variable of type 'float *' with an rvalue of type 'int'}}
     }
     void tickle() const;
   };
@@ -79,7 +78,7 @@ namespace p2 {
   void odr_used(R &r, Boom<T> boom) {
     const std::type_info &ti
       = typeid([=,&r] () -> R& { // expected-error{{lambda expression in an unevaluated operand}}
-          boom.tickle(); // expected-note{{in instantiation of member function}}
+          boom.tickle();
           return r; 
         }()); 
   }
@@ -140,11 +139,11 @@ namespace NonLocalLambdaInstantation {
   }
 
   template<typename T>
-  struct X2 {
+  struct X2 { // expected-note{{in instantiation of default member initializer 'NonLocalLambdaInstantation::X2<int *>::x' requested here}}
     int x = []{ return T(); }(); // expected-error{{cannot initialize a member subobject of type 'int' with an rvalue of type 'int *'}}
   };
 
   X2<int> x2i;
   X2<float> x2f;
-  X2<int*> x2ip; // expected-note{{in instantiation of template class 'NonLocalLambdaInstantation::X2<int *>' requested here}}
+  X2<int*> x2ip; // expected-note{{implicit default constructor for 'NonLocalLambdaInstantation::X2<int *>' first required here}}
 }

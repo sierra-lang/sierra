@@ -44,7 +44,7 @@ public:
   explicit DelegatingDeserializationListener(
       ASTDeserializationListener *Previous, bool DeletePrevious)
       : Previous(Previous), DeletePrevious(DeletePrevious) {}
-  virtual ~DelegatingDeserializationListener() {
+  ~DelegatingDeserializationListener() override {
     if (DeletePrevious)
       delete Previous;
   }
@@ -71,7 +71,7 @@ public:
       Previous->SelectorRead(ID, Sel);
   }
   void MacroDefinitionRead(serialization::PreprocessedEntityID PPID,
-                           MacroDefinition *MD) override {
+                           MacroDefinitionRecord *MD) override {
     if (Previous)
       Previous->MacroDefinitionRead(PPID, MD);
   }
@@ -129,14 +129,15 @@ FrontendAction::FrontendAction() : Instance(nullptr) {}
 FrontendAction::~FrontendAction() {}
 
 void FrontendAction::setCurrentInput(const FrontendInputFile &CurrentInput,
-                                     ASTUnit *AST) {
+                                     std::unique_ptr<ASTUnit> AST) {
   this->CurrentInput = CurrentInput;
-  CurrentASTUnit.reset(AST);
+  CurrentASTUnit = std::move(AST);
 }
 
-ASTConsumer* FrontendAction::CreateWrappedASTConsumer(CompilerInstance &CI,
-                                                      StringRef InFile) {
-  ASTConsumer* Consumer = CreateASTConsumer(CI, InFile);
+std::unique_ptr<ASTConsumer>
+FrontendAction::CreateWrappedASTConsumer(CompilerInstance &CI,
+                                         StringRef InFile) {
+  std::unique_ptr<ASTConsumer> Consumer = CreateASTConsumer(CI, InFile);
   if (!Consumer)
     return nullptr;
 
@@ -145,7 +146,8 @@ ASTConsumer* FrontendAction::CreateWrappedASTConsumer(CompilerInstance &CI,
 
   // Make sure the non-plugin consumer is first, so that plugins can't
   // modifiy the AST.
-  std::vector<ASTConsumer*> Consumers(1, Consumer);
+  std::vector<std::unique_ptr<ASTConsumer>> Consumers;
+  Consumers.push_back(std::move(Consumer));
 
   for (size_t i = 0, e = CI.getFrontendOpts().AddPluginActions.size();
        i != e; ++i) { 
@@ -155,16 +157,15 @@ ASTConsumer* FrontendAction::CreateWrappedASTConsumer(CompilerInstance &CI,
         it = FrontendPluginRegistry::begin(),
         ie = FrontendPluginRegistry::end();
         it != ie; ++it) {
-      if (it->getName() == CI.getFrontendOpts().AddPluginActions[i]) {
-        std::unique_ptr<PluginASTAction> P(it->instantiate());
-        FrontendAction* c = P.get();
-        if (P->ParseArgs(CI, CI.getFrontendOpts().AddPluginArgs[i]))
-          Consumers.push_back(c->CreateASTConsumer(CI, InFile));
-      }
+      if (it->getName() != CI.getFrontendOpts().AddPluginActions[i])
+        continue;
+      std::unique_ptr<PluginASTAction> P = it->instantiate();
+      if (P->ParseArgs(CI, CI.getFrontendOpts().AddPluginArgs[i]))
+        Consumers.push_back(P->CreateASTConsumer(CI, InFile));
     }
   }
 
-  return new MultiplexConsumer(Consumers);
+  return llvm::make_unique<MultiplexConsumer>(std::move(Consumers));
 }
 
 bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
@@ -189,12 +190,12 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
 
     IntrusiveRefCntPtr<DiagnosticsEngine> Diags(&CI.getDiagnostics());
 
-    ASTUnit *AST = ASTUnit::LoadFromASTFile(InputFile, Diags,
-                                            CI.getFileSystemOpts());
+    std::unique_ptr<ASTUnit> AST = ASTUnit::LoadFromASTFile(
+        InputFile, CI.getPCHContainerReader(), Diags, CI.getFileSystemOpts(),
+        CI.getCodeGenOpts().DebugTypeExtRefs);
+
     if (!AST)
       goto failure;
-
-    setCurrentInput(Input, AST);
 
     // Inform the diagnostic client we are processing a source file.
     CI.getDiagnosticClient().BeginSourceFile(CI.getLangOpts(), nullptr);
@@ -206,6 +207,8 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
     CI.setSourceManager(&AST->getSourceManager());
     CI.setPreprocessor(&AST->getPreprocessor());
     CI.setASTContext(&AST->getASTContext());
+
+    setCurrentInput(Input, std::move(AST));
 
     // Initialize the action.
     if (!BeginSourceFileAction(CI, InputFile))
@@ -260,18 +263,19 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
     FileManager &FileMgr = CI.getFileManager();
     PreprocessorOptions &PPOpts = CI.getPreprocessorOpts();
     StringRef PCHInclude = PPOpts.ImplicitPCHInclude;
+    std::string SpecificModuleCachePath = CI.getSpecificModuleCachePath();
     if (const DirectoryEntry *PCHDir = FileMgr.getDirectory(PCHInclude)) {
       std::error_code EC;
       SmallString<128> DirNative;
       llvm::sys::path::native(PCHDir->getName(), DirNative);
       bool Found = false;
-      for (llvm::sys::fs::directory_iterator Dir(DirNative.str(), EC), DirEnd;
+      for (llvm::sys::fs::directory_iterator Dir(DirNative, EC), DirEnd;
            Dir != DirEnd && !EC; Dir.increment(EC)) {
         // Check whether this is an acceptable AST file.
-        if (ASTReader::isAcceptableASTFile(Dir->path(), FileMgr,
-                                           CI.getLangOpts(),
-                                           CI.getTargetOpts(),
-                                           CI.getPreprocessorOpts())) {
+        if (ASTReader::isAcceptableASTFile(
+                Dir->path(), FileMgr, CI.getPCHContainerReader(),
+                CI.getLangOpts(), CI.getTargetOpts(), CI.getPreprocessorOpts(),
+                SpecificModuleCachePath)) {
           PPOpts.ImplicitPCHInclude = Dir->path();
           Found = true;
           break;
@@ -280,13 +284,15 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
 
       if (!Found) {
         CI.getDiagnostics().Report(diag::err_fe_no_pch_in_dir) << PCHInclude;
-        return true;
+        goto failure;
       }
     }
   }
 
-  // Set up the preprocessor.
-  CI.createPreprocessor(getTranslationUnitKind());
+  // Set up the preprocessor if needed. When parsing model files the
+  // preprocessor of the original source is reused.
+  if (!isModelParsingAction())
+    CI.createPreprocessor(getTranslationUnitKind());
 
   // Inform the diagnostic client we are processing a source file.
   CI.getDiagnosticClient().BeginSourceFile(CI.getLangOpts(),
@@ -305,15 +311,19 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
   // Create the AST context and consumer unless this is a preprocessor only
   // action.
   if (!usesPreprocessorOnly()) {
-    CI.createASTContext();
+    // Parsing a model file should reuse the existing ASTContext.
+    if (!isModelParsingAction())
+      CI.createASTContext();
 
-    std::unique_ptr<ASTConsumer> Consumer(
-        CreateWrappedASTConsumer(CI, InputFile));
+    std::unique_ptr<ASTConsumer> Consumer =
+        CreateWrappedASTConsumer(CI, InputFile);
     if (!Consumer)
       goto failure;
 
-    CI.getASTContext().setASTMutationListener(Consumer->GetASTMutationListener());
-    
+    // FIXME: should not overwrite ASTMutationListener when parsing model files?
+    if (!isModelParsingAction())
+      CI.getASTContext().setASTMutationListener(Consumer->GetASTMutationListener());
+
     if (!CI.getPreprocessorOpts().ChainedIncludes.empty()) {
       // Convert headers to PCH and chain them.
       IntrusiveRefCntPtr<ExternalSemaSource> source, FinalReader;
@@ -349,7 +359,7 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
         goto failure;
     }
 
-    CI.setASTConsumer(Consumer.release());
+    CI.setASTConsumer(std::move(Consumer));
     if (!CI.hasASTConsumer())
       goto failure;
   }
@@ -365,7 +375,7 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
     if (CI.getLangOpts().Modules)
       CI.createModuleManager();
 
-    PP.getBuiltinInfo().InitializeBuiltins(PP.getIdentifierTable(),
+    PP.getBuiltinInfo().initializeBuiltins(PP.getIdentifierTable(),
                                            PP.getLangOpts());
   } else {
     // FIXME: If this is a problem, recover from it by creating a multiplex
@@ -374,6 +384,20 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
            "modules enabled but created an external source that "
            "doesn't support modules");
   }
+
+  // If we were asked to load any module map files, do so now.
+  for (const auto &Filename : CI.getFrontendOpts().ModuleMapFiles) {
+    if (auto *File = CI.getFileManager().getFile(Filename))
+      CI.getPreprocessor().getHeaderSearchInfo().loadModuleMapFile(
+          File, /*IsSystem*/false);
+    else
+      CI.getDiagnostics().Report(diag::err_module_map_not_found) << Filename;
+  }
+
+  // If we were asked to load any module files, do so now.
+  for (const auto &ModuleFile : CI.getFrontendOpts().ModuleFiles)
+    if (!CI.loadModuleFile(ModuleFile))
+      goto failure;
 
   // If there is a layout overrides file, attach an external AST source that
   // provides the layouts from that file.
@@ -418,9 +442,11 @@ bool FrontendAction::Execute() {
   // there were any module-build failures.
   if (CI.shouldBuildGlobalModuleIndex() && CI.hasFileManager() &&
       CI.hasPreprocessor()) {
-    GlobalModuleIndex::writeIndex(
-      CI.getFileManager(),
-      CI.getPreprocessor().getHeaderSearchInfo().getModuleCachePath());
+    StringRef Cache =
+        CI.getPreprocessor().getHeaderSearchInfo().getModuleCachePath();
+    if (!Cache.empty())
+      GlobalModuleIndex::writeIndex(CI.getFileManager(),
+                                    CI.getPCHContainerReader(), Cache);
   }
 
   return true;
@@ -432,6 +458,10 @@ void FrontendAction::EndSourceFile() {
   // Inform the diagnostic client we are done with this source file.
   CI.getDiagnosticClient().EndSourceFile();
 
+  // Inform the preprocessor we are done.
+  if (CI.hasPreprocessor())
+    CI.getPreprocessor().EndSourceFile();
+
   // Finalize the action.
   EndSourceFileAction();
 
@@ -440,22 +470,14 @@ void FrontendAction::EndSourceFile() {
   // FIXME: There is more per-file stuff we could just drop here?
   bool DisableFree = CI.getFrontendOpts().DisableFree;
   if (DisableFree) {
-    if (!isCurrentFileAST()) {
-      CI.resetAndLeakSema();
-      CI.resetAndLeakASTContext();
-    }
-    BuryPointer(CI.takeASTConsumer());
+    CI.resetAndLeakSema();
+    CI.resetAndLeakASTContext();
+    BuryPointer(CI.takeASTConsumer().get());
   } else {
-    if (!isCurrentFileAST()) {
-      CI.setSema(nullptr);
-      CI.setASTContext(nullptr);
-    }
+    CI.setSema(nullptr);
+    CI.setASTContext(nullptr);
     CI.setASTConsumer(nullptr);
   }
-
-  // Inform the preprocessor we are done.
-  if (CI.hasPreprocessor())
-    CI.getPreprocessor().EndSourceFile();
 
   if (CI.getFrontendOpts().ShowStats) {
     llvm::errs() << "\nSTATISTICS FOR '" << getCurrentFile() << "':\n";
@@ -470,13 +492,16 @@ void FrontendAction::EndSourceFile() {
   // FrontendAction.
   CI.clearOutputFiles(/*EraseFiles=*/shouldEraseOutputFiles());
 
-  // FIXME: Only do this if DisableFree is set.
   if (isCurrentFileAST()) {
-    CI.resetAndLeakSema();
-    CI.resetAndLeakASTContext();
-    CI.resetAndLeakPreprocessor();
-    CI.resetAndLeakSourceManager();
-    CI.resetAndLeakFileManager();
+    if (DisableFree) {
+      CI.resetAndLeakPreprocessor();
+      CI.resetAndLeakSourceManager();
+      CI.resetAndLeakFileManager();
+    } else {
+      CI.setPreprocessor(nullptr);
+      CI.setSourceManager(nullptr);
+      CI.setFileManager(nullptr);
+    }
   }
 
   setCompilerInstance(nullptr);
@@ -516,14 +541,15 @@ void ASTFrontendAction::ExecuteAction() {
 
 void PluginASTAction::anchor() { }
 
-ASTConsumer *
+std::unique_ptr<ASTConsumer>
 PreprocessorFrontendAction::CreateASTConsumer(CompilerInstance &CI,
                                               StringRef InFile) {
   llvm_unreachable("Invalid CreateASTConsumer on preprocessor action!");
 }
 
-ASTConsumer *WrapperFrontendAction::CreateASTConsumer(CompilerInstance &CI,
-                                                      StringRef InFile) {
+std::unique_ptr<ASTConsumer>
+WrapperFrontendAction::CreateASTConsumer(CompilerInstance &CI,
+                                         StringRef InFile) {
   return WrappedAction->CreateASTConsumer(CI, InFile);
 }
 bool WrapperFrontendAction::BeginInvocation(CompilerInstance &CI) {
