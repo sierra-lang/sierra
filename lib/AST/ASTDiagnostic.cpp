@@ -200,7 +200,7 @@ break; \
   return QC.apply(Context, QT);
 }
 
-/// \brief Convert the given type to a string suitable for printing as part of
+/// \brief Convert the given type to a string suitable for printing as part of 
 /// a diagnostic.
 ///
 /// There are four main criteria when determining whether we should have an
@@ -254,7 +254,7 @@ ConvertTypeToDiagnosticString(ASTContext &Context, QualType Ty,
                  // and the desugared comparison string.
     std::string CompareCanS =
         CompareCanTy.getAsString(Context.getPrintingPolicy());
-
+    
     if (CompareCanS == CanS)
       continue;  // No new info from canonical type
 
@@ -327,11 +327,11 @@ void clang::FormatASTNodeDiagnosticArgument(
     void *Cookie,
     ArrayRef<intptr_t> QualTypeVals) {
   ASTContext &Context = *static_cast<ASTContext*>(Cookie);
-
+  
   size_t OldEnd = Output.size();
   llvm::raw_svector_ostream OS(Output);
   bool NeedQuotes = true;
-
+  
   switch (Kind) {
     default: llvm_unreachable("unknown ArgumentKind");
     case DiagnosticsEngine::ak_qualtype_pair: {
@@ -364,7 +364,7 @@ void clang::FormatASTNodeDiagnosticArgument(
     case DiagnosticsEngine::ak_qualtype: {
       assert(Modifier.empty() && Argument.empty() &&
              "Invalid modifier for QualType argument");
-
+      
       QualType Ty(QualType::getFromOpaquePtr(reinterpret_cast<void*>(Val)));
       OS << ConvertTypeToDiagnosticString(Context, Ty, PrevArgs, QualTypeVals);
       NeedQuotes = false;
@@ -1380,27 +1380,6 @@ class TemplateDiff {
     return QualType();
   }
 
-  /// CheckForNullPtr - returns true if the expression can be evaluated as
-  /// a null pointer
-  bool CheckForNullPtr(Expr *E) {
-    assert(E && "Expected expression");
-
-    E = E->IgnoreParenCasts();
-    if (E->isNullPointerConstant(Context, Expr::NPC_ValueDependentIsNull))
-      return true;
-
-    DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E);
-    if (!DRE)
-      return false;
-
-    VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
-    if (!VD || !VD->hasInit())
-      return false;
-
-    return VD->getInit()->IgnoreParenCasts()->isNullPointerConstant(
-        Context, Expr::NPC_ValueDependentIsNull);
-  }
-
   /// GetTemplateDecl - Retrieves the template template arguments, including
   /// default arguments.
   static TemplateDecl *GetTemplateDecl(const TSTiterator &Iter) {
@@ -1653,20 +1632,20 @@ class TemplateDiff {
     assert((FromExpr || ToExpr) &&
             "Only one template argument may be missing.");
     if (Same) {
-      PrintExpr(FromExpr, FromNullPtr);
+      PrintExpr(FromExpr);
     } else if (!PrintTree) {
       OS << (FromDefault ? "(default) " : "");
       Bold();
-      PrintExpr(FromExpr, FromNullPtr);
+      PrintExpr(FromExpr);
       Unbold();
     } else {
       OS << (FromDefault ? "[(default) " : "[");
       Bold();
-      PrintExpr(FromExpr, FromNullPtr);
+      PrintExpr(FromExpr);
       Unbold();
       OS << " != " << (ToDefault ? "(default) " : "");
       Bold();
-      PrintExpr(ToExpr, ToNullPtr);
+      PrintExpr(ToExpr);
       Unbold();
       OS << ']';
     }
@@ -2044,7 +2023,7 @@ public:
 /// is successful.
 static bool FormatTemplateTypeDiff(ASTContext &Context, QualType FromType,
                                    QualType ToType, bool PrintTree,
-                                   bool PrintFromType, bool ElideType,
+                                   bool PrintFromType, bool ElideType, 
                                    bool ShowColors, raw_ostream &OS) {
   if (PrintTree)
     PrintFromType = true;
