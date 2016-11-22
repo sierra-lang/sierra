@@ -88,7 +88,7 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src, QualType Src
 //------------------------------------------------------------------------------
 
 llvm::Value *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask,
-                                 llvm::Value *Val, llvm::Value *Ptr, bool Volatile) {
+                                 llvm::Value *Val, Address Ptr, bool Volatile) {
   llvm::VectorType *MaskTy = llvm::cast<llvm::VectorType>(Mask->getType());
   llvm::VectorType *ValTy  = llvm::cast<llvm::VectorType>( Val->getType());
   assert(MaskTy->getNumElements() == ValTy->getNumElements());

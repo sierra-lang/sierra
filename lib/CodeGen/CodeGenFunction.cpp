@@ -1404,11 +1404,9 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
   if (const BinaryOperator *CondBOp = dyn_cast<BinaryOperator>(Cond))
   {
     // Handle X && Y in a condition.
-    if ( CondBOp->getOpcode() == BO_LAnd )
-    {
+    if (CondBOp->getOpcode() == BO_LAnd) {
       /* Check whether the type of the condition is a Sierra Vector Type. */
-      if ( Cond->getType()->isSierraVectorType() )
-      {
+      if (Cond->getType()->isSierraVectorType()) {
         llvm::LLVMContext &Context = Builder.getContext();
         unsigned NumElems = Cond->getType()->getSierraVectorLength();
 
