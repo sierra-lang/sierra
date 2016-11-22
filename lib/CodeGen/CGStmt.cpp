@@ -625,8 +625,6 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
 
   auto oldMask = getSierraMask();
 
-  RegionCounter Cnt = getPGORegionCounter(&S);
-
   // Emit the header for the loop, which will also become
   // the continue target.
   JumpDest LoopHeader = getJumpDestInCurrentScope("while.cond");

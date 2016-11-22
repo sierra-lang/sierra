@@ -9322,7 +9322,6 @@ inline QualType Sema::CheckBitwiseOperands(
 inline QualType Sema::CheckLogicalOperands(ExprResult &LHS, ExprResult &RHS,
                                            SourceLocation Loc,
                                            BinaryOperatorKind Opc) {
-  ExprResult &LHS, ExprResult &RHS, SourceLocation Loc, unsigned Opc) {
 
   if (LHS.get()->getType()->isSierraVectorType() || RHS.get()->getType()->isSierraVectorType())
     return CheckSierraVectorLogicalOperands(*this, LHS, RHS, Loc);

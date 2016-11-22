@@ -3259,9 +3259,6 @@ ConstantAddress CodeGenModule::GetAddrOfConstantCString(
   llvm::Constant *C =
       llvm::ConstantDataArray::getString(getLLVMContext(), StrWithNull, false);
 
-  llvm::Constant *C =
-      llvm::ConstantDataArray::getString(getLLVMContext(), StrWithNull, false);
-
   // Don't share any string literals if strings aren't constant.
   llvm::GlobalVariable **Entry = nullptr;
   if (!LangOpts.WritableStrings) {

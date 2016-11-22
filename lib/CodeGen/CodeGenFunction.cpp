@@ -1242,7 +1242,6 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
 
     // Handle X && Y in a condition.
     if (CondBOp->getOpcode() == BO_LAnd) {
-      RegionCounter Cnt = getPGORegionCounter(CondBOp);
       /* Check whether the type of the condition is a Sierra Vector Type. */
       if (Cond->getType()->isSierraVectorType()) {
         llvm::LLVMContext &Context = Builder.getContext();
@@ -1345,7 +1344,6 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
     }
 
     if (CondBOp->getOpcode() == BO_LOr) {
-      RegionCounter Cnt = getPGORegionCounter(CondBOp);
       /* Check whether the type of the condition is a Sierra Vector Type. */
       if (Cond->getType()->isSierraVectorType()) {
         llvm::LLVMContext &Context = Builder.getContext();

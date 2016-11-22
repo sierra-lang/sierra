@@ -2287,7 +2287,7 @@ void MicrosoftCXXNameMangler::mangleType(const VectorType *T, Qualifiers Quals,
   }
 }
 
-void MicrosoftCXXNameMangler::mangleType(const SierraVectorType *T,
+void MicrosoftCXXNameMangler::mangleType(const SierraVectorType *T, Qualifiers,
                                          SourceRange Range) {
   DiagnosticsEngine &Diags = Context.getDiags();
   unsigned DiagID = Diags.getCustomDiagID(DiagnosticsEngine::Error,
@@ -2296,7 +2296,7 @@ void MicrosoftCXXNameMangler::mangleType(const SierraVectorType *T,
     << Range;
 }
 void MicrosoftCXXNameMangler::mangleType(const DependentSizedSierraVectorType *T,
-                                         SourceRange Range) {
+                                         Qualifiers, SourceRange Range) {
   DiagnosticsEngine &Diags = Context.getDiags();
   unsigned DiagID = Diags.getCustomDiagID(DiagnosticsEngine::Error,
     "cannot mangle this dependent-sized sierra vector type yet");

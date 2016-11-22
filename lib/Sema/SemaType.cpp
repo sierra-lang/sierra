@@ -4856,15 +4856,13 @@ namespace {
       TL.setLParenLoc(Chunk.Loc);
       TL.setRParenLoc(Chunk.EndLoc);
     }
-<<<<<<< HEAD
     void VisitSierraVectorTypeLoc(SierraVectorTypeLoc TL) {
       //assert(Chunk.Kind == DeclaratorChunk::???);
       TL.setNameLoc(Chunk.Loc);
-=======
+    }
     void VisitPipeTypeLoc(PipeTypeLoc TL) {
       assert(Chunk.Kind == DeclaratorChunk::Pipe);
       TL.setKWLoc(Chunk.Loc);
->>>>>>> github/release_38
     }
 
     void VisitTypeLoc(TypeLoc TL) {

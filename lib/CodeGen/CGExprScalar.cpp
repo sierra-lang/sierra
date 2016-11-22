@@ -3107,7 +3107,7 @@ Value *ScalarExprEmitter::VisitBinLAnd(const BinaryOperator *E) {
     llvm::PHINode *EndPhi   = llvm::PHINode::Create(MaskTy, 0, "sierra-land.phi-end");
 
     CGF.EmitBranchOnBoolExpr(E,
-                             TrueBlock, FalseBlock, Cnt.getCount(),
+                             TrueBlock, FalseBlock, CGF.getProfileCount(E),
                              /* falseFirst = */ false,
                              &TruePhi, &FalsePhi);
 
@@ -3226,7 +3226,7 @@ Value *ScalarExprEmitter::VisitBinLOr(const BinaryOperator *E) {
     llvm::PHINode *EndPhi   = llvm::PHINode::Create(MaskTy, 0, "sierra-lor.phi-end");
 
     CGF.EmitBranchOnBoolExpr(E,
-                             TrueBlock, FalseBlock, Cnt.getCount(),
+                             TrueBlock, FalseBlock, CGF.getProfileCount(E),
                              /* falseFirst = */ false,
                              &TruePhi, &FalsePhi);
 
@@ -3433,7 +3433,8 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
     vPhi->addIncoming(llvm::UndefValue::get(ValueType), Builder.GetInsertBlock());
 
     CGF.EmitBranchOnBoolExpr(condExpr,
-                             TrueBlock, FalseBlock, Cnt.getCount(),
+                             TrueBlock, FalseBlock,
+                             CGF.getProfileCount(condExpr),
                              /* falseFirst = */ false,
                              &TruePhi, &FalsePhi);
 

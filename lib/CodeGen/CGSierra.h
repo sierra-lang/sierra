@@ -42,7 +42,7 @@ llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context, unsigned NumEle
 llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, llvm::Value *Src, QualType SrcType, QualType DstType);
 
 llvm::Value *EmitMaskedStore(CGBuilderTy &Builder, llvm::Value *Mask,
-                                 llvm::Value *Val, llvm::Value *Ptr, bool Volatile);
+                                 llvm::Value *Val, Address Ptr, bool Volatile);
 
 llvm::Value *EmitVecToInt(CGBuilderTy &Builder, llvm::Value *Vec);
 
