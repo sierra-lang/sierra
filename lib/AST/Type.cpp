@@ -3633,6 +3633,8 @@ bool Type::canHaveNullability() const {
   case Type::DependentSizedExtVector:
   case Type::Vector:
   case Type::ExtVector:
+  case Type::SierraVector:
+  case Type::DependentSizedSierraVector:
   case Type::FunctionProto:
   case Type::FunctionNoProto:
   case Type::Record:

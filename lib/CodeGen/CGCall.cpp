@@ -1858,6 +1858,22 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
   for (auto &Arg : Fn->args()) {
     FnArgs.push_back(&Arg);
   }
+
+  // XXX remove
+#include "llvm/Support/raw_ostream.h"
+#define newline (llvm::errs() << "\n")
+  llvm::errs() << FnArgs.size();
+  newline;
+  llvm::errs() << IRFunctionArgs.totalIRArgs();
+  newline; newline;
+  for (auto arg : FnArgs) {
+    arg->dump();
+  }
+  newline;
+  Fn->dump();
+  newline;
+#undef newline
+
   assert(FnArgs.size() == IRFunctionArgs.totalIRArgs());
 
   // If we're using inalloca, all the memory arguments are GEPs off of the last
@@ -2150,19 +2166,22 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
   }
 
   // XXX TODO check this
-  unsigned FirstIRArg = IRFunctionArgs.getIRArgs(ArgNo).first;
-  auto AI = FnArgs[FirstIRArg];
+  //unsigned FirstIRArg = IRFunctionArgs.getIRArgs(ArgNo).first;
+  //auto AI = FnArgs[FirstIRArg];
+  auto AI = FnArgs.begin();
   unsigned SierraSpmd = FI.getSierraSpmd();
   assert(SierraSpmd != 0);
   if (SierraSpmd != 1) {
-    setSierraMask(SierraMask(AI, CreateAllZerosVector(getLLVMContext(), SierraSpmd)));
-    AI->setName("current_mask");
+    setSierraMask(
+        SierraMask(*AI, CreateAllZerosVector(getLLVMContext(), SierraSpmd)));
+    (*AI)->setName("current_mask");
     ++AI;
   }
 
-  if (FI.usesInAlloca())
-    ++AI;
-  assert(AI == Fn->arg_end() && "Argument mismatch!");
+  // this is not in the clang code anymore
+  //if (FI.usesInAlloca())
+    //++AI;
+  //assert(*AI == &*Fn->arg_end() && "Argument mismatch!");
 
   if (getTarget().getCXXABI().areArgsDestroyedLeftToRightInCallee()) {
     for (int I = Args.size() - 1; I >= 0; --I)

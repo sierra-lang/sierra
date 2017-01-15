@@ -25,7 +25,8 @@ using llvm::Value;
 namespace clang {
 namespace CodeGen {
 
-llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src, QualType SrcType, QualType DstType) {
+llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src,
+                                  QualType SrcType, QualType DstType) {
   assert(SrcType->isSierraVectorType() && "must be a sierra vector");
 
   llvm::Type *SrcTy = CGF.ConvertType(SrcType);
@@ -82,6 +83,9 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src, QualType Src
     //Res = Builder.CreateCall(CGF.CGM.getIntrinsic(llvm::Intrinsic::convert_to_fp16), Res);
   //}
 
+  Res->dump();
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "CGSierra::EmitSierraConversion::beforeReturn\n";
   return Res;
 }
 

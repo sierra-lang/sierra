@@ -1594,6 +1594,8 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
   if (Cond->getType()->isSierraVectorType()) {
     /* Evaluate the condition. */
     llvm::Value *Res = EvaluateExprAsBool(Cond);
+    Res->dump();
+    getSierraMask().CurrentMask->dump();
     return Builder.CreateAnd(Res, getSierraMask().CurrentMask);
   }
 
@@ -1631,11 +1633,10 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
 
   // Emit the code with the fully general case.
   llvm::Value *CondV;
-  {
-    ApplyDebugLocation DL(*this, Cond);
-    CondV = EvaluateExprAsBool(Cond);
-  }
+  ApplyDebugLocation DL(*this, Cond);
+  CondV = EvaluateExprAsBool(Cond);
   Builder.CreateCondBr(CondV, TrueBlock, FalseBlock, Weights, Unpredictable);
+  return nullptr;
 }
 
 
