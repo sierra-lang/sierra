@@ -3415,24 +3415,6 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
     return tmp5;
   }
 
-  // If this is a really simple expression (like x ? 4 : 5), emit this as a
-  // select instead of as control flow.  We can only do this if it is cheap and
-  // safe to evaluate the LHS and RHS unconditionally.
-  if (isCheapEnoughToEvaluateUnconditionally(lhsExpr, CGF) &&
-      isCheapEnoughToEvaluateUnconditionally(rhsExpr, CGF)) {
-    CGF.incrementProfileCounter(E);
-
-    llvm::Value *CondV = CGF.EvaluateExprAsBool(condExpr);
-    llvm::Value *LHS = Visit(lhsExpr);
-    llvm::Value *RHS = Visit(rhsExpr);
-    if (!LHS) {
-      // If the conditional has void type, make sure we return a null Value*.
-      assert(!RHS && "LHS and RHS types must match");
-      return nullptr;
-    }
-    return Builder.CreateSelect(CondV, LHS, RHS, "cond");
-  }
-
   if (condExpr->getType()->isSierraVectorType()) {
     auto OldMask = CGF.getSierraMask();
     if (not OldMask) {
@@ -3442,16 +3424,21 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
       CGF.setSierraMask(OldMask);
     }
 
-    llvm::BasicBlock *TrueBlock  = CGF.createBasicBlock("sierra-conditional.some-true");
-    llvm::BasicBlock *FalseBlock = CGF.createBasicBlock("sierra-conditional.some-false");
-    llvm::BasicBlock *EndBlock   = CGF.createBasicBlock("sierra-conditional.end");
+    llvm::BasicBlock *TrueBlock =
+        CGF.createBasicBlock("sierra-conditional.some-true");
+    llvm::BasicBlock *FalseBlock =
+        CGF.createBasicBlock("sierra-conditional.some-false");
+    llvm::BasicBlock *EndBlock = CGF.createBasicBlock("sierra-conditional.end");
 
     auto const ValueType    = CGF.ConvertType(lhsExpr->getType());
     llvm::PHINode *TruePhi  = NULL;
     llvm::PHINode *FalsePhi = NULL;
-    llvm::PHINode *EndPhi   = llvm::PHINode::Create(ValueType, 0, "sierra-conditional.phi-end");
-    llvm::PHINode *vPhi     = llvm::PHINode::Create(ValueType, 0, "sierra-conditional.phi-value");
-    vPhi->addIncoming(llvm::UndefValue::get(ValueType), Builder.GetInsertBlock());
+    llvm::PHINode *EndPhi =
+        llvm::PHINode::Create(ValueType, 0, "sierra-conditional.phi-end");
+    llvm::PHINode *vPhi =
+        llvm::PHINode::Create(ValueType, 0, "sierra-conditional.phi-value");
+    vPhi->addIncoming(llvm::UndefValue::get(ValueType),
+                      Builder.GetInsertBlock());
 
     CGF.EmitBranchOnBoolExpr(condExpr,
                              TrueBlock, FalseBlock,
@@ -3471,7 +3458,8 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
     CGF.EmitBlock(FalseBlock);
     Builder.Insert(vPhi);
     llvm::Value *RHS = Visit(rhsExpr);
-    auto const Merged = Builder.CreateSelect(FalsePhi, vPhi, RHS, "sierra-conditional.merged");
+    auto const Merged =
+        Builder.CreateSelect(FalsePhi, vPhi, RHS, "sierra-conditional.merged");
     EndPhi->addIncoming(Merged, Builder.GetInsertBlock());
 
     /* Emit code for the EndBlock. */
@@ -3480,6 +3468,24 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
 
     CGF.setSierraMask(OldMask); // TODO: resetToScalar ?
     return EndPhi;
+  }
+
+  // If this is a really simple expression (like x ? 4 : 5), emit this as a
+  // select instead of as control flow.  We can only do this if it is cheap and
+  // safe to evaluate the LHS and RHS unconditionally.
+  if (isCheapEnoughToEvaluateUnconditionally(lhsExpr, CGF) &&
+      isCheapEnoughToEvaluateUnconditionally(rhsExpr, CGF)) {
+    CGF.incrementProfileCounter(E);
+
+    llvm::Value *CondV = CGF.EvaluateExprAsBool(condExpr);
+    llvm::Value *LHS = Visit(lhsExpr);
+    llvm::Value *RHS = Visit(rhsExpr);
+    if (!LHS) {
+      // If the conditional has void type, make sure we return a null Value*.
+      assert(!RHS && "LHS and RHS types must match");
+      return nullptr;
+    }
+    return Builder.CreateSelect(CondV, LHS, RHS, "cond");
   }
 
   llvm::BasicBlock *LHSBlock = CGF.createBasicBlock("cond.true");
