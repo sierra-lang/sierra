@@ -814,6 +814,10 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   EmitStartEHSpec(CurCodeDecl);
 
   PrologueCleanupDepth = EHStack.stable_begin();
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=============> CodeGenFunction.cpp:818\n";
+  CurFn->dump();
+  llvm::errs() << "\n";
   EmitFunctionProlog(*CurFnInfo, CurFn, Args);
 
   if (D && isa<CXXMethodDecl>(D) && cast<CXXMethodDecl>(D)->isInstance()) {
@@ -971,6 +975,10 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
       Loc = SpecDecl->getLocation();
 
   // Emit the standard function prologue.
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "========> CodeGenFunction.cpp:979\n";
+  Fn->dump();
+  llvm::errs() << "\n";
   StartFunction(GD, ResTy, Fn, FnInfo, Args, Loc, BodyRange.getBegin());
 
   // Generate the body of the function.

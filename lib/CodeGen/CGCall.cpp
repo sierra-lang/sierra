@@ -1308,11 +1308,20 @@ CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
     llvm_unreachable("Invalid ABI kind for return argument");
 
   case ABIArgInfo::Extend:
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CGall.cpp:1312\n";
+  llvm::errs() << "Extend\n\n";
   case ABIArgInfo::Direct:
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CGall.cpp:1316\n";
+  llvm::errs() << "Direct\n\n" << "abiarginfo: \n"; retAI.dump();
     resultType = retAI.getCoerceToType();
     break;
 
   case ABIArgInfo::InAlloca:
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CGall.cpp:1323\n";
+  llvm::errs() << "InAlloca\n\n";
     if (retAI.getInAllocaSRet()) {
       // sret things on win32 aren't void, they return the sret pointer.
       QualType ret = FI.getReturnType();
@@ -1325,7 +1334,13 @@ CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
     break;
 
   case ABIArgInfo::Indirect:
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CGall.cpp:1338\n";
+  llvm::errs() << "Indirect\n\n";
   case ABIArgInfo::Ignore:
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CGall.cpp:1342\n";
+  llvm::errs() << "Ignore\n\n";
     resultType = llvm::Type::getVoidTy(getLLVMContext());
     break;
   }
@@ -1862,14 +1877,11 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
   // XXX remove
 #include "llvm/Support/raw_ostream.h"
 #define newline (llvm::errs() << "\n")
+  llvm::errs() << "===========> cgcall.cpp:1865\n";
   llvm::errs() << FnArgs.size();
   newline;
   llvm::errs() << IRFunctionArgs.totalIRArgs();
   newline; newline;
-  for (auto arg : FnArgs) {
-    arg->dump();
-  }
-  newline;
   Fn->dump();
   newline;
 #undef newline

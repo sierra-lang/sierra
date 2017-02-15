@@ -1726,6 +1726,10 @@ void CodeGenModule::EmitGlobalDefinition(GlobalDecl GD, llvm::GlobalValue *GV) {
       return;
     }
 
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CodeGenModule.cpp:1730\n";
+  GD.getDecl()->dump();
+  llvm::errs() << "\n";
     return EmitGlobalFunctionDefinition(GD, GV);
   }
 
@@ -2710,6 +2714,10 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
   // Compute the function info and LLVM type.
   const CGFunctionInfo &FI = getTypes().arrangeGlobalDeclaration(GD);
   llvm::FunctionType *Ty = getTypes().GetFunctionType(FI);
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CodeGenModule.cpp:2718\n";
+  Ty->dump();
+  llvm::errs() << "\n";
 
   // Get or create the prototype for the function.
   if (!GV || (GV->getType()->getElementType() != Ty))
@@ -2718,6 +2726,10 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
                                                    /*IsForDefinition=*/true));
 
   // Already emitted.
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CodeGenModule.cpp:2730\n";
+  GV->dump();
+  llvm::errs() << "\n";
   if (!GV->isDeclaration())
     return;
 
@@ -2725,17 +2737,45 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
   // generating code for it because various parts of IR generation
   // want to propagate this information down (e.g. to local static
   // declarations).
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CodeGenModule.cpp:2741\n";
+  GV->dump();
+  llvm::errs() << "\n";
   auto *Fn = cast<llvm::Function>(GV);
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CodeGenModule.cpp:2746\n";
+  Fn->dump();
+  llvm::errs() << "\n";
   setFunctionLinkage(GD, Fn);
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CodeGenModule.cpp:2751\n";
+  Fn->dump();
+  llvm::errs() << "\n";
   setFunctionDLLStorageClass(GD, Fn);
 
   // FIXME: this is redundant with part of setFunctionDefinitionAttributes
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CodeGenModule.cpp:2758\n";
+  Fn->dump();
+  llvm::errs() << "\n";
   setGlobalVisibility(Fn, D);
 
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CodeGenModule.cpp:2764\n";
+  Fn->dump();
+  llvm::errs() << "\n";
   MaybeHandleStaticInExternC(D, Fn);
 
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CodeGenModule.cpp:2770\n";
+  Fn->dump();
+  llvm::errs() << "\n";
   maybeSetTrivialComdat(*D, *Fn);
 
+#include "llvm/Support/raw_ostream.h"
+  llvm::errs() << "=======> CodeGenModule.cpp:2776\n";
+  Fn->dump();
+  llvm::errs() << "\n";
   CodeGenFunction(*this).GenerateCode(D, Fn, FI);
 
   setFunctionDefinitionAttributes(D, Fn);
