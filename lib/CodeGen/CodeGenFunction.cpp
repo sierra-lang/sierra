@@ -814,10 +814,6 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   EmitStartEHSpec(CurCodeDecl);
 
   PrologueCleanupDepth = EHStack.stable_begin();
-#include "llvm/Support/raw_ostream.h"
-  llvm::errs() << "=============> CodeGenFunction.cpp:818\n";
-  CurFn->dump();
-  llvm::errs() << "\n";
   EmitFunctionProlog(*CurFnInfo, CurFn, Args);
 
   if (D && isa<CXXMethodDecl>(D) && cast<CXXMethodDecl>(D)->isInstance()) {
@@ -975,10 +971,6 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
       Loc = SpecDecl->getLocation();
 
   // Emit the standard function prologue.
-#include "llvm/Support/raw_ostream.h"
-  llvm::errs() << "========> CodeGenFunction.cpp:979\n";
-  Fn->dump();
-  llvm::errs() << "\n";
   StartFunction(GD, ResTy, Fn, FnInfo, Args, Loc, BodyRange.getBegin());
 
   // Generate the body of the function.
@@ -1602,8 +1594,16 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
   if (Cond->getType()->isSierraVectorType()) {
     /* Evaluate the condition. */
     llvm::Value *Res = EvaluateExprAsBool(Cond);
+#include "llvm/Support/raw_ostream.h"
+    llvm::errs() << "----> CodeGenFunction1598\n";
+    llvm::errs() << "----> dump condition\n";
     Res->dump();
+    llvm::errs() << "----> dump conditiontype\n";
+    Res->getType()->dump();
+    llvm::errs() << "----> dump currentmask\n";
     getSierraMask().CurrentMask->dump();
+    llvm::errs() << "----> dump currentmasktype\n";
+    getSierraMask().CurrentMask->getType()->dump();
     return Builder.CreateAnd(Res, getSierraMask().CurrentMask);
   }
 

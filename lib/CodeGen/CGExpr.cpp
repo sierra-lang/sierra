@@ -118,8 +118,6 @@ llvm::Value *CodeGenFunction::EvaluateExprAsBool(const Expr *E) {
 
   if ( E->getType()->isSierraVectorType() )
   {
-#include "llvm/Support/raw_ostream.h"
-    llvm::errs() << "CGExpr::EvaluateExprAsBool::typeIsSierraVector\n";
     QualType SierraTy = getContext().getSierraVectorType( BoolTy,
                                         E->getType()->getSierraVectorLength() );
     return CodeGen::EmitSierraConversion( *this,
