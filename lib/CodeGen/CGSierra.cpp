@@ -83,9 +83,6 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src,
     //Res = Builder.CreateCall(CGF.CGM.getIntrinsic(llvm::Intrinsic::convert_to_fp16), Res);
   //}
 
-  Res->dump();
-#include "llvm/Support/raw_ostream.h"
-  llvm::errs() << "CGSierra::EmitSierraConversion::beforeReturn\n";
   return Res;
 }
 

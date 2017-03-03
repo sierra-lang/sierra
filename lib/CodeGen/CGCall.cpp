@@ -1482,20 +1482,11 @@ CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
     llvm_unreachable("Invalid ABI kind for return argument");
 
   case ABIArgInfo::Extend:
-#include "llvm/Support/raw_ostream.h"
-  llvm::errs() << "=======> CGall.cpp:1312\n";
-  llvm::errs() << "Extend\n\n";
   case ABIArgInfo::Direct:
-#include "llvm/Support/raw_ostream.h"
-  llvm::errs() << "=======> CGall.cpp:1316\n";
-  llvm::errs() << "Direct\n\n" << "abiarginfo: \n"; retAI.dump();
     resultType = retAI.getCoerceToType();
     break;
 
   case ABIArgInfo::InAlloca:
-#include "llvm/Support/raw_ostream.h"
-  llvm::errs() << "=======> CGall.cpp:1323\n";
-  llvm::errs() << "InAlloca\n\n";
     if (retAI.getInAllocaSRet()) {
       // sret things on win32 aren't void, they return the sret pointer.
       QualType ret = FI.getReturnType();
@@ -1508,13 +1499,7 @@ CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
     break;
 
   case ABIArgInfo::Indirect:
-#include "llvm/Support/raw_ostream.h"
-  llvm::errs() << "=======> CGall.cpp:1338\n";
-  llvm::errs() << "Indirect\n\n";
   case ABIArgInfo::Ignore:
-#include "llvm/Support/raw_ostream.h"
-  llvm::errs() << "=======> CGall.cpp:1342\n";
-  llvm::errs() << "Ignore\n\n";
     resultType = llvm::Type::getVoidTy(getLLVMContext());
     break;
 
@@ -2158,19 +2143,10 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
     FnArgs.push_back(&Arg);
   }
 
-  // XXX remove
-#include "llvm/Support/raw_ostream.h"
-#define newline (llvm::errs() << "\n")
-  llvm::errs() << "===========> cgcall.cpp:1865\n";
-  llvm::errs() << FnArgs.size();
-  newline;
-  llvm::errs() << IRFunctionArgs.totalIRArgs();
-  newline; newline;
-  Fn->dump();
-  newline;
-#undef newline
 
-  assert(FnArgs.size() == IRFunctionArgs.totalIRArgs());
+  //this will fail if spmd attribute is used so we comment it out.
+  //the additional element is added later
+  //assert(FnArgs.size() == IRFunctionArgs.totalIRArgs());
 
   // If we're using inalloca, all the memory arguments are GEPs off of the last
   // parameter, which is a pointer to the complete memory area.
@@ -3934,21 +3910,23 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 #endif
 
     // XXX TODO check this
-    unsigned FirstIRArg = IRFunctionArgs.getIRArgs(ArgNo).first;
+    // unsigned FirstIRArg = IRFunctionArgs.getIRArgs(ArgNo).first;
     if (auto mask = getSierraMask())
       // XXX TODO check this
-      //Args.push_back(mask.CurrentMask);
-      IRCallArgs[FirstIRArg] = mask.CurrentMask;
+      // Args.push_back(mask.CurrentMask);
+      IRCallArgs.push_back(mask.CurrentMask);
+    // IRCallArgs[FirstIRArg] = mask.CurrentMask;
     else {
-      llvm::VectorType *VTy =
-                cast<llvm::VectorType>(
-                    IRFuncTy->getParamType(IRFuncTy->getNumParams()-1));
+      llvm::VectorType *VTy = cast<llvm::VectorType>(
+          IRFuncTy->getParamType(IRFuncTy->getNumParams() - 1));
       // XXX TODO check this
-      //Args.push_back(llvm::ConstantVector::getSplat(VTy->getNumElements(),
-      //Builder.getTrue()));
-      IRCallArgs[FirstIRArg] =
-                llvm::ConstantVector::getSplat(VTy->getNumElements(),
-                                               Builder.getTrue());
+      // Args.push_back(llvm::ConstantVector::getSplat(VTy->getNumElements(),
+      // Builder.getTrue()));
+      IRCallArgs.push_back(llvm::ConstantVector::getSplat(VTy->getNumElements(),
+                                                          Builder.getTrue()));
+      // IRCallArgs[FirstIRArg] =
+      // llvm::ConstantVector::getSplat(VTy->getNumElements(),
+      // Builder.getTrue());
     }
 
     //delete[] undefs;
