@@ -1594,16 +1594,6 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
   if (Cond->getType()->isSierraVectorType()) {
     /* Evaluate the condition. */
     llvm::Value *Res = EvaluateExprAsBool(Cond);
-#include "llvm/Support/raw_ostream.h"
-    llvm::errs() << "----> CodeGenFunction1598\n";
-    llvm::errs() << "----> dump condition\n";
-    Res->dump();
-    llvm::errs() << "----> dump conditiontype\n";
-    Res->getType()->dump();
-    llvm::errs() << "----> dump currentmask\n";
-    getSierraMask().CurrentMask->dump();
-    llvm::errs() << "----> dump currentmasktype\n";
-    getSierraMask().CurrentMask->getType()->dump();
     return Builder.CreateAnd(Res, getSierraMask().CurrentMask);
   }
 

@@ -3467,7 +3467,8 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       // XXX TODO check this
       // Args.push_back(mask.CurrentMask);
       IRCallArgs.push_back(mask.CurrentMask);
-    // IRCallArgs[FirstIRArg] = mask.CurrentMask;
+      // IRCallArgs.insert(IRCallArgs.begin(), mask.CurrentMask);
+      // IRCallArgs[FirstIRArg] = mask.CurrentMask;
     else {
       llvm::VectorType *VTy = cast<llvm::VectorType>(
           IRFuncTy->getParamType(IRFuncTy->getNumParams() - 1));
@@ -3476,6 +3477,9 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       // Builder.getTrue()));
       IRCallArgs.push_back(llvm::ConstantVector::getSplat(VTy->getNumElements(),
                                                           Builder.getTrue()));
+      // IRCallArgs.insert(IRCallArgs.begin(),
+      // llvm::ConstantVector::getSplat(VTy->getNumElements(),
+      // Builder.getTrue()));
       // IRCallArgs[FirstIRArg] =
       // llvm::ConstantVector::getSplat(VTy->getNumElements(),
       // Builder.getTrue());
