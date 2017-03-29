@@ -3419,7 +3419,10 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
     auto OldMask = CGF.getSierraMask();
     if (not OldMask) {
       /* Create a mask with all-true current and all-false continue. */
+      // TODO check whether it is correct to take the type of E instead of the
+      // condexpr
       unsigned NumElems = E->getType()->getSierraVectorLength();
+      //unsigned NumElems = condExpr->getType()->getSierraVectorLength();
       OldMask = SierraMask(Builder.getContext(), NumElems);
       CGF.setSierraMask(OldMask);
     }
