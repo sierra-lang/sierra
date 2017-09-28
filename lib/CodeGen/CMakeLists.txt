@@ -65,6 +65,7 @@ add_clang_library(clangCodeGen
   CGOpenMPRuntimeNVPTX.cpp
   CGRecordLayoutBuilder.cpp
   CGStmt.cpp
+  CGSierra.cpp
   CGStmtOpenMP.cpp
   CGSierra.cpp
   CGVTT.cpp

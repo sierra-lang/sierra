@@ -1752,6 +1752,8 @@ DeduceTemplateArgumentsByTypeMatch(Sema &S,
 
       return Sema::TDK_NonDeducedMismatch;
     }
+
+    //     (clang extension)
     //
     //     T __attribute__(((ext_vector_type(N))))
     case Type::DependentSizedExtVector: {

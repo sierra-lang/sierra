@@ -16,6 +16,7 @@
 #include "CGDebugInfo.h"
 #include "CGObjCRuntime.h"
 #include "CodeGenModule.h"
+#include "CGSierra.h"
 #include "TargetInfo.h"
 #include "CGSierra.h"
 #include "clang/AST/ASTContext.h"
@@ -3069,7 +3070,7 @@ Value *ScalarExprEmitter::VisitBinAssign(const BinaryOperator *E) {
 
 Value *ScalarExprEmitter::VisitBinLAnd(const BinaryOperator *E) {
   // Perform vector logical and on comparisons with zero vectors.
-  if (E->getType()->isVectorType()) {
+  if (E->getType()->isVectorType() && ! E->getType()->isSierraVectorType()) {
     CGF.incrementProfileCounter(E);
 
     if (!E->getType()->isSierraVectorType()) {
@@ -3190,7 +3191,7 @@ Value *ScalarExprEmitter::VisitBinLAnd(const BinaryOperator *E) {
 
 Value *ScalarExprEmitter::VisitBinLOr(const BinaryOperator *E) {
   // Perform vector logical or on comparisons with zero vectors.
-  if (E->getType()->isVectorType()) {
+  if (E->getType()->isVectorType() && ! E->getType()->isSierraVectorType()) {
     CGF.incrementProfileCounter(E);
 
     if (! E->getType()->isSierraVectorType()) {

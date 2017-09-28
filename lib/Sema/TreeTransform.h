@@ -11989,30 +11989,6 @@ QualType TreeTransform<Derived>::RebuildExtVectorType(QualType ElementType,
 }
 
 template<typename Derived>
-Qualtype TreeTransform<Derived>::RebuildSierraVectorType(QualType ElementType,
-                                                         unsigned NumElements,
-                                                 SourceLocation AttributeLoc) {
-  llvm::APInt numElements(SemaRef.Context.getIntWidth(SemaRef.Context.IntTy),
-                          NumElements, true);
-  IntegerLiteral *VectorSize
-    = IntegerLiteral::Create(SemaRef.Context, numElements, SemaRef.Context.IntTy,
-                             AttributeLoc);
-  return BuildSierraVectorType(SemaRef, ElementType, VectorSize, AttributeLoc);
-}
-
-template<typename Derived>
-QualType TreeTransform<Derived>::RebuildExtVectorType(QualType ElementType,
-                                                      unsigned NumElements,
-                                                 SourceLocation AttributeLoc) {
-  llvm::APInt numElements(SemaRef.Context.getIntWidth(SemaRef.Context.IntTy),
-                          NumElements, true);
-  IntegerLiteral *VectorSize
-    = IntegerLiteral::Create(SemaRef.Context, numElements, SemaRef.Context.IntTy,
-                             AttributeLoc);
-  return SemaRef.BuildExtVectorType(ElementType, VectorSize, AttributeLoc);
-}
-
-template<typename Derived>
 QualType
 TreeTransform<Derived>::RebuildDependentSizedSierraVectorType(QualType ElementType,
                                                               Expr *SizeExpr,

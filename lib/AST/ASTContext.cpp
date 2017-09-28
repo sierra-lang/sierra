@@ -6426,6 +6426,7 @@ void ASTContext::getObjCEncodingForTypeImpl(QualType T, std::string& S,
   // This matches gcc's encoding, even though technically it is insufficient.
   //FIXME. We should do a better job than gcc.
   case Type::Vector:
+  case Type::SierraVector:
   case Type::ExtVector:
   // Until we have a coherent encoding of these three types, issue warning.
     { if (NotEncodedT)

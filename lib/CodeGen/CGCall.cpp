@@ -36,6 +36,9 @@
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/InlineAsm.h"
+// Sierra TODO
+//#include "llvm/MC/SubtargetFeature.h"
+//#include "llvm/Support/CallSite.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Constants.h"
@@ -704,7 +707,7 @@ CodeGenTypes::arrangeLLVMFunctionInfo(CanQualType resultType,
   bool inserted = FunctionsBeingProcessed.insert(FI).second;
   (void)inserted;
   assert(inserted && "Recursively being processed?");
-  
+
   // Compute ABI information.
   if (info.getCC() != CC_Swift) {
     getABIInfo().computeInfo(*FI);
@@ -725,7 +728,7 @@ CodeGenTypes::arrangeLLVMFunctionInfo(CanQualType resultType,
 
   bool erased = FunctionsBeingProcessed.erase(FI); (void)erased;
   assert(erased && "Not in set?");
-  
+
   return *FI;
 }
 
@@ -1273,7 +1276,7 @@ static void CreateCoercedStore(llvm::Value *Src,
 }
 
 static Address emitAddressAtOffset(CodeGenFunction &CGF, Address addr,
-                                   const ABIArgInfo &info) {      
+                                   const ABIArgInfo &info) {
   if (unsigned offset = info.getDirectOffset()) {
     addr = CGF.Builder.CreateElementBitCast(addr, CGF.Int8Ty);
     addr = CGF.Builder.CreateConstInBoundsByteGEP(addr,
@@ -1607,7 +1610,7 @@ llvm::Type *CodeGenTypes::GetFunctionTypeForVTable(GlobalDecl GD) {
 
   if (!isFuncTypeConvertible(FPT))
     return llvm::StructType::get(getLLVMContext());
-    
+
   const CGFunctionInfo *Info;
   if (isa<CXXDestructorDecl>(MD))
     Info =
@@ -2300,7 +2303,7 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
           if (!AVAttr)
             if (const auto *TOTy = dyn_cast<TypedefType>(OTy))
               AVAttr = TOTy->getDecl()->getAttr<AlignValueAttr>();
-          if (AVAttr) {         
+          if (AVAttr) {
             llvm::Value *AlignmentValue =
               EmitScalarExpr(AVAttr->getAlignment());
             llvm::ConstantInt *AlignmentCI =
@@ -2474,13 +2477,10 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
   }
 
   // XXX TODO check this
-  //unsigned FirstIRArg = IRFunctionArgs.getIRArgs(ArgNo).first;
-  //auto AI = FnArgs[FirstIRArg];
-  auto AI = FnArgs.begin();
   unsigned SierraSpmd = FI.getSierraSpmd();
   assert(SierraSpmd != 0);
   if (SierraSpmd != 1) {
-    auto AI = &FnArgs.back();//FnArgs[FnArgs.size() - 1];
+    auto AI = &FnArgs.back();
     setSierraMask(
         SierraMask(AI, CreateAllZerosVector(getLLVMContext(), SierraSpmd)));
     AI->setName("current_mask");
@@ -2615,7 +2615,7 @@ static llvm::Value *tryRemoveRetainOfSelf(CodeGenFunction &CGF,
   llvm::Value *retainedValue = retainCall->getArgOperand(0);
   llvm::LoadInst *load =
     dyn_cast<llvm::LoadInst>(retainedValue->stripPointerCasts());
-  if (!load || load->isAtomic() || load->isVolatile() || 
+  if (!load || load->isAtomic() || load->isVolatile() ||
       load->getPointerOperand() != CGF.GetAddrOfLocalVar(self).getPointer())
     return nullptr;
 
@@ -3003,7 +3003,7 @@ static void emitWriteback(CodeGenFunction &CGF,
   // Cast it back, in case we're writing an id to a Foo* or something.
   value = CGF.Builder.CreateBitCast(value, srcAddr.getElementType(),
                                     "icr.writeback-cast");
-  
+
   // Perform the writeback.
 
   // If we have a "to use" value, it's something we need to emit a use
@@ -3110,7 +3110,7 @@ static void emitWritebackArg(CodeGenFunction &CGF, CallArgList &args,
   // isn't null, so we need to register a dominating point so that the cleanups
   // system will make valid IR.
   CodeGenFunction::ConditionalEvaluation condEval(CGF);
-  
+
   // Zero-initialize it if we're not doing a copy-initialization.
   bool shouldCopy = CRE->shouldCopy();
   if (!shouldCopy) {
@@ -3133,7 +3133,7 @@ static void emitWritebackArg(CodeGenFunction &CGF, CallArgList &args,
     llvm::Value *isNull =
       CGF.Builder.CreateIsNull(srcAddr.getPointer(), "icr.isnull");
 
-    finalArgument = CGF.Builder.CreateSelect(isNull, 
+    finalArgument = CGF.Builder.CreateSelect(isNull,
                                    llvm::ConstantPointerNull::get(destType),
                                              temp.getPointer(), "icr.argument");
 
@@ -3173,7 +3173,7 @@ static void emitWritebackArg(CodeGenFunction &CGF, CallArgList &args,
       valueToUse = src;
     }
   }
-  
+
   // Finish the control flow if we needed it.
   if (shouldCopy && !provablyNonNull) {
     llvm::BasicBlock *copyBB = CGF.Builder.GetInsertBlock();
@@ -3498,7 +3498,7 @@ void CodeGenFunction::EmitNoreturnRuntimeCallOrInvoke(llvm::Value *callee,
   getBundlesForFunclet(callee, CurrentFuncletPad, BundleList);
 
   if (getInvokeDest()) {
-    llvm::InvokeInst *invoke = 
+    llvm::InvokeInst *invoke =
       Builder.CreateInvoke(callee,
                            getUnreachableBlock(),
                            getInvokeDest(),

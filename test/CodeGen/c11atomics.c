@@ -61,7 +61,7 @@ void testinc(void)
   // we have to generate an atomic add, which returns the old value, and then a
   // non-atomic add.
   // CHECK: atomicrmw add i32* @i, i32 1 seq_cst
-  // CHECK: add i32 
+  // CHECK: add i32
   ++i;
   // CHECK: atomicrmw add i64* @l, i64 1 seq_cst
   // CHECK: add i64

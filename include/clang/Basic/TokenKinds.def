@@ -253,6 +253,7 @@ PUNCTUATOR(caretcaret,            "^^")
 //   KEYCOROUTINES - This is a keyword if support for the C++ coroutines
 //                   TS is enabled
 //   BOOLSUPPORT - This is a keyword if 'bool' is a built-in type
+//   KEYSIERRA - This is a keyword if Sierra exntesion is enabled
 //   HALFSUPPORT - This is a keyword if 'half' is a built-in type
 //   WCHARSUPPORT - This is a keyword if 'wchar_t' is a built-in type
 //   KEYSIERRA - This is a keyword if Sierra exntesion is enabled

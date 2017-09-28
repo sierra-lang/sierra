@@ -211,6 +211,7 @@ TypeEvaluationKind CodeGenFunction::getEvaluationKind(QualType type) {
     case Type::RValueReference:
     case Type::MemberPointer:
     case Type::Vector:
+    case Type::SierraVector:
     case Type::ExtVector:
     case Type::FunctionProto:
     case Type::FunctionNoProto:
@@ -1467,7 +1468,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
         incrementProfileCounter(CondBOp);
         return _EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst,
                                      TrueBlock, FalseBlock, TrueCount,
-                                     TruePhi, FalsePhi );
+                                     TruePhi, FalsePhi);
       }
 
       // If we have "X && 1", simplify the code to use an uncond branch.
@@ -1477,7 +1478,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
         // br(X && 1) -> br(X).
         return _EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst,
                                      TrueBlock, FalseBlock, TrueCount,
-                                     TruePhi, FalsePhi );
+                                     TruePhi, FalsePhi);
       }
 
       // Emit the LHS as a conditional.  If the LHS conditional is false, we
@@ -1631,27 +1632,21 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
          * blocks and the phi nodes.
          */
         llvm::Value *NotV = _EmitBranchOnBoolExpr(CondUOp->getSubExpr(),
+                                                  falseFirst,
                                                   FalseBlock,
                                                   TrueBlock,
                                                   FalseCount,
                                                   FalsePhi,
                                                   TruePhi);
-        llvm::Value *notValue = llvm::BinaryOperator::CreateNot(
-          Value,
-          "not",
-          Builder.GetInsertBlock()->getTerminator() );
+        llvm::Value *NotValue = llvm::BinaryOperator::CreateNot(
+                      Value, "not", Builder.GetInsertBlock()->getTerminator());
 
-        //return llvm::BinaryOperator::Create(
-          //llvm::Instruction::And,
-          //notValue, getCurrentMask(),
-          //"and",
-          //Builder.GetInsertBlock()->getTerminator() );
-        return Builder.CreateNot( notValue );
+        return Builder.CreateNot(NotValue);
       }
 
-      return _EmitBranchOnBoolExpr( CondUOp->getSubExpr(), falseFirst,
-                                    FalseBlock, TrueBlock, FalseCount,
-                                    FalsePhi, TruePhi );
+      return _EmitBranchOnBoolExpr(CondUOp->getSubExpr(), falseFirst,
+                                   FalseBlock, TrueBlock, FalseCount,
+                                   FalsePhi, TruePhi);
     }
   }
 
@@ -1790,13 +1785,13 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
       /* XXX This is a hack to bypass the implicit cast to immediately reach the
        * underlying expression. */
       return _EmitBranchOnBoolExpr(CastExpr->getSubExpr(), falseFirst,
-                                   TrueBlock, FalseBlock,
-                                   TrueCount,
+                                   TrueBlock, FalseBlock, TrueCount,
                                    TruePhi, FalsePhi);
     }
 
-  /* If we have a Sierra Vector Type, make the evaluation depend on the current
-   * mask. */
+    /* If we have a Sierra Vector Type, make the evaluation depend on the
+     * current mask. */
+
     /* Evaluate the condition. */
     llvm::Value *Res = EvaluateExprAsBool(Cond);
     return Builder.CreateAnd(Res, getSierraMask().CurrentMask);
@@ -1804,10 +1799,8 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
 
   // Emit the code with the fully general case.
   llvm::Value *CondV;
-  {
-    ApplyDebugLocation DL(*this, Cond);
-    CondV = EvaluateExprAsBool(Cond);
-  }
+  ApplyDebugLocation DL(*this, Cond);
+  CondV = EvaluateExprAsBool(Cond);
   Builder.CreateCondBr(CondV, TrueBlock, FalseBlock, Weights, Unpredictable);
   return nullptr;
 }

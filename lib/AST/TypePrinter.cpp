@@ -1307,6 +1307,19 @@ void TypePrinter::printAttributedAfter(const AttributedType *T,
     break;
   }
 
+  case AttributedType::attr_sierra_spmd: {
+    assert(false && "TODO");
+    break;
+  }
+
+  case AttributedType::attr_sierra_vector: {
+    OS << "varying(";
+    const VectorType *vector = T->getEquivalentType()->getAs<VectorType>();
+    OS << vector->getNumElements();
+    OS << ')';
+    break;
+  }
+
   case AttributedType::attr_neon_vector_type:
   case AttributedType::attr_neon_polyvector_type: {
     if (T->getAttrKind() == AttributedType::attr_neon_vector_type)

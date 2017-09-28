@@ -119,12 +119,12 @@ void DiagnosticsEngine::Reset() {
   UncompilableErrorOccurred = false;
   FatalErrorOccurred = false;
   UnrecoverableErrorOccurred = false;
-  
+
   NumWarnings = 0;
   NumErrors = 0;
   TrapNumErrorsOccurred = 0;
   TrapNumUnrecoverableErrorsOccurred = 0;
-  
+
   CurDiagID = ~0U;
   LastDiagLevel = DiagnosticIDs::Ignored;
   DelayedDiagID = 0;
@@ -636,7 +636,7 @@ FormatDiagnostic(SmallVectorImpl<char> &OutStr) const {
     return;
   }
 
-  StringRef Diag = 
+  StringRef Diag =
     getDiags()->getDiagnosticIDs()->getDescription(getID());
 
   FormatDiagnostic(Diag.begin(), Diag.end(), OutStr);
@@ -758,7 +758,7 @@ FormatDiagnostic(const char *DiagStr, const char *DiagEnd,
         continue;
       }
     }
-    
+
     switch (Kind) {
     // ---- STRINGS ----
     case DiagnosticsEngine::ak_std_string: {
@@ -933,7 +933,7 @@ FormatDiagnostic(const char *DiagStr, const char *DiagEnd,
       FormatDiagnostic(SecondDollar + 1, Pipe, OutStr);
       break;
     }
-    
+
     // Remember this argument info for subsequent formatting operations.  Turn
     // std::strings into a null terminated string to make it be the same case as
     // all the other ones.
@@ -944,7 +944,7 @@ FormatDiagnostic(const char *DiagStr, const char *DiagEnd,
     else
       FormattedArgs.push_back(std::make_pair(DiagnosticsEngine::ak_c_string,
                                         (intptr_t)getArgStdStr(ArgNo).c_str()));
-    
+
   }
 
   // Append the type tree to the end of the diagnostics.
@@ -955,9 +955,9 @@ StoredDiagnostic::StoredDiagnostic(DiagnosticsEngine::Level Level, unsigned ID,
                                    StringRef Message)
   : ID(ID), Level(Level), Loc(), Message(Message) { }
 
-StoredDiagnostic::StoredDiagnostic(DiagnosticsEngine::Level Level, 
+StoredDiagnostic::StoredDiagnostic(DiagnosticsEngine::Level Level,
                                    const Diagnostic &Info)
-  : ID(Info.getID()), Level(Level) 
+  : ID(Info.getID()), Level(Level)
 {
   assert((Info.getLocation().isInvalid() || Info.hasSourceManager()) &&
        "Valid source location without setting a source manager for diagnostic");
@@ -974,7 +974,7 @@ StoredDiagnostic::StoredDiagnostic(DiagnosticsEngine::Level Level, unsigned ID,
                                    StringRef Message, FullSourceLoc Loc,
                                    ArrayRef<CharSourceRange> Ranges,
                                    ArrayRef<FixItHint> FixIts)
-  : ID(ID), Level(Level), Loc(Loc), Message(Message), 
+  : ID(ID), Level(Level), Loc(Loc), Message(Message),
     Ranges(Ranges.begin(), Ranges.end()), FixIts(FixIts.begin(), FixIts.end())
 {
 }

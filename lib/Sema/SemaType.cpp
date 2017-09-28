@@ -1505,9 +1505,9 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
 
   case DeclSpec::TST_auto:
     // TypeQuals handled by caller.
-    // If auto is mentioned in a lambda parameter context, convert it to a 
-    // template parameter type immediately, with the appropriate depth and 
-    // index, and update sema's state (LambdaScopeInfo) for the current lambda 
+    // If auto is mentioned in a lambda parameter context, convert it to a
+    // template parameter type immediately, with the appropriate depth and
+    // index, and update sema's state (LambdaScopeInfo) for the current lambda
     // being analyzed (which tracks the invented type template parameter).
     if (declarator.getContext() == Declarator::LambdaExprParameterContext) {
       sema::LambdaScopeInfo *LSI = S.getCurLambda();
@@ -1516,23 +1516,23 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
       const unsigned AutoParameterPosition = LSI->AutoTemplateParams.size();
       const bool IsParameterPack = declarator.hasEllipsis();
 
-      // Turns out we must create the TemplateTypeParmDecl here to 
-      // retrieve the corresponding template parameter type. 
+      // Turns out we must create the TemplateTypeParmDecl here to
+      // retrieve the corresponding template parameter type.
       TemplateTypeParmDecl *CorrespondingTemplateParam =
-        TemplateTypeParmDecl::Create(Context, 
-        // Temporarily add to the TranslationUnit DeclContext.  When the 
+        TemplateTypeParmDecl::Create(Context,
+        // Temporarily add to the TranslationUnit DeclContext.  When the
         // associated TemplateParameterList is attached to a template
-        // declaration (such as FunctionTemplateDecl), the DeclContext 
+        // declaration (such as FunctionTemplateDecl), the DeclContext
         // for each template parameter gets updated appropriately via
-        // a call to AdoptTemplateParameterList. 
-        Context.getTranslationUnitDecl(), 
-        /*KeyLoc*/ SourceLocation(), 
-        /*NameLoc*/ declarator.getLocStart(),  
-        TemplateParameterDepth, 
-        AutoParameterPosition,  // our template param index 
+        // a call to AdoptTemplateParameterList.
+        Context.getTranslationUnitDecl(),
+        /*KeyLoc*/ SourceLocation(),
+        /*NameLoc*/ declarator.getLocStart(),
+        TemplateParameterDepth,
+        AutoParameterPosition,  // our template param index
         /* Identifier*/ nullptr, false, IsParameterPack);
       LSI->AutoTemplateParams.push_back(CorrespondingTemplateParam);
-      // Replace the 'auto' in the function parameter with this invented 
+      // Replace the 'auto' in the function parameter with this invented
       // template type parameter.
       Result = QualType(CorrespondingTemplateParam->getTypeForDecl(), 0);
     } else {
@@ -2789,11 +2789,11 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
     case Declarator::ObjCParameterContext:
     case Declarator::ObjCResultContext:
     case Declarator::PrototypeContext:
-      Error = 0;  
+      Error = 0;
       break;
     case Declarator::LambdaExprParameterContext:
       // In C++14, generic lambdas allow 'auto' in their parameters.
-      if (!(SemaRef.getLangOpts().CPlusPlus14 
+      if (!(SemaRef.getLangOpts().CPlusPlus14
               && D.getDeclSpec().getTypeSpecType() == DeclSpec::TST_auto))
         Error = 16;
       break;
@@ -4181,7 +4181,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
             S.Diag(D.getIdentifierLoc(), diag::err_opencl_invalid_return)
                 << T << 0 /*pointer hint*/;
             D.setInvalidType(true);
-          } 
+          }
         } else if (!S.getLangOpts().HalfArgsAndReturns) {
           S.Diag(D.getIdentifierLoc(),
             diag::err_parameters_retval_cannot_have_fp16_type) << 1;
@@ -5053,7 +5053,7 @@ namespace {
         TL.copy(OldTL.castAs<TemplateSpecializationTypeLoc>());
         assert(TL.getRAngleLoc() == OldTL.castAs<TemplateSpecializationTypeLoc>().getRAngleLoc());
       }
-        
+
     }
     void VisitTypeOfExprTypeLoc(TypeOfExprTypeLoc TL) {
       assert(DS.getTypeSpecType() == DeclSpec::TST_typeofExpr);
@@ -5275,6 +5275,10 @@ namespace {
       assert(Chunk.Kind == DeclaratorChunk::Paren);
       TL.setLParenLoc(Chunk.Loc);
       TL.setRParenLoc(Chunk.EndLoc);
+    }
+    void VisitSierraVectorTypeLoc(SierraVectorTypeLoc TL) {
+      //assert(Chunk.Kind == DeclaratorChunk::???);
+      TL.setNameLoc(Chunk.Loc);
     }
     void VisitPipeTypeLoc(PipeTypeLoc TL) {
       assert(Chunk.Kind == DeclaratorChunk::Pipe);
@@ -5507,7 +5511,7 @@ static void HandleAddressSpaceTypeAttribute(QualType &Type,
       ASIdx = 0; break;
     }
   }
-  
+
   Type = S.Context.getAddrSpaceQualType(Type, ASIdx);
 }
 
@@ -5747,7 +5751,7 @@ static bool handleObjCGCTypeAttr(TypeProcessingState &state,
     attr.setInvalid();
     return true;
   }
-  
+
   // Check the attribute arguments.
   if (!attr.isArgIdent(0)) {
     S.Diag(attr.getLoc(), diag::err_attribute_argument_type)
@@ -5959,7 +5963,7 @@ static bool handleMSPointerTypeQualifierAttr(TypeProcessingState &State,
         << "'__sptr'" << "'__uptr'";
       return true;
     }
-    
+
     Desugared = AT->getEquivalentType();
     AT = dyn_cast<AttributedType>(Desugared);
   }
@@ -6008,7 +6012,7 @@ bool Sema::checkNullabilityTypeSpecifier(QualType &type,
           << FixItHint::CreateRemoval(nullabilityLoc);
 
         break;
-      } 
+      }
 
       // Conflicting nullability.
       Diag(nullabilityLoc, diag::err_nullability_conflicting)
@@ -6054,7 +6058,7 @@ bool Sema::checkNullabilityTypeSpecifier(QualType &type,
       << DiagNullabilityKind(nullability, isContextSensitive) << type;
     return true;
   }
-  
+
   // For the context-sensitive keywords/Objective-C property
   // attributes, require that the type be a single-level pointer.
   if (isContextSensitive) {
@@ -6096,7 +6100,7 @@ bool Sema::checkObjCKindOfType(QualType &type, SourceLocation loc) {
 
   // Find out if it's an Objective-C object or object pointer type;
   const ObjCObjectPointerType *ptrType = type->getAs<ObjCObjectPointerType>();
-  const ObjCObjectType *objType = ptrType ? ptrType->getObjectType() 
+  const ObjCObjectType *objType = ptrType ? ptrType->getObjectType()
                                           : type->getAs<ObjCObjectType>();
 
   // If not, we can't apply __kindof.
@@ -6125,7 +6129,7 @@ bool Sema::checkObjCKindOfType(QualType &type, SourceLocation loc) {
   }
 
   // Build the attributed type to record where __kindof occurred.
-  type = Context.getAttributedType(AttributedType::attr_objc_kindof, 
+  type = Context.getAttributedType(AttributedType::attr_objc_kindof,
                                    type,
                                    equivType);
 
@@ -6226,7 +6230,7 @@ static bool distributeNullabilityTypeAttr(TypeProcessingState &state,
       }
 
       return false;
-      
+
     // Don't walk through these.
     case DeclaratorChunk::Reference:
     case DeclaratorChunk::Pipe:
@@ -6349,6 +6353,19 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state,
       unwrapped.get()->getExtInfo().withRegParm(value);
     type = unwrapped.wrap(S, S.Context.adjustFunctionType(unwrapped.get(), EI));
     return true;
+  }
+
+  if (attr.getKind() == AttributeList::AT_SierraSpmd) {
+    unsigned SpmdSize;
+
+    if (HandleSierraSpmdAttr(S, unwrapped.get(), attr, SpmdSize)) {
+      // we can process right away.
+      FunctionType::ExtInfo EI =
+        unwrapped.get()->getExtInfo().withSierraSpmd(SpmdSize);
+      type = unwrapped.wrap(S, S.Context.adjustFunctionType(unwrapped.get(), EI));
+      return true;
+    }
+    return false;
   }
 
   // Delay if the type didn't work out to a function.
@@ -7492,7 +7509,7 @@ static QualType getDecltypeForExpr(Sema &S, Expr *E) {
   } else if (auto *PE = dyn_cast<PredefinedExpr>(E)) {
     return PE->getType();
   }
-  
+
   // C++11 [expr.lambda.prim]p18:
   //   Every occurrence of decltype((x)) where x is a possibly
   //   parenthesized id-expression that names an entity of automatic

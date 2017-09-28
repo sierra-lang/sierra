@@ -92,6 +92,7 @@ class RegionCodeGenTy;
 class TargetCodeGenInfo;
 struct OMPTaskDataTy;
 struct CGCoroData;
+class SierraMask;
 
 /// The kind of evaluation to perform on values of a particular
 /// type.  Basically, is the code in CGExprScalar, CGExprComplex, or
@@ -987,7 +988,7 @@ public:
       if (Data.isValid()) Data.unbind(CGF);
     }
   };
-  
+
 private:
   CGDebugInfo *DebugInfo;
   bool DisableDebugInfo;
@@ -1382,7 +1383,7 @@ public:
   ASTContext &getContext() const { return CGM.getContext(); }
   CGDebugInfo *getDebugInfo() {
     if (DisableDebugInfo)
-      return NULL;
+      return nullptr;
     return DebugInfo;
   }
   void disableDebugInfo() { DisableDebugInfo = true; }
@@ -2397,7 +2398,7 @@ public:
 
     bool isIndirect() const { return Alignment != 0; }
     llvm::Value *getAnyValue() const { return Value; }
-    
+
     llvm::Value *getDirectValue() const {
       assert(!isIndirect());
       return Value;
@@ -2956,7 +2957,7 @@ public:
   LValue EmitCastLValue(const CastExpr *E);
   LValue EmitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *E);
   LValue EmitOpaqueValueLValue(const OpaqueValueExpr *e);
-  
+
   Address EmitExtVectorElementLValue(LValue V);
 
   RValue EmitRValueForField(LValue LV, const FieldDecl *FD, SourceLocation Loc);
@@ -3071,13 +3072,13 @@ public:
   void EmitNoreturnRuntimeCallOrInvoke(llvm::Value *callee,
                                        ArrayRef<llvm::Value*> args);
 
-  CGCallee BuildAppleKextVirtualCall(const CXXMethodDecl *MD, 
-                                     NestedNameSpecifier *Qual,
-                                     llvm::Type *Ty);
-  
-  CGCallee BuildAppleKextVirtualDestructorCall(const CXXDestructorDecl *DD,
-                                               CXXDtorType Type, 
-                                               const CXXRecordDecl *RD);
+  llvm::Value *BuildAppleKextVirtualCall(const CXXMethodDecl *MD,
+                                         NestedNameSpecifier *Qual,
+                                         llvm::Type *Ty);
+
+  llvm::Value *BuildAppleKextVirtualDestructorCall(const CXXDestructorDecl *DD,
+                                                   CXXDtorType Type,
+                                                   const CXXRecordDecl *RD);
 
   RValue
   EmitCXXMemberOrOperatorCall(const CXXMethodDecl *Method,
@@ -3419,9 +3420,9 @@ public:
                                      llvm::BasicBlock *TrueBlock,
                                      llvm::BasicBlock *FalseBlock,
                                      uint64_t TrueCount,
-														         bool falseFirst = false,
-														         llvm::PHINode **TruePhi = NULL,
-														         llvm::PHINode **FalsePhi = NULL);
+                                     bool falseFirst = false,
+                                     llvm::PHINode **TruePhi = nullptr,
+                                     llvm::PHINode **FalsePhi = nullptr);
 
   // Extends the previous EmitBranchOnBoolExpr function by two arguments to
   // allow short-circuit evaluation for Sierra Vector Expressions
@@ -3626,13 +3627,13 @@ public:
   /// alignment of the pointee.
   ///
   /// Note that this function will conservatively fall back on the type
-  /// when it doesn't 
+  /// when it doesn't
   ///
   /// \param Source - If non-null, this will be initialized with
   ///   information about the source of the alignment.  Note that this
   ///   function will conservatively fall back on the type when it
   ///   doesn't recognize the expression, which means that sometimes
-  ///   
+  ///
   ///   a worst-case One
   ///   reasonable way to use this information is when there's a
   ///   language guarantee that the pointer must be aligned to some

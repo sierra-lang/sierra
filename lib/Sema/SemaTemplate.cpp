@@ -4975,6 +4975,8 @@ static bool CheckTemplateArgumentPointerToMember(Sema &S,
     S.Diag(Arg->getExprLoc(), diag::warn_cxx98_compat_template_arg_null);
     Converted = TemplateArgument(S.Context.getCanonicalType(ParamType),
                                  /*isNullPtr*/true);
+    if (S.Context.getTargetInfo().getCXXABI().isMicrosoft())
+      S.RequireCompleteType(Arg->getExprLoc(), ParamType, 0);
     return false;
   case NPV_NotNullPointer:
     break;

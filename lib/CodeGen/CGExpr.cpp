@@ -16,6 +16,7 @@
 #include "CGCleanup.h"
 #include "CGDebugInfo.h"
 #include "CGObjCRuntime.h"
+#include "CGSierra.h"
 #include "CGOpenMPRuntime.h"
 #include "CGRecordLayout.h"
 #include "CodeGenFunction.h"
@@ -120,6 +121,17 @@ llvm::Value *CodeGenFunction::EvaluateExprAsBool(const Expr *E) {
   }
 
   QualType BoolTy = getContext().BoolTy;
+
+  if ( E->getType()->isSierraVectorType() )
+  {
+    QualType SierraTy = getContext().getSierraVectorType( BoolTy,
+                                        E->getType()->getSierraVectorLength() );
+    return CodeGen::EmitSierraConversion( *this,
+                                          EmitScalarExpr( E ),
+                                          E->getType(),
+                                          SierraTy );
+  }
+
   SourceLocation Loc = E->getExprLoc();
 
   if ( E->getType()->isSierraVectorType() )
@@ -1571,14 +1583,14 @@ Address CodeGenFunction::EmitExtVectorElementLValue(LValue LV) {
   const VectorType *ExprVT = LV.getType()->getAs<VectorType>();
   QualType EQT = ExprVT->getElementType();
   llvm::Type *VectorElementTy = CGM.getTypes().ConvertType(EQT);
-  
+
   Address CastToPointerElement =
     Builder.CreateElementBitCast(VectorAddress, VectorElementTy,
                                  "conv.ptr.element");
-  
+
   const llvm::Constant *Elts = LV.getExtVectorElts();
   unsigned ix = getAccessedFieldNo(0, Elts);
-  
+
   Address VectorBasePtrPlusIx =
     Builder.CreateConstInBoundsGEP(CastToPointerElement, ix,
                                    getContext().getTypeSizeInChars(EQT),
@@ -1992,7 +2004,7 @@ Address CodeGenFunction::EmitLoadOfReference(Address Addr,
   llvm::Value *Ptr = Builder.CreateLoad(Addr);
   return Address(Ptr, getNaturalTypeAlignment(RefTy->getPointeeType(),
                                               Source, /*forPointee*/ true));
-  
+
 }
 
 LValue CodeGenFunction::EmitLoadOfReferenceLValue(Address RefAddr,
@@ -2931,7 +2943,7 @@ static Address emitArraySubscriptGEP(CodeGenFunction &CGF, Address addr,
   for (auto idx : indices.drop_back())
     assert(isa<llvm::ConstantInt>(idx) &&
            cast<llvm::ConstantInt>(idx)->isZero());
-#endif  
+#endif
 
   // Determine the element size of the statically-sized base.  This is
   // the thing that the indices are expressed in terms of.
@@ -3390,7 +3402,7 @@ LValue CodeGenFunction::EmitLValueForLambdaField(const FieldDecl *Field) {
 static Address emitAddrOfFieldStorage(CodeGenFunction &CGF, Address base,
                                       const FieldDecl *field) {
   const RecordDecl *rec = field->getParent();
-  
+
   unsigned idx =
     CGF.CGM.getTypes().getCGRecordLayout(rec).getLLVMFieldNo(field);
 

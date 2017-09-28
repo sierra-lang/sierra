@@ -623,6 +623,7 @@ void TypeLocWriter::VisitDependentSizedArrayTypeLoc(
                                             DependentSizedArrayTypeLoc TL) {
   VisitArrayTypeLoc(TL);
 }
+
 void TypeLocWriter::VisitDependentSizedSierraVectorTypeLoc(
                                         DependentSizedSierraVectorTypeLoc TL) {
   Record.AddSourceLocation(TL.getNameLoc());

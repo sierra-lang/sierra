@@ -639,6 +639,21 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
     break;
   }
       
+  case Type::DependentSizedSierraVector: {
+    const DependentSizedSierraVectorType *Vec1
+      = cast<DependentSizedSierraVectorType>(T1);
+    const DependentSizedSierraVectorType *Vec2
+      = cast<DependentSizedSierraVectorType>(T2);
+    if (!IsStructurallyEquivalent(Context, 
+                                  Vec1->getSizeExpr(), Vec2->getSizeExpr()))
+      return false;
+    if (!IsStructurallyEquivalent(Context, 
+                                  Vec1->getElementType(), 
+                                  Vec2->getElementType()))
+      return false;
+    break;
+  }
+   
   case Type::DependentSizedExtVector: {
     const DependentSizedExtVectorType *Vec1
       = cast<DependentSizedExtVectorType>(T1);
@@ -655,6 +670,7 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
   }
    
   case Type::Vector: 
+  case Type::SierraVector:
   case Type::ExtVector: {
     const VectorType *Vec1 = cast<VectorType>(T1);
     const VectorType *Vec2 = cast<VectorType>(T2);

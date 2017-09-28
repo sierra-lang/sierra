@@ -1388,6 +1388,7 @@ protected:
     /// C++ 8.3.5p4: The return type, the parameter type list and the
     /// cv-qualifier-seq, [...], are part of the function type.
     unsigned TypeQuals : 4;
+    uint16_t SierraSpmd;
 
     /// \brief The ref-qualifier associated with a \c FunctionProtoType.
     ///
@@ -2011,6 +2012,10 @@ public:
   void dump(llvm::raw_ostream &OS) const;
 
   /// If this type is a Sierra vector, return its vector length; 
+  /// return 1 otherwise.
+  unsigned getSierraVectorLength() const;
+
+  /// If this type is a Sierra vector, return its vector length;
   /// return 1 otherwise.
   unsigned getSierraVectorLength() const;
 
@@ -2713,12 +2718,12 @@ public:
 
 /// DependentSizedSierraVectorType - This type represent an extended vector type
 /// where either the type or size is dependent. For example:
-/// \code
+/// @code
 /// template<typename T, int Size>
 /// class vector {
 ///   typedef T __attribute__((sierra_vector_type(Size))) type;
 /// }
-/// \endcode
+/// @endcode
 class DependentSizedSierraVectorType : public Type, public llvm::FoldingSetNode {
   const ASTContext &Context;
   Expr *SizeExpr;
@@ -2849,7 +2854,7 @@ public:
   }
 
   static bool classof(const Type *T) {
-    return T->getTypeClass() == Vector 
+    return T->getTypeClass() == Vector
         || T->getTypeClass() == SierraVector
         || T->getTypeClass() == ExtVector;
   }
@@ -2983,7 +2988,7 @@ class FunctionType : public Type {
     uint16_t Bits;
     uint16_t SierraSpmd;
 
-    ExtInfo(unsigned Bits, unsigned spmd = 1) : 
+    ExtInfo(unsigned Bits, unsigned spmd = 1) :
       Bits(static_cast<uint16_t>(Bits)), SierraSpmd(spmd) {}
 
     friend class FunctionType;
@@ -3002,7 +3007,7 @@ class FunctionType : public Type {
     }
 
     // Constructor with all defaults. Use when for example creating a
-    // function know to use defaults.
+    // function known to use defaults.
     ExtInfo() : Bits(CC_C), SierraSpmd(1) { }
 
     // Constructor with just the calling convention, which is an important part
@@ -4900,7 +4905,7 @@ public:
 /// with base C and no protocols.
 ///
 /// 'C<P>' is an unspecialized ObjCObjectType with base C and protocol list [P].
-/// 'C<C*>' is a specialized ObjCObjectType with type arguments 'C*' and no 
+/// 'C<C*>' is a specialized ObjCObjectType with type arguments 'C*' and no
 /// protocol list.
 /// 'C<C*><P>' is a specialized ObjCObjectType with base C, type arguments 'C*',
 /// and protocol list [P].
@@ -5518,7 +5523,7 @@ inline QualType QualType::getUnqualifiedType() const {
 
   return QualType(getSplitUnqualifiedTypeImpl(*this).Ty, 0);
 }
-  
+
 inline SplitQualType QualType::getSplitUnqualifiedType() const {
   if (!getTypePtr()->getCanonicalTypeInternal().hasLocalQualifiers())
     return split();
@@ -5916,7 +5921,7 @@ inline bool Type::isIntegralOrEnumerationType() const {
   if (const EnumType *ET = dyn_cast<EnumType>(CanonicalType))
     return IsEnumDeclComplete(ET->getDecl());
 
-  return false;  
+  return false;
 }
 
 inline bool Type::isBooleanType() const {

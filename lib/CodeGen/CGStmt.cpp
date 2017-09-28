@@ -697,6 +697,7 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
     return EmitSierraWhileStmt(*this, S);
 
   auto oldMask = getSierraMask();
+
   // Emit the header for the loop, which will also become
   // the continue target.
   JumpDest LoopHeader = getJumpDestInCurrentScope("while.cond");
@@ -858,8 +859,8 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
 
 void CodeGenFunction::EmitForStmt(const ForStmt &S,
                                   ArrayRef<const Attr *> ForAttrs) {
-  if ( S.getCond() && S.getCond()->getType()->isSierraVectorType() )
-    return EmitSierraForStmt(*this, S);
+  if (S.getCond() && S.getCond()->getType()->isSierraVectorType())
+    return EmitSierraForStmt( *this, S );
 
   auto oldMask = getSierraMask();
 

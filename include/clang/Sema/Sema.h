@@ -9403,7 +9403,8 @@ public:
   void DiagnoseEqualityWithExtraParens(ParenExpr *ParenE);
 
   /// CheckCXXBooleanCondition - Returns true if conversion to bool is invalid.
-  ExprResult CheckCXXBooleanCondition(Expr *CondExpr, bool IsConstexpr = false, unsigned AllowedVectorLength = 1);
+  ExprResult CheckCXXBooleanCondition(Expr *CondExpr, bool IsConstexpr = false,
+                                      unsigned AllowedVectorLength = 1);
 
   /// ConvertIntegerToTypeWarnOnOverflow - Convert the specified APInt to have
   /// the specified width and sign.  If an overflow occurs, detect it and emit
