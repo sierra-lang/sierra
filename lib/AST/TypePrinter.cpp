@@ -605,7 +605,7 @@ void TypePrinter::printSierraVectorBefore(const SierraVectorType *T,
 void TypePrinter::printSierraVectorAfter(const SierraVectorType *T,
     raw_ostream &OS) {
   printAfter(T->getElementType(), OS);
-  OS << "__attribute__((sierra_vector(" + T->getNumElements() + "))) ";
+  OS << "__attribute__((sierra_vector(" << T->getNumElements() << "))) ";
 }
 
 void TypePrinter::printExtVectorBefore(const ExtVectorType *T,

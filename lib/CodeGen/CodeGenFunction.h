@@ -3072,11 +3072,11 @@ public:
   void EmitNoreturnRuntimeCallOrInvoke(llvm::Value *callee,
                                        ArrayRef<llvm::Value*> args);
 
-  llvm::Value *BuildAppleKextVirtualCall(const CXXMethodDecl *MD,
+  CGCallee BuildAppleKextVirtualCall(const CXXMethodDecl *MD,
                                          NestedNameSpecifier *Qual,
                                          llvm::Type *Ty);
 
-  llvm::Value *BuildAppleKextVirtualDestructorCall(const CXXDestructorDecl *DD,
+  CGCallee BuildAppleKextVirtualDestructorCall(const CXXDestructorDecl *DD,
                                                    CXXDtorType Type,
                                                    const CXXRecordDecl *RD);
 
@@ -3351,8 +3351,7 @@ public:
 
   void EmitCXXConstructExpr(const CXXConstructExpr *E, AggValueSlot Dest);
 
-  void EmitSynthesizedCXXCopyCtor(llvm::Value *Dest, llvm::Value *Src,
-                                  const Expr *Exp);
+  void EmitSynthesizedCXXCopyCtor(Address Dest, Address Src, const Expr *Exp);
 
   void enterFullExpression(const ExprWithCleanups *E) {
     if (E->getNumObjects() == 0) return;
@@ -3427,7 +3426,6 @@ public:
   // Extends the previous EmitBranchOnBoolExpr function by two arguments to
   // allow short-circuit evaluation for Sierra Vector Expressions
   llvm::Value* _EmitBranchOnBoolExpr(const Expr *Cond,
-                                     bool falseFirst,
                                      llvm::BasicBlock *TrueBlock,
                                      llvm::BasicBlock *FalseBlock,
                                      uint64_t TrueCount,

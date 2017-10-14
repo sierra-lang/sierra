@@ -1393,17 +1393,14 @@ llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 /// \param FalsePHI the phi-node placed at the entrance of the false-successor
 /// \return the result of the short-circuit evaluation of the condition
 llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
-                                                    bool falseFirst,
                                                     llvm::BasicBlock *TrueBlock,
                                                     llvm::BasicBlock *FalseBlock,
                                                     uint64_t TrueCount,
                                                     llvm::PHINode *TruePhi,
-                                                    llvm::PHINode *FalsePhi)
-{
+                                                    llvm::PHINode *FalsePhi) {
   Cond = Cond->IgnoreParens();
 
-  if (const BinaryOperator *CondBOp = dyn_cast<BinaryOperator>(Cond))
-  {
+  if (const BinaryOperator *CondBOp = dyn_cast<BinaryOperator>(Cond)) {
     // Handle X && Y in a condition.
     if (CondBOp->getOpcode() == BO_LAnd) {
       /* Check whether the type of the condition is a Sierra Vector Type. */
@@ -1466,9 +1463,8 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
           ConstantBool) {
         // br(1 && X) -> br(X).
         incrementProfileCounter(CondBOp);
-        return _EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst,
-                                     TrueBlock, FalseBlock, TrueCount,
-                                     TruePhi, FalsePhi);
+        return _EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock,
+                                     TrueCount, TruePhi, FalsePhi);
       }
 
       // If we have "X && 1", simplify the code to use an uncond branch.
@@ -1476,9 +1472,8 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
       if (ConstantFoldsToSimpleInteger(CondBOp->getRHS(), ConstantBool) &&
           ConstantBool) {
         // br(X && 1) -> br(X).
-        return _EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst,
-                                     TrueBlock, FalseBlock, TrueCount,
-                                     TruePhi, FalsePhi);
+        return _EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, FalseBlock,
+                                     TrueCount, TruePhi, FalsePhi);
       }
 
       // Emit the LHS as a conditional.  If the LHS conditional is false, we
@@ -1491,8 +1486,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
       ConditionalEvaluation eval(*this);
       {
         ApplyDebugLocation DL(*this, Cond);
-        _EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst,
-                              LHSTrue, FalseBlock, RHSCount,
+        _EmitBranchOnBoolExpr(CondBOp->getLHS(), LHSTrue, FalseBlock, RHSCount,
                               TruePhi, FalsePhi);
         EmitBlock(LHSTrue);
       }
@@ -1502,8 +1496,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
 
       // Any temporaries created here are conditional.
       eval.begin(*this);
-      _EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst,
-                            TrueBlock, FalseBlock, TrueCount,
+      _EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock, TrueCount,
                             TruePhi, FalsePhi);
       eval.end(*this);
 
@@ -1571,9 +1564,8 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
           !ConstantBool) {
         // br(0 || X) -> br(X).
         incrementProfileCounter(CondBOp);
-        return _EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst,
-                                    TrueBlock, FalseBlock, TrueCount,
-                                    TruePhi, FalsePhi);
+        return _EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock,
+                                     TrueCount, TruePhi, FalsePhi);
       }
 
       // If we have "X || 0", simplify the code to use an uncond branch.
@@ -1581,9 +1573,8 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
       if (ConstantFoldsToSimpleInteger(CondBOp->getRHS(), ConstantBool) &&
           !ConstantBool) {
         // br(X || 0) -> br(X).
-        return _EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst,
-                                    TrueBlock, FalseBlock, TrueCount,
-                                    TruePhi, FalsePhi);
+        return _EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, FalseBlock,
+                                     TrueCount, TruePhi, FalsePhi);
       }
 
       // Emit the LHS as a conditional.  If the LHS conditional is true, we
@@ -1599,9 +1590,8 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
       ConditionalEvaluation eval(*this);
       {
         ApplyDebugLocation DL(*this, Cond);
-        _EmitBranchOnBoolExpr(CondBOp->getLHS(), falseFirst,
-                             TrueBlock, LHSFalse, LHSCount,
-                             TruePhi, FalsePhi);
+        _EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, LHSFalse, LHSCount,
+                              TruePhi, FalsePhi);
         EmitBlock(LHSFalse);
       }
 
@@ -1610,9 +1600,8 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
 
       // Any temporaries created here are conditional.
       eval.begin(*this);
-      _EmitBranchOnBoolExpr(CondBOp->getRHS(), falseFirst,
-                           TrueBlock, FalseBlock, TrueCount,
-                           TruePhi, FalsePhi);
+      _EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock, RHSCount,
+                            TruePhi, FalsePhi);
       eval.end(*this);
 
       return nullptr;
@@ -1627,26 +1616,22 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
       // Negate the count.
       uint64_t FalseCount = getCurrentProfileCount() - TrueCount;
 
+      // sierra codegen
       if (Cond->getType()->isSierraVectorType()) {
         /* To negate a vectorial expression we must swap both the target basic
          * blocks and the phi nodes.
          */
         llvm::Value *NotV = _EmitBranchOnBoolExpr(CondUOp->getSubExpr(),
-                                                  falseFirst,
                                                   FalseBlock,
                                                   TrueBlock,
                                                   FalseCount,
                                                   FalsePhi,
                                                   TruePhi);
-        llvm::Value *NotValue = llvm::BinaryOperator::CreateNot(
-                      Value, "not", Builder.GetInsertBlock()->getTerminator());
+        return Builder.CreateNot(NotV);
+      } // sierra codegen end
 
-        return Builder.CreateNot(NotValue);
-      }
-
-      return _EmitBranchOnBoolExpr(CondUOp->getSubExpr(), falseFirst,
-                                   FalseBlock, TrueBlock, FalseCount,
-                                   FalsePhi, TruePhi);
+      return _EmitBranchOnBoolExpr(CondUOp->getSubExpr(), FalseBlock, TrueBlock,
+                                   FalseCount, FalsePhi, TruePhi);
     }
   }
 
@@ -1751,6 +1736,24 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
     return nullptr;
   }
 
+  if (Cond->getType()->isSierraVectorType()) {
+    if (const ImplicitCastExpr *CastExpr = dyn_cast< ImplicitCastExpr >(Cond)) {
+      /* XXX This is a hack to bypass the implicit cast to immediately reach the
+       * underlying expression. */
+      return _EmitBranchOnBoolExpr(CastExpr->getSubExpr(),
+                                   TrueBlock, FalseBlock,
+                                   TrueCount,
+                                   TruePhi, FalsePhi);
+    }
+
+    /* If we have a Sierra Vector Type, make the evaluation depend on the
+     * current mask. */
+
+    /* Evaluate the condition. */
+    llvm::Value *Res = EvaluateExprAsBool(Cond);
+    return Builder.CreateAnd(Res, getSierraMask().CurrentMask);
+  } // End Sierra Vector Type
+
   if (const CXXThrowExpr *Throw = dyn_cast<CXXThrowExpr>(Cond)) {
     // Conditional operator handling can give us a throw expression as a
     // condition for a case like:
@@ -1779,23 +1782,6 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
   uint64_t CurrentCount = std::max(getCurrentProfileCount(), TrueCount);
   llvm::MDNode *Weights =
       createProfileWeights(TrueCount, CurrentCount - TrueCount);
-
-  if (Cond->getType()->isSierraVectorType()) {
-    if (const ImplicitCastExpr *CastExpr = dyn_cast< ImplicitCastExpr >(Cond)) {
-      /* XXX This is a hack to bypass the implicit cast to immediately reach the
-       * underlying expression. */
-      return _EmitBranchOnBoolExpr(CastExpr->getSubExpr(), falseFirst,
-                                   TrueBlock, FalseBlock, TrueCount,
-                                   TruePhi, FalsePhi);
-    }
-
-    /* If we have a Sierra Vector Type, make the evaluation depend on the
-     * current mask. */
-
-    /* Evaluate the condition. */
-    llvm::Value *Res = EvaluateExprAsBool(Cond);
-    return Builder.CreateAnd(Res, getSierraMask().CurrentMask);
-  } // End Sierra Vector Type
 
   // Emit the code with the fully general case.
   llvm::Value *CondV;

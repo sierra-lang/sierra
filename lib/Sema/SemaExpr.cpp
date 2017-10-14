@@ -8088,7 +8088,7 @@ QualType Sema::CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
     // vectors, the total size only needs to be the same. This is a
     // bitcast; no bits are changed but the result type is different.
     // FIXME: Should we really be allowing this?
-    RHS = ImpCastExprToType(RHS.take(), LHSType, CK_BitCast);
+    RHS = ImpCastExprToType(RHS.get(), LHSType, CK_BitCast);
     return LHSType;
   }
 
@@ -14750,7 +14750,7 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
         return E;
       }
 
-      Diag(Loc, diag::err_incompatible_vector_lengths_in_condition)
+      Diag(Loc, diag::err_sierra_incompatible_vector_lengths_in_condition)
         << oldL << newL;
       return ExprError();
     }

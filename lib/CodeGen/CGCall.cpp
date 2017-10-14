@@ -2480,7 +2480,7 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
   unsigned SierraSpmd = FI.getSierraSpmd();
   assert(SierraSpmd != 0);
   if (SierraSpmd != 1) {
-    auto AI = &FnArgs.back();
+    auto AI = FnArgs.back();
     setSierraMask(
         SierraMask(AI, CreateAllZerosVector(getLLVMContext(), SierraSpmd)));
     AI->setName("current_mask");

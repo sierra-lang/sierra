@@ -1849,13 +1849,6 @@ class TemplateDiff {
       Bold();
       PrintValueDecl(ToValueDecl, ToAddressOf, ToExpr, ToNullPtr);
       Unbold();
-    } else {
-      OS << (DefaultDecl ? "[(default) " : "[");
-      Bold();
-      PrintValueDecl(VD, NeedAddressOf, VDExpr, IsNullPtr);
-      Unbold();
-      OS << " != " << (DefaultInt ? "(default) " : "");
-      PrintAPSInt(Val, IntExpr, true /*Valid*/, IntType, false /*PrintType*/);
       OS << ']';
     }
   }

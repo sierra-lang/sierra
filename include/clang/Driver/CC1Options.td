@@ -586,8 +586,6 @@ def error_on_deserialized_pch_decl : Separate<["-"], "error-on-deserialized-decl
 def error_on_deserialized_pch_decl_EQ : Joined<["-"], "error-on-deserialized-decl=">,
   Alias<error_on_deserialized_pch_decl>;
 def static_define : Flag<["-"], "static-define">,
-def fsierra : Flag<["-"], "fsierra">,
-  HelpText<"Enables SIMD extension for C/C++">;
   HelpText<"Should __STATIC__ be defined">;
 def stack_protector : Separate<["-"], "stack-protector">,
   HelpText<"Enable stack protectors">;

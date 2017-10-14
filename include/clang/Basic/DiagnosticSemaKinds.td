@@ -8160,15 +8160,6 @@ def err_opencl_return_value_with_address_space : Error<
   "return value cannot be qualified with address space">;
 def err_opencl_constant_no_init : Error<
   "variable in constant address space must be initialized">;
-// Sierra warnings and errors.
-def err_sierra_attr_not_enabled : Error<
-  "'%0' attribute not enabled; use '-fsierra'">;
-def err_sierra_incompatible_vector_lengths_in_condition : Error<
-  "incompatible vector lengths in condition; old length %0, new length %1">;
-def err_sierra_incompatible_vector_lengths_in_decl : Error<
-  "incompatible vector lengths in declaration; current length %0, requested length %1">;
-def err_sierra_non_pow2 : Error<
-  "the length of a sierra vector must be a power of two but %0 requested">;
 def err_atomic_init_constant : Error<
   "atomic variable can only be assigned to a compile time constant"
   " in the declaration statement in the program scope">;

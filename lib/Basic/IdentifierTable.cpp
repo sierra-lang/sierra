@@ -139,7 +139,7 @@ static KeywordStatus getKeywordStatus(const LangOptions &LangOpts,
   if (LangOpts.GNUKeywords && (Flags & KEYGNU)) return KS_Extension;
   if (LangOpts.MicrosoftExt && (Flags & KEYMS)) return KS_Extension;
   if (LangOpts.Borland && (Flags & KEYBORLAND)) return KS_Extension;
-  if (LangOpts.SIERRA && (Flags & KEYSIERRA)) return KS_Extension;
+  if (LangOpts.Sierra && (Flags & KEYSIERRA)) return KS_Extension;
   if (LangOpts.Bool && (Flags & BOOLSUPPORT)) return KS_Enabled;
   if (LangOpts.Half && (Flags & HALFSUPPORT)) return KS_Enabled;
   if (LangOpts.WChar && (Flags & WCHARSUPPORT)) return KS_Enabled;

@@ -720,34 +720,6 @@ static bool VersionNumberSeparator(const char Separator) {
   return (Separator == '.' || Separator == '_');
 }
 
-void Parser::ParseVaryingSize(DeclSpec &DS) {
-  BalancedDelimiterTracker T(*this, tok::l_square);
-
-  if (T.consumeOpen()) {
-    Diag(Tok, diag::err_expected_lsquare);
-    return;
-                       const PrintingPolicy &policy);
-  }
-
-  ExprResult NumElements = ParseConstantExpression();
-  T.consumeClose();
-}
-
-||||||| merged common ancestors
-void Parser::ParseVaryingSize(DeclSpec &DS) {
-  BalancedDelimiterTracker T(*this, tok::l_square);
-
-  if (T.consumeOpen()) {
-    Diag(Tok, diag::err_expected_lsquare);
-    return;
-  }
-
-  ExprResult NumElements = ParseConstantExpression();
-  T.consumeClose();
-}
-
-=======
->>>>>>> reverting back the parser + sema changes
 /// \brief Parse a version number.
 ///
 /// version:
@@ -4471,10 +4443,6 @@ bool Parser::isTypeSpecifierQualifier() {
 
     // Debugger support.
   case tok::kw___unknown_anytype:
-
-    // SIMD extension
-  case tok::kw_uniform:
-  case tok::kw_varying:
 
     // typedef-name
   case tok::annot_typename:

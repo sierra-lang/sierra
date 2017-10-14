@@ -1183,7 +1183,7 @@ def freg_struct_return : Flag<["-"], "freg-struct-return">, Group<f_Group>, Flag
   HelpText<"Override the default ABI to return small structs in registers">;
 def frtti : Flag<["-"], "frtti">, Group<f_Group>;
 def : Flag<["-"], "fsched-interblock">, Group<clang_ignored_f_Group>;
-def fsierra : Flag<["-"], "fsierra">, Group<f_Group>;
+def fsierra : Flag<["-"], "fsierra">, Group<f_Group>, Flags<[CC1Option]>;
 def fshort_enums : Flag<["-"], "fshort-enums">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Allocate to an enum type only as many bytes as it needs for the declared range of possible values">;
 def fshort_wchar : Flag<["-"], "fshort-wchar">, Group<f_Group>, Flags<[CC1Option]>,
@@ -1195,7 +1195,6 @@ def fshow_overloads_EQ : Joined<["-"], "fshow-overloads=">, Group<f_Group>, Flag
            "best|all; defaults to all">;
 def fshow_column : Flag<["-"], "fshow-column">, Group<f_Group>, Flags<[CC1Option]>;
 def fshow_source_location : Flag<["-"], "fshow-source-location">, Group<f_Group>;
-def fsierra : Flag<["-"], "fsierra">, Group<f_Group>, Flags<[CC1Option]>;
 def fspell_checking : Flag<["-"], "fspell-checking">, Group<f_Group>;
 def fspell_checking_limit_EQ : Joined<["-"], "fspell-checking-limit=">, Group<f_Group>;
 def fsigned_bitfields : Flag<["-"], "fsigned-bitfields">, Group<f_Group>;

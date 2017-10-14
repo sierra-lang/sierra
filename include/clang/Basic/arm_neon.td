@@ -927,12 +927,6 @@ def MLA_N : SOpInst<"vmla_n", "ddds", "Qd", OP_MLA_N>;
 def MLS_N : SOpInst<"vmls_n", "ddds", "Qd", OP_MLS_N>;
 
 ////////////////////////////////////////////////////////////////////////////////
-// MUL, FMA, FMS definitions with scalar argument
-def VMUL_N_A64 : IOpInst<"vmul_n", "dds", "Qd", OP_MUL_N>;
-def FMLA_N : SOpInst<"vfma_n", "ddds", "fQf", OP_FMLA_N>;
-def FMLS_N : SOpInst<"vfms_n", "ddds", "fQf", OP_FMLS_N>;
-
-////////////////////////////////////////////////////////////////////////////////
 // Logical operations
 def BSL : SInst<"vbsl", "dudd", "dPlQdQPl">;
 
@@ -1666,7 +1660,4 @@ def SCALAR_SQRDMLSH_LANEQ : SOpInst<"vqrdmlsh_laneq", "sssji", "SsSi", OP_SCALAR
 
 def SCALAR_VDUP_LANE : IInst<"vdup_lane", "sdi", "ScSsSiSlSfSdSUcSUsSUiSUlSPcSPs">;
 def SCALAR_VDUP_LANEQ : IInst<"vdup_laneq", "sji", "ScSsSiSlSfSdSUcSUsSUiSUlSPcSPs">;
-
-def SCALAR_GET_LANE : IOpInst<"vget_lane", "sdi", "hQh", OP_SCALAR_GET_LN>;
-def SCALAR_SET_LANE : IOpInst<"vset_lane", "dsdi", "hQh", OP_SCALAR_SET_LN>;
 }

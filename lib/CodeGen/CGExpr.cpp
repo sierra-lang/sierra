@@ -1437,15 +1437,17 @@ void CodeGenFunction::EmitStoreOfScalar(llvm::Value *Value, Address Addr,
   if (Value->getType()->isVectorTy() && SierraMask_ ) {
     EmitMaskedStore(Builder, SierraMask_.CurrentMask, Value, Addr, Volatile);
     return;
-  } else {
-    LValue AtomicLValue =
-        LValue::MakeAddr(Addr, Ty, getContext(), AlignSource, TBAAInfo);
-    if (Ty->isAtomicType() ||
-        (!isInit && LValueIsSuitableForInlineAtomic(AtomicLValue))) {
-      EmitAtomicStore(RValue::get(Value), AtomicLValue, isInit);
-      return;
-    }
   }
+
+  LValue AtomicLValue =
+      LValue::MakeAddr(Addr, Ty, getContext(), AlignSource, TBAAInfo);
+  if (Ty->isAtomicType() ||
+      (!isInit && LValueIsSuitableForInlineAtomic(AtomicLValue))) {
+    EmitAtomicStore(RValue::get(Value), AtomicLValue, isInit);
+    return;
+  }
+
+  llvm::StoreInst *Store = Builder.CreateStore(Value, Addr, Volatile);
   if (isNontemporal) {
     llvm::MDNode *Node =
         llvm::MDNode::get(Store->getContext(),

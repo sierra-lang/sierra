@@ -446,89 +446,6 @@ void MicrosoftCXXNameMangler::mangle(const NamedDecl *D, StringRef Prefix) {
 void MicrosoftCXXNameMangler::mangleFunctionEncoding(const FunctionDecl *FD,
                                                      bool ShouldMangle) {
   // <type-encoding> ::= <function-class> <function-type>
-}
-
-bool MicrosoftMangleContextImpl::shouldMangleCXXName(const NamedDecl *D) {
-  if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
-    LanguageLinkage L = FD->getLanguageLinkage();
-    // Overloadable functions need mangling.
-    if (FD->hasAttr<OverloadableAttr>())
-      return true;
-
-    // The ABI expects that we would never mangle "typical" user-defined entry
-    // points regardless of visibility or freestanding-ness.
-    //
-    // N.B. This is distinct from asking about "main".  "main" has a lot of
-    // special rules associated with it in the standard while these
-    // user-defined entry points are outside of the purview of the standard.
-    // For example, there can be only one definition for "main" in a standards
-    // compliant program; however nothing forbids the existence of wmain and
-    // WinMain in the same translation unit.
-    if (FD->isMSVCRTEntryPoint())
-      return false;
-
-    // C++ functions and those whose names are not a simple identifier need
-    // mangling.
-    if (!FD->getDeclName().isIdentifier() || L == CXXLanguageLinkage)
-      return true;
-
-    // C functions are not mangled.
-    if (L == CLanguageLinkage)
-      return false;
-  }
-
-  // Otherwise, no mangling is done outside C++ mode.
-  if (!getASTContext().getLangOpts().CPlusPlus)
-    return false;
-
-  const VarDecl *VD = dyn_cast<VarDecl>(D);
-  if (VD && !isa<DecompositionDecl>(D)) {
-    // C variables are not mangled.
-    if (VD->isExternC())
-      return false;
-
-    // Variables at global scope with non-internal linkage are not mangled.
-    const DeclContext *DC = getEffectiveDeclContext(D);
-    // Check for extern variable declared locally.
-    if (DC->isFunctionOrMethod() && D->hasLinkage())
-      while (!DC->isNamespace() && !DC->isTranslationUnit())
-        DC = getEffectiveParentContext(DC);
-
-    if (DC->isTranslationUnit() && D->getFormalLinkage() == InternalLinkage &&
-        !isa<VarTemplateSpecializationDecl>(D) &&
-        D->getIdentifier() != nullptr)
-      return false;
-  }
-
-  return true;
-}
-
-bool
-MicrosoftMangleContextImpl::shouldMangleStringLiteral(const StringLiteral *SL) {
-  return true;
-}
-
-void MicrosoftCXXNameMangler::mangle(const NamedDecl *D, StringRef Prefix) {
-  // MSVC doesn't mangle C++ names the same way it mangles extern "C" names.
-  // Therefore it's really important that we don't decorate the
-  // name with leading underscores or leading/trailing at signs. So, by
-  // default, we emit an asm marker at the start so we get the name right.
-  // Callers can override this with a custom prefix.
-
-  // <mangled-name> ::= ? <name> <type-encoding>
-  Out << Prefix;
-  mangleName(D);
-  if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D))
-    mangleFunctionEncoding(FD, Context.shouldMangleDeclName(FD));
-  else if (const VarDecl *VD = dyn_cast<VarDecl>(D))
-    mangleVariableEncoding(VD);
-  else
-    llvm_unreachable("Tried to mangle unexpected NamedDecl!");
-}
-
-void MicrosoftCXXNameMangler::mangleFunctionEncoding(const FunctionDecl *FD,
-                                                     bool ShouldMangle) {
-  // <type-encoding> ::= <function-class> <function-type>
 
   // Since MSVC operates on the type as written and not the canonical type, it
   // actually matters which decl we have here.  MSVC appears to choose the
@@ -2435,15 +2352,6 @@ void MicrosoftCXXNameMangler::mangleType(const SierraVectorType *T,
   mangleType(static_cast<const VectorType *>(T), Quals, Range);
 }
 
-void MicrosoftCXXNameMangler::mangleType(const DependentSizedSierraVectorType *T,
-                                         Qualifiers, SourceRange Range) {
-  DiagnosticsEngine &Diags = Context.getDiags();
-  unsigned DiagID = Diags.getCustomDiagID(DiagnosticsEngine::Error,
-    "cannot mangle this dependent-sized sierra vector type yet");
-  Diags.Report(Range.getBegin(), DiagID)
-    << Range;
-}
-
 void MicrosoftCXXNameMangler::mangleType(const ExtVectorType *T,
                                          Qualifiers Quals, SourceRange Range) {
   mangleType(static_cast<const VectorType *>(T), Quals, Range);
@@ -2456,6 +2364,16 @@ void MicrosoftCXXNameMangler::mangleType(const DependentSizedSierraVectorType *T
     "cannot mangle this dependent-sized sierra vector type yet");
   Diags.Report(Range.getBegin(), DiagID)
     << Range;
+}
+
+void MicrosoftCXXNameMangler::mangleType(const DependentSizedExtVectorType *T,
+                                         Qualifiers, SourceRange Range) {
+  DiagnosticsEngine &Diags = Context.getDiags();
+  unsigned DiagID = Diags.getCustomDiagID(DiagnosticsEngine::Error,
+    "cannot mangle this dependent-sized extended vector type yet");
+  Diags.Report(Range.getBegin(), DiagID)
+    << Range;
+
 }
 
 void MicrosoftCXXNameMangler::mangleType(const ObjCInterfaceType *T, Qualifiers,
@@ -2950,14 +2868,6 @@ void MicrosoftMangleContextImpl::mangleSEHFinallyBlock(
   // <mangled-name> ::= ?fin$ <filter-number> @0
   Mangler.getStream() << "\01?fin$" << SEHFinallyIds[EnclosingDecl]++ << "@0@";
   Mangler.mangleName(EnclosingDecl);
-}
-
-void MicrosoftMangleContextImpl::mangleTypeName(QualType T, raw_ostream &Out) {
-  // This is just a made up unique string for the purposes of tbaa.  undname
-  // does *not* know how to demangle it.
-  MicrosoftCXXNameMangler Mangler(*this, Out);
-  Mangler.getStream() << '?';
-  Mangler.mangleType(T, SourceRange());
 }
 
 void MicrosoftMangleContextImpl::mangleTypeName(QualType T, raw_ostream &Out) {

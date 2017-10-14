@@ -122,7 +122,7 @@ static void diagnoseBadTypeAttribute(Sema &S, const AttributeList &attr,
 #define FUNCTION_TYPE_ATTRS_CASELIST \
     case AttributeList::AT_NoReturn: \
     case AttributeList::AT_Regparm: \
-    case AttributeList::AT_sierra_spmd: \
+    case AttributeList::AT_SierraSpmd: \
     CALLING_CONV_ATTRS_CASELIST
 
 // Microsoft-specific type qualifiers.

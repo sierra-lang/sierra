@@ -3166,10 +3166,6 @@ public:
                                      SourceLocation nullabilityLoc,
                                      bool isContextSensitive,
                                      bool allowArrayTypes);
-||||||| merged common ancestors
-  bool CheckSierraSPMDAttr(QualType &type, const AttributeList &attr);
-=======
->>>>>>> more speration
 
   /// \brief Stmt attributes - this routine is the top level dispatcher.
   StmtResult ProcessStmtAttributes(Stmt *Stmt, AttributeList *Attrs,

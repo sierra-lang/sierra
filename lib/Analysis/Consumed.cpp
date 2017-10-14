@@ -742,16 +742,6 @@ void ConsumedStmtVisitor::VisitBinaryOperator(const BinaryOperator *BinOp) {
   }
 }
 
-static bool isStdNamespace(const DeclContext *DC) {
-  if (!DC->isNamespace()) return false;
-  while (DC->getParent()->isNamespace())
-    DC = DC->getParent();
-  const NamespaceDecl *ND = dyn_cast<NamespaceDecl>(DC);
-
-  return ND && ND->getName() == "std" &&
-         ND->getDeclContext()->isTranslationUnit();
-}
-
 void ConsumedStmtVisitor::VisitCallExpr(const CallExpr *Call) {
   const FunctionDecl *FunDecl = Call->getDirectCallee();
   if (!FunDecl)

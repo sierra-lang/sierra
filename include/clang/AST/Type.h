@@ -1394,7 +1394,6 @@ protected:
     ///
     /// This is a value of type \c RefQualifierKind.
     unsigned RefQualifier : 2;
-    uint16_t SierraSpmd;
   };
 
   class ObjCObjectTypeBitfields {
@@ -2010,10 +2009,6 @@ public:
   CanQualType getCanonicalTypeUnqualified() const; // in CanonicalType.h
   void dump() const;
   void dump(llvm::raw_ostream &OS) const;
-
-  /// If this type is a Sierra vector, return its vector length; 
-  /// return 1 otherwise.
-  unsigned getSierraVectorLength() const;
 
   /// If this type is a Sierra vector, return its vector length;
   /// return 1 otherwise.
