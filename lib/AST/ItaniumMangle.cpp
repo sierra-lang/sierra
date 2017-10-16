@@ -1137,7 +1137,7 @@ void CXXNameMangler::mangleUnresolvedPrefix(NestedNameSpecifier *qualifier,
       Out << "sr";
     }
 
-    //if (mangleUnresolvedTypeOrSimpleId(QualType(type, 0), recursive ? "N" : ""))
+    if (mangleUnresolvedTypeOrSimpleId(QualType(type, 0), recursive ? "N" : ""))
       return;
 
     break;

@@ -67,7 +67,6 @@ add_clang_library(clangCodeGen
   CGStmt.cpp
   CGSierra.cpp
   CGStmtOpenMP.cpp
-  CGSierra.cpp
   CGVTT.cpp
   CGVTables.cpp
   CodeGenABITypes.cpp

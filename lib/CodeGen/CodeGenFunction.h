@@ -92,7 +92,7 @@ class RegionCodeGenTy;
 class TargetCodeGenInfo;
 struct OMPTaskDataTy;
 struct CGCoroData;
-class SierraMask;
+struct SierraMask;
 
 /// The kind of evaluation to perform on values of a particular
 /// type.  Basically, is the code in CGExprScalar, CGExprComplex, or
@@ -3073,12 +3073,12 @@ public:
                                        ArrayRef<llvm::Value*> args);
 
   CGCallee BuildAppleKextVirtualCall(const CXXMethodDecl *MD,
-                                         NestedNameSpecifier *Qual,
-                                         llvm::Type *Ty);
+                                     NestedNameSpecifier *Qual,
+                                     llvm::Type *Ty);
 
   CGCallee BuildAppleKextVirtualDestructorCall(const CXXDestructorDecl *DD,
-                                                   CXXDtorType Type,
-                                                   const CXXRecordDecl *RD);
+                                               CXXDtorType Type,
+                                               const CXXRecordDecl *RD);
 
   RValue
   EmitCXXMemberOrOperatorCall(const CXXMethodDecl *Method,

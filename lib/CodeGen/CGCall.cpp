@@ -36,9 +36,6 @@
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/InlineAsm.h"
-// Sierra TODO
-//#include "llvm/MC/SubtargetFeature.h"
-//#include "llvm/Support/CallSite.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Constants.h"
@@ -46,7 +43,7 @@
 using namespace clang;
 using namespace CodeGen;
 
-/**/
+/***/
 
 unsigned CodeGenTypes::ClangCallConvToLLVMCallConv(CallingConv CC) {
   switch (CC) {
@@ -770,7 +767,7 @@ CGFunctionInfo *CGFunctionInfo::create(unsigned llvmCC,
   return FI;
 }
 
-/**/
+/***/
 
 namespace {
 // ABIArgInfo::Expand implementation.
@@ -1427,7 +1424,7 @@ void ClangToLLVMArgMapping::construct(const ASTContext &Context,
 }
 }  // namespace
 
-/**/
+/***/
 
 bool CodeGenModule::ReturnTypeUsesSRet(const CGFunctionInfo &FI) {
   return FI.getReturnInfo().isIndirect();
@@ -3900,40 +3897,15 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
   unsigned SierraSpmd = CallInfo.getSierraSpmd();
   if (SierraSpmd != 1) {
-#if 0
-    llvm::Constant** undefs = new llvm::Constant*[SierraSpmd];
-    for (size_t i = 0; i < SierraSpmd; ++i)
-      undefs[i] = llvm::UndefValue::get(llvm::IntegerType::getInt1Ty(getLLVMContext()));
-
-    llvm::ArrayRef<llvm::Constant*> values(undefs, SierraSpmd);
-    Args.push_back(llvm::ConstantVector::get(values));
-#endif
-
-    // XXX TODO check this
-    // unsigned FirstIRArg = IRFunctionArgs.getIRArgs(ArgNo).first;
     if (auto mask = getSierraMask())
-      // XXX TODO check this
-      // Args.push_back(mask.CurrentMask);
       IRCallArgs.push_back(mask.CurrentMask);
-      // IRCallArgs.insert(IRCallArgs.begin(), mask.CurrentMask);
-      // IRCallArgs[FirstIRArg] = mask.CurrentMask;
     else {
       llvm::VectorType *VTy = cast<llvm::VectorType>(
           IRFuncTy->getParamType(IRFuncTy->getNumParams() - 1));
-      // XXX TODO check this
-      // Args.push_back(llvm::ConstantVector::getSplat(VTy->getNumElements(),
-      // Builder.getTrue()));
       IRCallArgs.push_back(llvm::ConstantVector::getSplat(VTy->getNumElements(),
                                                           Builder.getTrue()));
-      // IRCallArgs.insert(IRCallArgs.begin(),
-      // llvm::ConstantVector::getSplat(VTy->getNumElements(),
-      // Builder.getTrue()));
-      // IRCallArgs[FirstIRArg] =
-      // llvm::ConstantVector::getSplat(VTy->getNumElements(),
-      // Builder.getTrue());
     }
 
-    //delete[] undefs;
   }
 
   // XXX TODO check whether this is necessary (it doesnt even compile...)
@@ -4122,7 +4094,6 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
           assert(*DI == *FI);
 #endif
         Arg = Builder.CreateBitCast(Arg, LastParamTy);
-
       }
     }
     assert(IRFunctionArgs.hasInallocaArg());

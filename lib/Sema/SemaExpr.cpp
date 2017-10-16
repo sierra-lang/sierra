@@ -6254,15 +6254,15 @@ static bool checkCondition(Sema &S, Expr *Cond, SourceLocation QuestionLoc) {
     return true;
   }
 
+  // OpenCL v1.1 s6.3.i says the condition is allowed to be a vector or scalar.
+  if (S.getLangOpts().OpenCL && CondTy->isVectorType())
+    return false;
+
   // C99 6.5.15p2
   if (CondTy->isScalarType()) return false;
 
   // Accept SierraVector type
   if (CondTy->isSierraVectorType())
-    return false;
-
-  // OpenCL v1.1 s6.3.i says the condition is allowed to be a vector or scalar.
-  if (S.getLangOpts().OpenCL && CondTy->isVectorType())
     return false;
 
   S.Diag(QuestionLoc, diag::err_typecheck_cond_expect_scalar)
@@ -14713,25 +14713,21 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
     unsigned oldL = scope->getCurrentVectorLength();
 
     if (getLangOpts().CPlusPlus) {
-      unsigned allowed = 1;
-
-      if (getLangOpts().Sierra) 
-        allowed = oldL == 1 ? 0 : oldL;
-
-      allowed = 0; // HACK!!!!
-      ExprResult ERes = CheckCXXBooleanCondition(E, IsConstexpr, allowed); // C++ 6.4p4
-
-      if (ERes.isInvalid())
-        return ERes;
-
-      E = ERes.get();
-      QualType T = E->getType();
-      unsigned newL = T->getSierraVectorLength();
-      //assert(oldL == 1 || newL == 1 || oldL == newL);
-      if (newL != 1 && oldL != newL)
-        scope->setCurrentVectorLength(newL);
-
-      return E;
+      if (getLangOpts().Sierra) {
+        //allowed = oldL == 1 ? 0 : oldL;
+        unsigned allowed = 0; // HACK!!!!
+        ExprResult ERes = CheckCXXBooleanCondition(E, IsConstexpr, allowed);
+        if (ERes.isInvalid())
+          return ExprError();
+        E = ERes.get();
+        QualType T = E->getType();
+        unsigned newL = T->getSierraVectorLength();
+        if (newL != 1 && oldL != newL)
+          scope->setCurrentVectorLength(newL);
+        return E;
+      } else {
+        return CheckCXXBooleanCondition(E, IsConstexpr); // C++ 6.4p4
+      }
     }
 
     ExprResult ERes = DefaultFunctionArrayLvalueConversion(E);

@@ -832,6 +832,17 @@ public:
                              T->getVectorKind());
   }
 
+  QualType VisitSierraVectorType(const SierraVectorType *T) {
+    QualType elementType = recurse(T->getElementType());
+    if (elementType.isNull())
+      return QualType();
+
+    if (elementType.getAsOpaquePtr() == T->getElementType().getAsOpaquePtr())
+      return QualType(T, 0);
+
+    return Ctx.getSierraVectorType(elementType, T->getNumElements());
+  }
+
   QualType VisitExtVectorType(const ExtVectorType *T) { 
     QualType elementType = recurse(T->getElementType());
     if (elementType.isNull())
@@ -3693,11 +3704,11 @@ bool Type::canHaveNullability() const {
   case Type::IncompleteArray:
   case Type::VariableArray:
   case Type::DependentSizedArray:
+  case Type::DependentSizedSierraVector:
   case Type::DependentSizedExtVector:
   case Type::Vector:
-  case Type::ExtVector:
   case Type::SierraVector:
-  case Type::DependentSizedSierraVector:
+  case Type::ExtVector:
   case Type::FunctionProto:
   case Type::FunctionNoProto:
   case Type::Record:

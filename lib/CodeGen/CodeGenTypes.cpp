@@ -550,20 +550,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
     ResultType = llvm::ArrayType::get(EltTy, A->getSize().getZExtValue());
     break;
   }
-  case Type::SierraVector: {
-    // TODO other types
-    const VectorType *VT = cast<VectorType>(Ty);
-    QualType ElemT = VT->getElementType();
-    unsigned NumElems = VT->getNumElements();
-#if 0
-    if (ElemT->isBooleanType())
-      ResultType = llvm::VectorType::get(
-        llvm::IntegerType::getInt8Ty(getLLVMContext()), NumElems);
-    else 
-#endif
-      ResultType = llvm::VectorType::get(ConvertType(ElemT), NumElems);
-    break;
-  }
+  case Type::SierraVector:
   case Type::ExtVector:
   case Type::Vector: {
     const VectorType *VT = cast<VectorType>(Ty);

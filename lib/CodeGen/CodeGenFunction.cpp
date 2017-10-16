@@ -35,7 +35,6 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Operator.h"
-//#include "CGSierra.h"
 using namespace clang;
 using namespace CodeGen;
 
@@ -1785,8 +1784,10 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
 
   // Emit the code with the fully general case.
   llvm::Value *CondV;
-  ApplyDebugLocation DL(*this, Cond);
-  CondV = EvaluateExprAsBool(Cond);
+  {
+    ApplyDebugLocation DL(*this, Cond);
+    CondV = EvaluateExprAsBool(Cond);
+  }
   Builder.CreateCondBr(CondV, TrueBlock, FalseBlock, Weights, Unpredictable);
   return nullptr;
 }
