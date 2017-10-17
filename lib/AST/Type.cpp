@@ -3077,6 +3077,8 @@ bool AttributedType::isQualifier() const {
 
   // These aren't qualifiers; they rewrite the modified type to be a
   // semantically different type.
+  case AttributedType::attr_sierra_spmd:
+  case AttributedType::attr_sierra_vector:
   case AttributedType::attr_regparm:
   case AttributedType::attr_vector_size:
   case AttributedType::attr_neon_vector_type:

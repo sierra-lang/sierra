@@ -7028,6 +7028,7 @@ static int EvaluateBuiltinClassifyType(const CallExpr *E,
   case Type::LValueReference:
   case Type::RValueReference:
   case Type::Vector:
+  case Type::SierraVector:
   case Type::ExtVector:
   case Type::Auto:
   case Type::ObjCObject:

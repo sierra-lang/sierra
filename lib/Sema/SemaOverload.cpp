@@ -5230,7 +5230,6 @@ ExprResult Sema::PerformContextuallyConvertToBool(Expr *From, unsigned AllowedVe
 
   ImplicitConversionSequence ICS = TryContextuallyConvertToBool(*this, From, AllowedVectorLength);
   if (!ICS.isBad())
-    //return PerformImplicitConversion(From, Context.BoolTy, ICS, AA_Converting);
     return PerformImplicitConversion(From, boolty, ICS, AA_Converting);
 
   if (!DiagnoseMultipleUserDefinedConversion(From, boolty))
