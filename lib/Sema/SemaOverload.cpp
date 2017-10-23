@@ -5227,15 +5227,14 @@ ExprResult Sema::PerformContextuallyConvertToBool(Expr *From, unsigned AllowedVe
     return ExprError();
 
   QualType boolty = BoolToVecBool(*this, From, AllowedVectorLength);
-
   ImplicitConversionSequence ICS = TryContextuallyConvertToBool(*this, From, AllowedVectorLength);
   if (!ICS.isBad())
     return PerformImplicitConversion(From, boolty, ICS, AA_Converting);
 
   if (!DiagnoseMultipleUserDefinedConversion(From, boolty))
     return Diag(From->getLocStart(),
-                diag::err_typecheck_vector_condition)
-                  << From->getType() << boolty << From->getSourceRange();
+                diag::err_typecheck_bool_condition)
+                  << From->getType() << From->getSourceRange();
   return ExprError();
 }
 
