@@ -14701,13 +14701,14 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
   E = result.get();
 
   if (!E->isTypeDependent()) {
+    // ----- Sierra
+    Scope *scope = getCurScope();
+    unsigned oldL = scope->getCurrentVectorLength();
+    // ----- Sierra end
     if (getLangOpts().CPlusPlus) {
       if (!getLangOpts().Sierra) {
         return CheckCXXBooleanCondition(E, IsConstexpr); // C++ 6.4p4
       } else {
-        // ----- Sierra
-        Scope* scope = getCurScope();
-        unsigned oldL = scope->getCurrentVectorLength();
         //allowed = oldL == 1 ? 0 : oldL;
         unsigned allowed = 0; // HACK!!!!
         ExprResult ERes = CheckCXXBooleanCondition(E, IsConstexpr, allowed);
