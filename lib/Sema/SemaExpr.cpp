@@ -6243,10 +6243,6 @@ bool Sema::DiagnoseConditionalForNull(Expr *LHSExpr, Expr *RHSExpr,
 static bool checkCondition(Sema &S, Expr *Cond, SourceLocation QuestionLoc) {
   QualType CondTy = Cond->getType();
 
-  // Accept SierraVector type
-  if (CondTy->isSierraVectorType())
-    return false;
-
   // OpenCL v1.1 s6.3.i says the condition cannot be a floating point type.
   if (S.getLangOpts().OpenCL && CondTy->isFloatingType()) {
     S.Diag(QuestionLoc, diag::err_typecheck_cond_expect_nonfloat)
@@ -6254,15 +6250,11 @@ static bool checkCondition(Sema &S, Expr *Cond, SourceLocation QuestionLoc) {
     return true;
   }
 
-  // OpenCL v1.1 s6.3.i says the condition is allowed to be a vector or scalar.
-  if (S.getLangOpts().OpenCL && CondTy->isVectorType())
-    return false;
-
   // C99 6.5.15p2
   if (CondTy->isScalarType()) return false;
 
   // Accept SierraVector type
-  if (CondTy->isSierraVectorType())
+  if (CondTy->isSierraVectorType()) // TODO check elementtype as well?
     return false;
 
   S.Diag(QuestionLoc, diag::err_typecheck_cond_expect_scalar)
@@ -14709,11 +14701,13 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
   E = result.get();
 
   if (!E->isTypeDependent()) {
-    Scope* scope = getCurScope();
-    unsigned oldL = scope->getCurrentVectorLength();
-
     if (getLangOpts().CPlusPlus) {
-      if (getLangOpts().Sierra) {
+      if (!getLangOpts().Sierra) {
+        return CheckCXXBooleanCondition(E, IsConstexpr); // C++ 6.4p4
+      } else {
+        // ----- Sierra
+        Scope* scope = getCurScope();
+        unsigned oldL = scope->getCurrentVectorLength();
         //allowed = oldL == 1 ? 0 : oldL;
         unsigned allowed = 0; // HACK!!!!
         ExprResult ERes = CheckCXXBooleanCondition(E, IsConstexpr, allowed);
@@ -14725,8 +14719,7 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
         if (newL != 1 && oldL != newL)
           scope->setCurrentVectorLength(newL);
         return E;
-      } else {
-        return CheckCXXBooleanCondition(E, IsConstexpr); // C++ 6.4p4
+        // ----- Sierra end
       }
     }
 
@@ -14734,22 +14727,23 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
     if (ERes.isInvalid())
       return ExprError();
     E = ERes.get();
-    QualType T = E->getType();
-    unsigned newL = T->getSierraVectorLength();
 
+    QualType T = E->getType();
+
+    // ----- Sierra
     // Allow vectors as conditions in Sierra
+    unsigned newL = T->getSierraVectorLength();
     if (getLangOpts().Sierra && newL > 1) {
       Scope* scope = getCurScope();
-
       if (oldL == 1 || newL == 1 || oldL == newL) {
         scope->setCurrentVectorLength(newL);
         return E;
       }
-
       Diag(Loc, diag::err_sierra_incompatible_vector_lengths_in_condition)
         << oldL << newL;
       return ExprError();
     }
+    // ----- Sierra end
 
     if (!T->isScalarType()) { // C99 6.8.4.1p1
       Diag(Loc, diag::err_typecheck_statement_requires_scalar)

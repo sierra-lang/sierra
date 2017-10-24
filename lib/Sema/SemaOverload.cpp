@@ -1539,14 +1539,7 @@ static bool IsVectorConversion(Sema &S, QualType FromType,
 
     if (VFrom && VTo) {
       if (VFrom->getNumElements() == VTo->getNumElements()) {
-        //QualType FromE = VFrom->getElementType();
-        //QualType   ToE =  VFTo->getElementType();
-
-        //if (FromE->isF
-
         ICK = ICK_Vector_Conversion;
-        //
-        //ICK = ICK_Floating_Promotion;
         return true;
       }
     }
@@ -1740,7 +1733,11 @@ static bool IsStandardConversion(Sema &S, Expr* From, QualType ToType,
   // conversion.
   bool IncompatibleObjC = false;
   ImplicitConversionKind SecondICK = ICK_Identity;
+
+  // ----- sierra
   AdjustSierraVectorTypes(FromType, ToType);
+  // ----- sierra end
+
   if (S.Context.hasSameUnqualifiedType(FromType, ToType)) {
     // The unqualified versions of the types are the same: there's no
     // conversion to do.
@@ -5226,7 +5223,10 @@ ExprResult Sema::PerformContextuallyConvertToBool(Expr *From, unsigned AllowedVe
   if (checkPlaceholderForOverload(*this, From))
     return ExprError();
 
+  // ----- sierra
   QualType boolty = BoolToVecBool(*this, From, AllowedVectorLength);
+  // ----- sierra end
+
   ImplicitConversionSequence ICS = TryContextuallyConvertToBool(*this, From, AllowedVectorLength);
   if (!ICS.isBad())
     return PerformImplicitConversion(From, boolty, ICS, AA_Converting);
