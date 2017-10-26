@@ -4980,11 +4980,12 @@ TryCopyInitialization(Sema &S, Expr *From, QualType ToType,
     return TryListConversion(S, FromInitList, ToType, SuppressUserConversions,
                              InOverloadResolution,AllowObjCWritebackConversion);
 
-  if (ToType->isReferenceType())
+  if (ToType->isReferenceType()) {
     return TryReferenceInit(S, From, ToType,
                             /*FIXME:*/From->getLocStart(),
                             SuppressUserConversions,
                             AllowExplicit);
+  }
 
   return TryImplicitConversion(S, From, ToType,
                                SuppressUserConversions,
@@ -5183,20 +5184,19 @@ Sema::PerformObjectArgumentInitialization(Expr *From,
   return From;
 }
 
-static QualType BoolToVecBool(Sema &S, Expr* From, unsigned AllowedVectorLength) {
+static QualType BoolToVecBool(Sema &S, Expr *From,
+                              unsigned AllowedVectorLength) {
+  if (const SierraVectorType *V = From->getType()->getAs<SierraVectorType>()) {
+    return S.Context.getSierraVectorType(S.Context.BoolTy,
+                                         V->getNumElements());
+  }
+
   if (AllowedVectorLength == 1)
     return S.Context.BoolTy;
-  else if (AllowedVectorLength > 0) 
+  if (AllowedVectorLength > 0)
     return S.Context.getSierraVectorType(S.Context.BoolTy, AllowedVectorLength);
-  else /* AllowedVectorLength == 0 */ {
-    QualType FromType = From->getType();
-    if (FromType->isSierraVectorType()) {
-      if (const VectorType* V = FromType->getAs<VectorType>())
-        return S.Context.getSierraVectorType(S.Context.BoolTy, V->getNumElements());
-    }
-
-    return S.Context.BoolTy;
-  }
+  // if AllowedVectorLength == 0
+  return S.Context.BoolTy;
 }
 
 /// TryContextuallyConvertToBool - Attempt to contextually convert the
@@ -5207,19 +5207,42 @@ static QualType BoolToVecBool(Sema &S, Expr* From, unsigned AllowedVectorLength)
 /// - 1: both \p From's and \p ToType must be scalar (the "normal case")
 /// - other:  \p From's and \p ToType's vector length must match.
 static ImplicitConversionSequence
-TryContextuallyConvertToBool(Sema &S, Expr *From, unsigned AllowedVectorLength = 1) {
-  return TryImplicitConversion(S, From, BoolToVecBool(S, From, AllowedVectorLength),
+TryContextuallyConvertToBool(Sema &S, Expr *From,
+                             unsigned AllowedVectorLength = 1) {
+#include "llvm/Support/raw_ostream.h" // TODO XXX print
+  llvm::errs() << "\n-----------> trycontextconvtobool\n";
+  llvm::errs() << "allowed vec length: " << AllowedVectorLength << "\n";
+  From->getType()->dump();
+  llvm::errs() << "booltovecbool\n";
+  auto T = BoolToVecBool(S, From, AllowedVectorLength);
+  T->dump();
+  llvm::errs() << "tryimplicitconv\n";
+  auto I = TryImplicitConversion(S, From,
+                               T,
                                /*SuppressUserConversions=*/false,
                                /*AllowExplicit=*/true,
                                /*InOverloadResolution=*/false,
                                /*CStyle=*/false,
                                /*AllowObjCWritebackConversion=*/false,
                                /*AllowObjCConversionOnExplicit=*/false);
+  From->getType()->dump();
+  llvm::errs() << "trycontextconvtobool <-----------\n\n";
+  return I;
+  //return TryImplicitConversion(S, From,
+                               //BoolToVecBool(S, From, AllowedVectorLength),
+                               //[>SuppressUserConversions=<]false,
+                               //[>AllowExplicit=<]true,
+                               //[>InOverloadResolution=<]false,
+                               //[>CStyle=<]false,
+                               //[>AllowObjCWritebackConversion=<]false,
+                               //[>AllowObjCConversionOnExplicit=<]false);
 }
 
 /// PerformContextuallyConvertToBool - Perform a contextual conversion
 /// of the expression From to bool (C++0x [conv]p3).
-ExprResult Sema::PerformContextuallyConvertToBool(Expr *From, unsigned AllowedVectorLength /*= 1*/) {
+ExprResult
+Sema::PerformContextuallyConvertToBool(Expr *From,
+                                       unsigned AllowedVectorLength /*= 1*/) {
   if (checkPlaceholderForOverload(*this, From))
     return ExprError();
 
@@ -5227,14 +5250,14 @@ ExprResult Sema::PerformContextuallyConvertToBool(Expr *From, unsigned AllowedVe
   QualType boolty = BoolToVecBool(*this, From, AllowedVectorLength);
   // ----- sierra end
 
-  ImplicitConversionSequence ICS = TryContextuallyConvertToBool(*this, From, AllowedVectorLength);
+  ImplicitConversionSequence ICS =
+      TryContextuallyConvertToBool(*this, From, AllowedVectorLength);
   if (!ICS.isBad())
     return PerformImplicitConversion(From, boolty, ICS, AA_Converting);
 
   if (!DiagnoseMultipleUserDefinedConversion(From, boolty))
-    return Diag(From->getLocStart(),
-                diag::err_typecheck_bool_condition)
-                  << From->getType() << From->getSourceRange();
+    return Diag(From->getLocStart(), diag::err_typecheck_bool_condition)
+           << From->getType() << From->getSourceRange();
   return ExprError();
 }
 
@@ -5344,14 +5367,20 @@ static ExprResult CheckConvertedConstantExpression(Sema &S, Expr *From,
     // must be trivial.
     SCS = &ICS.UserDefined.After;
     break;
-  case ImplicitConversionSequence::AmbiguousConversion:
-  case ImplicitConversionSequence::BadConversion:
+  case ImplicitConversionSequence::AmbiguousConversion: {
+#include "llvm/Support/raw_ostream.h" // TODO XXX print
+    llvm::errs() << "ambigconv\n\n";
+  }
+  case ImplicitConversionSequence::BadConversion: {
+#include "llvm/Support/raw_ostream.h" // TODO XXX print
+    From->getType()->dump();
+    llvm::errs() << "badconv\n\n";
     if (!S.DiagnoseMultipleUserDefinedConversion(From, T))
       return S.Diag(From->getLocStart(),
                     diag::err_typecheck_converted_constant_expression)
                 << From->getType() << From->getSourceRange() << T;
     return ExprError();
-
+  }
   case ImplicitConversionSequence::EllipsisConversion:
     llvm_unreachable("ellipsis conversion in converted constant expression");
   }
