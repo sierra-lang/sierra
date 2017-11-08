@@ -350,7 +350,7 @@ bool Sema::DiagnoseUseOfDecl(NamedDecl *D, SourceLocation Loc,
         Diag(Loc, diag::err_deleted_inherited_ctor_use)
             << Ctor->getParent()
             << Ctor->getInheritedConstructor().getConstructor()->getParent();
-      else 
+      else
         Diag(Loc, diag::err_deleted_function_use);
       NoteDeletedFunction(FD);
       return true;
@@ -2998,7 +2998,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
         diagnoseUncapturableValueReference(*this, Loc, BD, CurContext);
       break;
     }
-        
+
     case Decl::Function: {
       if (unsigned BID = cast<FunctionDecl>(VD)->getBuiltinID()) {
         if (!Context.BuiltinInfo.isPredefinedLibFunction(BID)) {
@@ -7286,7 +7286,7 @@ checkPointerTypesForAssignment(Sema &S, QualType LHSType, QualType RHSType) {
     // Treat lifetime mismatches as fatal.
     else if (lhq.getObjCLifetime() != rhq.getObjCLifetime())
       ConvTy = Sema::IncompatiblePointerDiscardsQualifiers;
-    
+
     // For GCC/MS compatibility, other qualifier mismatches are treated
     // as still compatible in C.
     else ConvTy = Sema::CompatiblePointerDiscardsQualifiers;
@@ -8040,7 +8040,7 @@ QualType Sema::CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
   // Handle Sierra vectors -- be sure to do this before the swap-trick below
   bool lsierra = LHSType->isSierraVectorType();
   bool rsierra = RHSType->isSierraVectorType();
-  if ((lsierra || rsierra) && (lsierra || LHSType->isScalarType()) 
+  if ((lsierra || rsierra) && (lsierra || LHSType->isScalarType())
                            && (rsierra || RHSType->isScalarType())) {
     return CheckSierraVectorOperands(*this, LHS, RHS, Loc, IsCompAssign);
   }
@@ -9386,10 +9386,10 @@ QualType Sema::CheckCompareOperands(ExprResult &LHS, ExprResult &RHS,
       // conformance with the C++ standard.
       diagnoseFunctionPointerToVoidComparison(
           *this, Loc, LHS, RHS, /*isError*/ (bool)isSFINAEContext());
-      
+
       if (isSFINAEContext())
         return QualType();
-      
+
       RHS = ImpCastExprToType(RHS.get(), LHSType, CK_BitCast);
       return ResultTy;
     }
@@ -9723,13 +9723,16 @@ QualType Sema::CheckVectorCompareOperands(ExprResult &LHS, ExprResult &RHS,
 
   // If AltiVec, the comparison results in a numeric type, i.e.
   // bool for C++, int for C
-  if (vType->getAs<VectorType>()->getVectorKind() == VectorType::AltiVecVector
-      || vType->isSierraVectorType()) {
+  if ((getLangOpts().AltiVec &&
+       vType->getAs<VectorType>()->getVectorKind() ==
+           VectorType::AltiVecVector) ||
+      vType->isSierraVectorType()) {
     QualType LogType = Context.getLogicalOperationType();
 
-  // If Sierra, the comparison results a vector of bool/int
+    // If Sierra, the comparison results a vector of bool/int
     if (vType->isSierraVectorType())
-      return Context.getSierraVectorType(LogType, vType->getAs<SierraVectorType>()->getNumElements());
+      return Context.getSierraVectorType(
+          LogType, vType->getAs<SierraVectorType>()->getNumElements());
 
     return LogType;
   }
@@ -10252,7 +10255,7 @@ QualType Sema::CheckAssignmentOperands(Expr *LHSExpr, ExprResult &RHS,
         << LHSType.getUnqualifiedType();
     return QualType();
   }
-    
+
   AssignConvertType ConvTy;
   if (CompoundType.isNull()) {
     Expr *RHSCheck = RHS.get();
@@ -13159,7 +13162,7 @@ void Sema::PopExpressionEvaluationContext() {
       // FIXME: In C++1z, reinstate the restrictions on lambda expressions (CWG
       // 1607) from appearing within template-arguments and array-bounds that
       // are part of function-signatures.  Be mindful that P0315 (Lambdas in
-      // unevaluated contexts) might lift some of these restrictions in a 
+      // unevaluated contexts) might lift some of these restrictions in a
       // future version.
       if (Rec.Context != ConstantEvaluated || !getLangOpts().CPlusPlus1z)
         for (const auto *L : Rec.Lambdas)
@@ -13762,7 +13765,7 @@ static bool captureInCapturedRegion(CapturedRegionScopeInfo *RSI,
 
 /// \brief Create a field within the lambda class for the variable
 /// being captured.
-static void addAsFieldToClosureType(Sema &S, LambdaScopeInfo *LSI, 
+static void addAsFieldToClosureType(Sema &S, LambdaScopeInfo *LSI,
                                     QualType FieldType, QualType DeclRefType,
                                     SourceLocation Loc,
                                     bool RefersToCapturedVariable) {
@@ -13864,9 +13867,9 @@ static bool captureInLambda(LambdaScopeInfo *LSI,
     DeclRefType = CaptureType.getNonReferenceType();
   else {
     // C++ [expr.prim.lambda]p5:
-    //   The closure type for a lambda-expression has a public inline 
-    //   function call operator [...]. This function call operator is 
-    //   declared const (9.3.1) if and only if the lambda-expression's 
+    //   The closure type for a lambda-expression has a public inline
+    //   function call operator [...]. This function call operator is
+    //   declared const (9.3.1) if and only if the lambda-expression's
     //   parameter-declaration-clause is not followed by mutable.
     DeclRefType = CaptureType.getNonReferenceType();
     if (!LSI->Mutable && !CaptureType->isReferenceType())
@@ -14340,7 +14343,7 @@ static void MarkExprReferenced(Sema &SemaRef, SourceLocation Loc,
   if (!DM || DM->isPure())
     return;
   SemaRef.MarkAnyDeclReferenced(Loc, DM, MightBeOdrUse);
-} 
+}
 
 /// \brief Perform reference-marking and odr-use handling for a DeclRefExpr.
 void Sema::MarkDeclRefReferenced(DeclRefExpr *E) {

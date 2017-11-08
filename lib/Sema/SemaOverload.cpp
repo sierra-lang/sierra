@@ -5209,33 +5209,14 @@ static QualType BoolToVecBool(Sema &S, Expr *From,
 static ImplicitConversionSequence
 TryContextuallyConvertToBool(Sema &S, Expr *From,
                              unsigned AllowedVectorLength = 1) {
-#include "llvm/Support/raw_ostream.h" // TODO XXX print
-  llvm::errs() << "\n-----------> trycontextconvtobool\n";
-  llvm::errs() << "allowed vec length: " << AllowedVectorLength << "\n";
-  From->getType()->dump();
-  llvm::errs() << "booltovecbool\n";
-  auto T = BoolToVecBool(S, From, AllowedVectorLength);
-  T->dump();
-  llvm::errs() << "tryimplicitconv\n";
-  auto I = TryImplicitConversion(S, From,
-                               T,
+  return TryImplicitConversion(S, From,
+                               BoolToVecBool(S, From, AllowedVectorLength),
                                /*SuppressUserConversions=*/false,
                                /*AllowExplicit=*/true,
                                /*InOverloadResolution=*/false,
                                /*CStyle=*/false,
                                /*AllowObjCWritebackConversion=*/false,
                                /*AllowObjCConversionOnExplicit=*/false);
-  From->getType()->dump();
-  llvm::errs() << "trycontextconvtobool <-----------\n\n";
-  return I;
-  //return TryImplicitConversion(S, From,
-                               //BoolToVecBool(S, From, AllowedVectorLength),
-                               //[>SuppressUserConversions=<]false,
-                               //[>AllowExplicit=<]true,
-                               //[>InOverloadResolution=<]false,
-                               //[>CStyle=<]false,
-                               //[>AllowObjCWritebackConversion=<]false,
-                               //[>AllowObjCConversionOnExplicit=<]false);
 }
 
 /// PerformContextuallyConvertToBool - Perform a contextual conversion
@@ -5368,13 +5349,8 @@ static ExprResult CheckConvertedConstantExpression(Sema &S, Expr *From,
     SCS = &ICS.UserDefined.After;
     break;
   case ImplicitConversionSequence::AmbiguousConversion: {
-#include "llvm/Support/raw_ostream.h" // TODO XXX print
-    llvm::errs() << "ambigconv\n\n";
   }
   case ImplicitConversionSequence::BadConversion: {
-#include "llvm/Support/raw_ostream.h" // TODO XXX print
-    From->getType()->dump();
-    llvm::errs() << "badconv\n\n";
     if (!S.DiagnoseMultipleUserDefinedConversion(From, T))
       return S.Diag(From->getLocStart(),
                     diag::err_typecheck_converted_constant_expression)
