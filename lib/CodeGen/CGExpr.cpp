@@ -132,17 +132,6 @@ llvm::Value *CodeGenFunction::EvaluateExprAsBool(const Expr *E) {
   }
 
   SourceLocation Loc = E->getExprLoc();
-
-  if ( E->getType()->isSierraVectorType() )
-  {
-    QualType SierraTy = getContext().getSierraVectorType( BoolTy,
-                                        E->getType()->getSierraVectorLength() );
-    return CodeGen::EmitSierraConversion( *this,
-                                          EmitScalarExpr( E ),
-                                          E->getType(), 
-                                          SierraTy );
-  }
-
   if (!E->getType()->isAnyComplexType())
     return EmitScalarConversion(EmitScalarExpr(E), E->getType(), BoolTy, Loc);
 

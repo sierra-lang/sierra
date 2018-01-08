@@ -48,6 +48,10 @@ void CodeGenFunction::EmitStopPoint(const Stmt *S) {
 
 void CodeGenFunction::EmitStmt(const Stmt *S) {
   assert(S && "Null statement?");
+
+  // TODO XXX remove this
+  S->dumpColor(); S->dumpPretty(getContext());
+
   PGO.setCurrentStmt(S);
 
   // These statements have their own debug info handling.
@@ -618,7 +622,14 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
   if (S.getConditionVariable())
     EmitAutoVarDecl(*S.getConditionVariable());
 
-  if (S.getCond()->getType()->isSierraVectorType())
+  auto IsSierraTy = S.getCond()->getType()->isSierraVectorType();
+  auto Exp = dyn_cast<ImplicitCastExpr>(S.getCond());
+  if (Exp && Exp->getSubExpr()) {
+    IsSierraTy =
+        IsSierraTy || Exp->getSubExpr()->getType()->isSierraVectorType();
+  }
+
+  if (IsSierraTy)
     return EmitSierraIfStmt(*this, S);
 
   auto oldMask = getSierraMask();

@@ -2955,9 +2955,6 @@ Value *ScalarExprEmitter::EmitCompare(const BinaryOperator *E,
 
     // If this is a vector comparison, sign extend the result to the appropriate
     // vector integer type and return it (don't convert to bool).
-    //if (LHSTy->isSierraVectorType())
-      //return Builder.CreateZExt(Result, ConvertType(E->getType()), "sext");
-
     if (LHSTy->isVectorType())
       return Builder.CreateSExt(Result, ConvertType(E->getType()), "sext");
 
@@ -3069,23 +3066,21 @@ Value *ScalarExprEmitter::VisitBinAssign(const BinaryOperator *E) {
 
 Value *ScalarExprEmitter::VisitBinLAnd(const BinaryOperator *E) {
   // Perform vector logical and on comparisons with zero vectors.
-  if (E->getType()->isVectorType() && ! E->getType()->isSierraVectorType()) {
+  if (E->getType()->isVectorType() /*&& !E->getType()->isSierraVectorType()*/) {
     CGF.incrementProfileCounter(E);
 
-    if (!E->getType()->isSierraVectorType()) {
-      Value *LHS = Visit(E->getLHS());
-      Value *RHS = Visit(E->getRHS());
-      Value *Zero = llvm::ConstantAggregateZero::get(LHS->getType());
-      if (LHS->getType()->isFPOrFPVectorTy()) {
-        LHS = Builder.CreateFCmp(llvm::CmpInst::FCMP_UNE, LHS, Zero, "cmp");
-        RHS = Builder.CreateFCmp(llvm::CmpInst::FCMP_UNE, RHS, Zero, "cmp");
-      } else {
-        LHS = Builder.CreateICmp(llvm::CmpInst::ICMP_NE, LHS, Zero, "cmp");
-        RHS = Builder.CreateICmp(llvm::CmpInst::ICMP_NE, RHS, Zero, "cmp");
-      }
-      Value *And = Builder.CreateAnd(LHS, RHS);
-      return Builder.CreateSExt(And, ConvertType(E->getType()), "sext");
+    Value *LHS = Visit(E->getLHS());
+    Value *RHS = Visit(E->getRHS());
+    Value *Zero = llvm::ConstantAggregateZero::get(LHS->getType());
+    if (LHS->getType()->isFPOrFPVectorTy()) {
+      LHS = Builder.CreateFCmp(llvm::CmpInst::FCMP_UNE, LHS, Zero, "cmp");
+      RHS = Builder.CreateFCmp(llvm::CmpInst::FCMP_UNE, RHS, Zero, "cmp");
+    } else {
+      LHS = Builder.CreateICmp(llvm::CmpInst::ICMP_NE, LHS, Zero, "cmp");
+      RHS = Builder.CreateICmp(llvm::CmpInst::ICMP_NE, RHS, Zero, "cmp");
     }
+    Value *And = Builder.CreateAnd(LHS, RHS);
+    return Builder.CreateSExt(And, ConvertType(E->getType()), "sext");
   }
 
   llvm::Type *ResTy = ConvertType(E->getType());
@@ -3107,46 +3102,46 @@ Value *ScalarExprEmitter::VisitBinLAnd(const BinaryOperator *E) {
       return llvm::Constant::getNullValue(ResTy);
   }
 
-  if (E->getType()->isSierraVectorType()) {
-    auto OldMask = CGF.getSierraMask();
-    if (not OldMask) {
-      /* Create a mask with all-true current and all-false continue. */
-      unsigned NumElems = E->getType()->getSierraVectorLength();
-      OldMask = SierraMask(Builder.getContext(), NumElems);
-      CGF.setSierraMask(OldMask);
-    }
-    llvm::Type *MaskTy = OldMask.CurrentMask->getType();
+  //if (E->getType()->isSierraVectorType()) {
+    //auto OldMask = CGF.getSierraMask();
+    //if (not OldMask) {
+      //[> Create a mask with all-true current and all-false continue. <]
+      //unsigned NumElems = E->getType()->getSierraVectorLength();
+      //OldMask = SierraMask(Builder.getContext(), NumElems);
+      //CGF.setSierraMask(OldMask);
+    //}
+    //llvm::Type *MaskTy = OldMask.CurrentMask->getType();
 
-    llvm::BasicBlock *TrueBlock  = CGF.createBasicBlock("sierra-land.some-true");
-    llvm::BasicBlock *FalseBlock = CGF.createBasicBlock("sierra-land.some-false");
-    llvm::BasicBlock *EndBlock   = CGF.createBasicBlock("sierra-land.end");
+    //llvm::BasicBlock *TrueBlock  = CGF.createBasicBlock("sierra-land.some-true");
+    //llvm::BasicBlock *FalseBlock = CGF.createBasicBlock("sierra-land.some-false");
+    //llvm::BasicBlock *EndBlock   = CGF.createBasicBlock("sierra-land.end");
 
-    llvm::PHINode *TruePhi  = NULL;
-    llvm::PHINode *FalsePhi = NULL;
-    llvm::PHINode *EndPhi   = llvm::PHINode::Create(MaskTy, 0, "sierra-land.phi-end");
+    //llvm::PHINode *TruePhi  = NULL;
+    //llvm::PHINode *FalsePhi = NULL;
+    //llvm::PHINode *EndPhi   = llvm::PHINode::Create(MaskTy, 0, "sierra-land.phi-end");
 
-    CGF.EmitBranchOnBoolExpr(E,
-                             TrueBlock, FalseBlock, CGF.getProfileCount(E),
-                             /* falseFirst = */ false,
-                             &TruePhi, &FalsePhi);
+    //CGF.BlaEmitBranchOnBoolExpr(E,
+                             //TrueBlock, FalseBlock, CGF.getProfileCount(E),
+                             //[> falseFirst = <] false,
+                             //&TruePhi, &FalsePhi);
 
-    /* Emit code for the TrueBlock. */
-    CGF.EmitBlock(TrueBlock);
-    EndPhi->addIncoming(TruePhi, Builder.GetInsertBlock());
-    Builder.CreateBr(EndBlock);
+    //[> Emit code for the TrueBlock. <]
+    //CGF.EmitBlock(TrueBlock);
+    //EndPhi->addIncoming(TruePhi, Builder.GetInsertBlock());
+    //Builder.CreateBr(EndBlock);
 
-    /* Emit code for the FalseBlock. */
-    CGF.EmitBlock(FalseBlock);
-    EndPhi->addIncoming(FalsePhi, Builder.GetInsertBlock());
-    CGF.EmitBlock(EndBlock);
+    //[> Emit code for the FalseBlock. <]
+    //CGF.EmitBlock(FalseBlock);
+    //EndPhi->addIncoming(FalsePhi, Builder.GetInsertBlock());
+    //CGF.EmitBlock(EndBlock);
 
-    /* Emit code for the EndBlock. */
-    Builder.Insert(EndPhi);
-    llvm::Value *Res = Builder.CreateAnd(EndPhi, OldMask.CurrentMask);
+    //[> Emit code for the EndBlock. <]
+    //Builder.Insert(EndPhi);
+    //llvm::Value *Res = Builder.CreateAnd(EndPhi, OldMask.CurrentMask);
 
-    CGF.setSierraMask(OldMask);
-    return Res;
-  }
+    //CGF.setSierraMask(OldMask);
+    //return Res;
+  //}
 
   llvm::BasicBlock *ContBlock = CGF.createBasicBlock("land.end");
   llvm::BasicBlock *RHSBlock  = CGF.createBasicBlock("land.rhs");
@@ -3190,23 +3185,21 @@ Value *ScalarExprEmitter::VisitBinLAnd(const BinaryOperator *E) {
 
 Value *ScalarExprEmitter::VisitBinLOr(const BinaryOperator *E) {
   // Perform vector logical or on comparisons with zero vectors.
-  if (E->getType()->isVectorType() && ! E->getType()->isSierraVectorType()) {
+  if (E->getType()->isVectorType() /*&& !E->getType()->isSierraVectorType()*/) {
     CGF.incrementProfileCounter(E);
 
-    if (! E->getType()->isSierraVectorType()) {
-      Value *LHS = Visit(E->getLHS());
-      Value *RHS = Visit(E->getRHS());
-      Value *Zero = llvm::ConstantAggregateZero::get(LHS->getType());
-      if (LHS->getType()->isFPOrFPVectorTy()) {
-        LHS = Builder.CreateFCmp(llvm::CmpInst::FCMP_UNE, LHS, Zero, "cmp");
-        RHS = Builder.CreateFCmp(llvm::CmpInst::FCMP_UNE, RHS, Zero, "cmp");
-      } else {
-        LHS = Builder.CreateICmp(llvm::CmpInst::ICMP_NE, LHS, Zero, "cmp");
-        RHS = Builder.CreateICmp(llvm::CmpInst::ICMP_NE, RHS, Zero, "cmp");
-      }
-      Value *Or = Builder.CreateOr(LHS, RHS);
-      return Builder.CreateSExt(Or, ConvertType(E->getType()), "sext");
+    Value *LHS = Visit(E->getLHS());
+    Value *RHS = Visit(E->getRHS());
+    Value *Zero = llvm::ConstantAggregateZero::get(LHS->getType());
+    if (LHS->getType()->isFPOrFPVectorTy()) {
+      LHS = Builder.CreateFCmp(llvm::CmpInst::FCMP_UNE, LHS, Zero, "cmp");
+      RHS = Builder.CreateFCmp(llvm::CmpInst::FCMP_UNE, RHS, Zero, "cmp");
+    } else {
+      LHS = Builder.CreateICmp(llvm::CmpInst::ICMP_NE, LHS, Zero, "cmp");
+      RHS = Builder.CreateICmp(llvm::CmpInst::ICMP_NE, RHS, Zero, "cmp");
     }
+    Value *Or = Builder.CreateOr(LHS, RHS);
+    return Builder.CreateSExt(Or, ConvertType(E->getType()), "sext");
   }
 
   llvm::Type *ResTy = ConvertType(E->getType());
@@ -3228,46 +3221,46 @@ Value *ScalarExprEmitter::VisitBinLOr(const BinaryOperator *E) {
       return llvm::ConstantInt::get(ResTy, 1);
   }
 
-  if (E->getType()->isSierraVectorType()) {
-    auto OldMask = CGF.getSierraMask();
-    if (not OldMask) {
-      /* Create a mask with all-true current and all-false continue. */
-      unsigned NumElems = E->getType()->getSierraVectorLength();
-      OldMask = SierraMask(Builder.getContext(), NumElems);
-      CGF.setSierraMask(OldMask );
-    }
-    llvm::Type *MaskTy = OldMask.CurrentMask->getType();
+  //if (E->getType()->isSierraVectorType()) {
+    //auto OldMask = CGF.getSierraMask();
+    //if (not OldMask) {
+      //[> Create a mask with all-true current and all-false continue. <]
+      //unsigned NumElems = E->getType()->getSierraVectorLength();
+      //OldMask = SierraMask(Builder.getContext(), NumElems);
+      //CGF.setSierraMask(OldMask );
+    //}
+    //llvm::Type *MaskTy = OldMask.CurrentMask->getType();
 
-    llvm::BasicBlock *TrueBlock  = CGF.createBasicBlock("sierra-lor.some-true");
-    llvm::BasicBlock *FalseBlock = CGF.createBasicBlock("sierra-lor.some-false");
-    llvm::BasicBlock *EndBlock   = CGF.createBasicBlock("sierra-lor.end");
+    //llvm::BasicBlock *TrueBlock  = CGF.createBasicBlock("sierra-lor.some-true");
+    //llvm::BasicBlock *FalseBlock = CGF.createBasicBlock("sierra-lor.some-false");
+    //llvm::BasicBlock *EndBlock   = CGF.createBasicBlock("sierra-lor.end");
 
-    llvm::PHINode *TruePhi  = NULL;
-    llvm::PHINode *FalsePhi = NULL;
-    llvm::PHINode *EndPhi   = llvm::PHINode::Create(MaskTy, 0, "sierra-lor.phi-end");
+    //llvm::PHINode *TruePhi  = NULL;
+    //llvm::PHINode *FalsePhi = NULL;
+    //llvm::PHINode *EndPhi   = llvm::PHINode::Create(MaskTy, 0, "sierra-lor.phi-end");
 
-    CGF.EmitBranchOnBoolExpr(E,
-                             TrueBlock, FalseBlock, CGF.getProfileCount(E),
-                             /* falseFirst = */ false,
-                             &TruePhi, &FalsePhi);
+    //CGF.BlaEmitBranchOnBoolExpr(E,
+                             //TrueBlock, FalseBlock, CGF.getProfileCount(E),
+                             //[> falseFirst = <] false,
+                             //&TruePhi, &FalsePhi);
 
-    /* Emit code for the TrueBlock. */
-    CGF.EmitBlock(TrueBlock);
-    EndPhi->addIncoming(TruePhi, Builder.GetInsertBlock());
-    Builder.CreateBr(EndBlock);
+    //[> Emit code for the TrueBlock. <]
+    //CGF.EmitBlock(TrueBlock);
+    //EndPhi->addIncoming(TruePhi, Builder.GetInsertBlock());
+    //Builder.CreateBr(EndBlock);
 
-    /* Emit code for the FalseBlock. */
-    CGF.EmitBlock(FalseBlock );
-    EndPhi->addIncoming(FalsePhi, Builder.GetInsertBlock());
-    CGF.EmitBlock(EndBlock);
+    //[> Emit code for the FalseBlock. <]
+    //CGF.EmitBlock(FalseBlock );
+    //EndPhi->addIncoming(FalsePhi, Builder.GetInsertBlock());
+    //CGF.EmitBlock(EndBlock);
 
-    /* Emit code for the EndBlock. */
-    Builder.Insert(EndPhi);
-    llvm::Value *Res = Builder.CreateAnd(EndPhi, OldMask.CurrentMask);
+    //[> Emit code for the EndBlock. <]
+    //Builder.Insert(EndPhi);
+    //llvm::Value *Res = Builder.CreateAnd(EndPhi, OldMask.CurrentMask);
 
-    CGF.setSierraMask(OldMask);
-    return Res;
-  }
+    //CGF.setSierraMask(OldMask);
+    //return Res;
+  //}
 
   llvm::BasicBlock *ContBlock = CGF.createBasicBlock("lor.end");
   llvm::BasicBlock *RHSBlock = CGF.createBasicBlock("lor.rhs");
@@ -3415,63 +3408,63 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
     return tmp5;
   }
 
-  if (condExpr->getType()->isSierraVectorType()) {
-    auto OldMask = CGF.getSierraMask();
-    if (not OldMask) {
-      /* Create a mask with all-true current and all-false continue. */
-      // TODO check whether it is correct to take the type of E instead of the
-      // condexpr
-      unsigned NumElems = E->getType()->getSierraVectorLength();
+  //if (condExpr->getType()->isSierraVectorType()) {
+    //auto OldMask = CGF.getSierraMask();
+    //if (not OldMask) {
+      //[> Create a mask with all-true current and all-false continue. <]
+      //// TODO check whether it is correct to take the type of E instead of the
+      //// condexpr
+      ////unsigned NumElems = E->getType()->getSierraVectorLength();
       //unsigned NumElems = condExpr->getType()->getSierraVectorLength();
-      OldMask = SierraMask(Builder.getContext(), NumElems);
-      CGF.setSierraMask(OldMask);
-    }
+      //OldMask = SierraMask(Builder.getContext(), NumElems);
+      //CGF.setSierraMask(OldMask);
+    //}
 
-    llvm::BasicBlock *TrueBlock =
-        CGF.createBasicBlock("sierra-conditional.some-true");
-    llvm::BasicBlock *FalseBlock =
-        CGF.createBasicBlock("sierra-conditional.some-false");
-    llvm::BasicBlock *EndBlock = CGF.createBasicBlock("sierra-conditional.end");
+    //llvm::BasicBlock *TrueBlock =
+        //CGF.createBasicBlock("sierra-conditional.some-true");
+    //llvm::BasicBlock *FalseBlock =
+        //CGF.createBasicBlock("sierra-conditional.some-false");
+    //llvm::BasicBlock *EndBlock = CGF.createBasicBlock("sierra-conditional.end");
 
-    auto const ValueType    = CGF.ConvertType(lhsExpr->getType());
-    llvm::PHINode *TruePhi  = NULL;
-    llvm::PHINode *FalsePhi = NULL;
-    llvm::PHINode *EndPhi =
-        llvm::PHINode::Create(ValueType, 0, "sierra-conditional.phi-end");
-    llvm::PHINode *vPhi =
-        llvm::PHINode::Create(ValueType, 0, "sierra-conditional.phi-value");
-    vPhi->addIncoming(llvm::UndefValue::get(ValueType),
-                      Builder.GetInsertBlock());
+    //auto const ValueType    = CGF.ConvertType(lhsExpr->getType());
+    //llvm::PHINode *TruePhi  = NULL;
+    //llvm::PHINode *FalsePhi = NULL;
+    //llvm::PHINode *EndPhi =
+        //llvm::PHINode::Create(ValueType, 0, "sierra-conditional.phi-end");
+    //llvm::PHINode *vPhi =
+        //llvm::PHINode::Create(ValueType, 0, "sierra-conditional.phi-value");
+    //vPhi->addIncoming(llvm::UndefValue::get(ValueType),
+                      //Builder.GetInsertBlock());
 
-    CGF.EmitBranchOnBoolExpr(condExpr,
-                             TrueBlock, FalseBlock,
-                             CGF.getProfileCount(condExpr),
-                             /* falseFirst = */ false,
-                             &TruePhi, &FalsePhi);
+    //CGF.BlaEmitBranchOnBoolExpr(condExpr,
+                             //TrueBlock, FalseBlock,
+                             //CGF.getProfileCount(condExpr),
+                             //[> falseFirst = <] false,
+                             //&TruePhi, &FalsePhi);
 
-    /* Emit code for the TrueBlock. */
-    CGF.EmitBlock(TrueBlock);
-    llvm::Value *LHS = Visit(lhsExpr);
-    FalsePhi->addIncoming(TruePhi, Builder.GetInsertBlock());
-    vPhi    ->addIncoming(LHS,     Builder.GetInsertBlock());
-    EndPhi  ->addIncoming(LHS,     Builder.GetInsertBlock());
-    Builder.CreateCondBr(EmitAllTrue(CGF, TruePhi), EndBlock, FalseBlock);
+    //[> Emit code for the TrueBlock. <]
+    //CGF.EmitBlock(TrueBlock);
+    //llvm::Value *LHS = Visit(lhsExpr);
+    //FalsePhi->addIncoming(TruePhi, Builder.GetInsertBlock());
+    //vPhi    ->addIncoming(LHS,     Builder.GetInsertBlock());
+    //EndPhi  ->addIncoming(LHS,     Builder.GetInsertBlock());
+    //Builder.CreateCondBr(EmitAllTrue(CGF, TruePhi), EndBlock, FalseBlock);
 
-    /* Emit code for the FalseBlock. */
-    CGF.EmitBlock(FalseBlock);
-    Builder.Insert(vPhi);
-    llvm::Value *RHS = Visit(rhsExpr);
-    auto const Merged =
-        Builder.CreateSelect(FalsePhi, vPhi, RHS, "sierra-conditional.merged");
-    EndPhi->addIncoming(Merged, Builder.GetInsertBlock());
+    //[> Emit code for the FalseBlock. <]
+    //CGF.EmitBlock(FalseBlock);
+    //Builder.Insert(vPhi);
+    //llvm::Value *RHS = Visit(rhsExpr);
+    //auto const Merged =
+        //Builder.CreateSelect(FalsePhi, vPhi, RHS, "sierra-conditional.merged");
+    //EndPhi->addIncoming(Merged, Builder.GetInsertBlock());
 
-    /* Emit code for the EndBlock. */
-    CGF.EmitBlock(EndBlock);
-    Builder.Insert(EndPhi);
+    //[> Emit code for the EndBlock. <]
+    //CGF.EmitBlock(EndBlock);
+    //Builder.Insert(EndPhi);
 
-    CGF.setSierraMask(OldMask); // TODO: resetToScalar ?
-    return EndPhi;
-  }
+    //CGF.setSierraMask(OldMask); // TODO: resetToScalar ?
+    //return EndPhi;
+  //}
 
   // If this is a really simple expression (like x ? 4 : 5), emit this as a
   // select instead of as control flow.  We can only do this if it is cheap and

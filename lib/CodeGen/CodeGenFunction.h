@@ -3415,6 +3415,23 @@ public:
   /// EmitBranchOnBoolExpr - Emit a branch on a boolean condition (e.g. for an
   /// if statement) to the specified blocks.  Based on the condition, this might
   /// try to simplify the codegen of the conditional based on the branch.
+  /// TrueCount should be the number of times we expect the condition to
+  /// evaluate to true based on PGO data.
+  void EmitBranchOnBoolExpr(const Expr *Cond, llvm::BasicBlock *TrueBlock,
+                            llvm::BasicBlock *FalseBlock, uint64_t TrueCount);
+
+  llvm::Value *BlaEmitBranchOnBoolExpr(const Expr *, llvm::BasicBlock *,
+                                       llvm::BasicBlock *, uint64_t,
+                                       bool falseFirst = false,
+                                       llvm::PHINode **TruePhi = nullptr,
+                                       llvm::PHINode **FalsePhi = nullptr) {
+    return 0;
+  }
+  // old code
+#if 0
+  /// EmitBranchOnBoolExpr - Emit a branch on a boolean condition (e.g. for an
+  /// if statement) to the specified blocks.  Based on the condition, this might
+  /// try to simplify the codegen of the conditional based on the branch.
   llvm::Value * EmitBranchOnBoolExpr(const Expr *Cond,
                                      llvm::BasicBlock *TrueBlock,
                                      llvm::BasicBlock *FalseBlock,
@@ -3431,6 +3448,7 @@ public:
                                      uint64_t TrueCount,
                                      llvm::PHINode *TruePhi,
                                      llvm::PHINode *FalsePhi);
+#endif
 
   /// \brief Emit a description of a type in a format suitable for passing to
   /// a runtime sanitizer handler.

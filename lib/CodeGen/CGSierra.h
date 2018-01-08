@@ -36,6 +36,8 @@ namespace CodeGen {
 
 class CodeGenFunction;
 
+void createSIMDFunction(CodeGenFunction &);
+
 llvm::Constant *CreateAllOnesVector(llvm::LLVMContext &Context, unsigned NumElems);
 llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context, unsigned NumElems);
 

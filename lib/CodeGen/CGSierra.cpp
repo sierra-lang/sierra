@@ -17,6 +17,7 @@
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Module.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/Intrinsics.h"
 
@@ -24,6 +25,14 @@ using llvm::Value;
 
 namespace clang {
 namespace CodeGen {
+
+void createSIMDFunction(CodeGenFunction &CGF) {
+  llvm::Function *ScalFun = CGF.Builder.GetInsertBlock()->getParent();
+  llvm::Module *Mod = ScalFun->getParent();
+  auto SIMDFunName = ScalFun->getName().str() + "_SIMD";
+  auto SIMDFun = Mod->getOrInsertFunction(
+      SIMDFunName, ScalFun->getFunctionType(), ScalFun->getAttributes());
+}
 
 llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src,
                                   QualType SrcType, QualType DstType) {
@@ -177,6 +186,99 @@ llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context,
 //------------------------------------------------------------------------------
 
 void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
+  auto OldMask = CGF.getSierraMask();
+  if (!OldMask) {
+    /* Create a mask with all-true current and all-false continue. */
+    unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
+    OldMask = SierraMask(CGF.Builder.getContext(), NumElems);
+    CGF.setSierraMask(OldMask);
+  }
+
+  // generate a copy of the current function that will be the vectorized version
+  // later on
+  createSIMDFunction(CGF);
+
+  // create a new block for this if (done for debugging: may be removed later)
+  auto SierraIfBlock = CGF.createBasicBlock("sierra.if.start");
+  CGF.EmitBlock(SierraIfBlock);
+
+  // generate scalar code for this if
+  // therefore we need a scalar condition
+  // TODO XXX alltrue/allfalse check. then i can simplify stuff here
+  auto CondEval = CGF.EvaluateExprAsBool(S.getCond());
+  assert(isa<llvm::VectorType>(CondEval->getType()));
+  auto ScalarCondUndef = llvm::UndefValue::get(CGF.Builder.getInt1Ty());
+  llvm::Instruction *ScalarCond =
+      CGF.Builder.CreateAlloca(ScalarCondUndef->getType());
+  CGF.Builder.CreateAlignedStore(ScalarCondUndef, ScalarCond, 1, false);
+  //CGF.Builder.CreateStore(ScalarCondUndef, ScalarCond);
+  ScalarCond = CGF.Builder.CreateAlignedLoad(ScalarCond, 1, "sierra_undef");
+  //ScalarCond = CGF.Builder.CreateLoad(ScalarCond, "sierra_undef");
+
+  // create an MDNode for ScalarCond that refers to CondEval. The reference to
+  // the values should be remembered. After vectorization the undef must be
+  // replaced by them
+  llvm::MDNode *RefValue = llvm::MDNode::get(
+      CGF.getLLVMContext(), llvm::ValueAsMetadata::get(CondEval));
+  ScalarCond->setMetadata("sierra_replace", RefValue);
+
+  // the following is more or less copied & pasted from the original function
+  // EmitIfStmt()
+  llvm::BasicBlock *ThenBlock = CGF.createBasicBlock("sierra.if.then");
+  llvm::BasicBlock *ContBlock = CGF.createBasicBlock("sierra.if.end");
+  llvm::BasicBlock *ElseBlock = ContBlock;
+  if (S.getElse())
+    ElseBlock = CGF.createBasicBlock("sierra.if.else");
+
+
+  // this part is taken from the function EmitBranchOnBoolExpr(). we do not need
+  // all the simplifying checks in there since the value is undef anyway.
+  // Create branch weights based on the number of times we get here and the
+  // number of times the condition should be true.
+  auto TrueCount = CGF.getProfileCount(S.getThen());
+  uint64_t CurrentCount = std::max(CGF.getCurrentProfileCount(), TrueCount);
+  llvm::MDNode *Weights =
+      CGF.createProfileWeights(TrueCount, CurrentCount - TrueCount);
+  CGF.Builder.CreateCondBr(ScalarCond, ThenBlock, ElseBlock, Weights);
+
+
+  // Emit the 'then' code.
+  CGF.EmitBlock(ThenBlock);
+  CGF.incrementProfileCounter(&S);
+  {
+    CodeGenFunction::RunCleanupsScope ThenScope(CGF);
+    CGF.EmitStmt(S.getThen());
+  }
+  CGF.EmitBranch(ContBlock);
+
+  // Emit the 'else' code if present.
+  if (const Stmt *Else = S.getElse()) {
+    {
+      // There is no need to emit line number for an unconditional branch.
+      auto NL = ApplyDebugLocation::CreateEmpty(CGF);
+      CGF.EmitBlock(ElseBlock);
+    }
+    {
+      CodeGenFunction::RunCleanupsScope ElseScope(CGF);
+      CGF.EmitStmt(Else);
+    }
+    {
+      // There is no need to emit line number for an unconditional branch.
+      auto NL = ApplyDebugLocation::CreateEmpty(CGF);
+      CGF.EmitBranch(ContBlock);
+    }
+  }
+
+  // Emit the continuation block for code after the if.
+  CGF.EmitBlock(ContBlock, true);
+
+
+  // set the sierramask again
+  CGF.setSierraMask(!OldMask ? SierraMask() : OldMask);
+
+
+  // this is the old code
+#if 0
   CGBuilderTy &Builder = CGF.Builder;
 
   auto OldMask = CGF.getSierraMask();
@@ -277,6 +379,7 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
   Builder.Insert(EndCurrentPhi);
   Builder.Insert(EndContinuePhi);
   CGF.setSierraMask(resetToScalar ? SierraMask() : SierraMask(EndCurrentPhi, EndContinuePhi));
+#endif
 }
 
 //------------------------------------------------------------------------------
@@ -331,7 +434,7 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
     ExitBlock = CGF.createBasicBlock("sierra-while.exit");
 
   llvm::PHINode *LoopMaskPhi = NULL;
-  CGF.EmitBranchOnBoolExpr(S.getCond(),
+  CGF.BlaEmitBranchOnBoolExpr(S.getCond(),
                            BodyBlock, ExitBlock,
                            0 /*TODO*/,
                            false,
@@ -446,7 +549,7 @@ void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S) {
           CreateAllZerosVector(Builder.getContext(),
                                MaskTy->getVectorNumElements())));
 
-    CGF.EmitBranchOnBoolExpr(S.getCond(),
+    CGF.BlaEmitBranchOnBoolExpr(S.getCond(),
                              LoopBody, ExitBlock,
                              0 /*TODO*/,
                              false,
@@ -512,7 +615,7 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S) {
     ExitBlock = CGF.createBasicBlock("sierra-for.cond.cleanup");
 
   llvm::PHINode *LoopMaskPhi = NULL;
-  CGF.EmitBranchOnBoolExpr(S.getCond(),
+  CGF.BlaEmitBranchOnBoolExpr(S.getCond(),
                            BodyBlock, ExitBlock,
                            0 /*TODO*/,
                            false,
