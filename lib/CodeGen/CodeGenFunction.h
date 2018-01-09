@@ -2374,8 +2374,8 @@ public:
       return CGF.emitBlockByrefAddress(Addr, Variable, /*forward*/ false);
     }
   };
-  AutoVarEmission EmitAutoVarAlloca(const VarDecl &var);
-  void EmitAutoVarInit(const AutoVarEmission &emission);
+  AutoVarEmission EmitAutoVarAlloca(const VarDecl &var, Address &);
+  void EmitAutoVarInit(const AutoVarEmission &emission, Address &);
   void EmitAutoVarCleanups(const AutoVarEmission &emission);
   void emitAutoVarTypeCleanup(const AutoVarEmission &emission,
                               QualType::DestructionKind dtorKind);
