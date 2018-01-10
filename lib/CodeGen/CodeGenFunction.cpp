@@ -1284,208 +1284,6 @@ bool CodeGenFunction::ConstantFoldsToSimpleInteger(const Expr *Cond,
 }
 
 
-
-/// EmitBranchOnBoolExpr - Emit a branch on a boolean condition (e.g. for an if
-/// statement) to the specified blocks.  Based on the condition, this might try
-/// to simplify the codegen of the conditional based on the branch.
-///
-void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
-                                           llvm::BasicBlock *TrueBlock,
-                                           llvm::BasicBlock *FalseBlock,
-                                           uint64_t TrueCount) {
-  Cond = Cond->IgnoreParens();
-
-  if (const BinaryOperator *CondBOp = dyn_cast<BinaryOperator>(Cond)) {
-
-    // Handle X && Y in a condition.
-    if (CondBOp->getOpcode() == BO_LAnd) {
-      // If we have "1 && X", simplify the code.  "0 && X" would have constant
-      // folded if the case was simple enough.
-      bool ConstantBool = false;
-      if (ConstantFoldsToSimpleInteger(CondBOp->getLHS(), ConstantBool) &&
-          ConstantBool) {
-        // br(1 && X) -> br(X).
-        incrementProfileCounter(CondBOp);
-        return EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock,
-                                    TrueCount);
-      }
-
-      // If we have "X && 1", simplify the code to use an uncond branch.
-      // "X && 0" would have been constant folded to 0.
-      if (ConstantFoldsToSimpleInteger(CondBOp->getRHS(), ConstantBool) &&
-          ConstantBool) {
-        // br(X && 1) -> br(X).
-        return EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, FalseBlock,
-                                    TrueCount);
-      }
-
-      // Emit the LHS as a conditional.  If the LHS conditional is false, we
-      // want to jump to the FalseBlock.
-      llvm::BasicBlock *LHSTrue = createBasicBlock("land.lhs.true");
-      // The counter tells us how often we evaluate RHS, and all of TrueCount
-      // can be propagated to that branch.
-      uint64_t RHSCount = getProfileCount(CondBOp->getRHS());
-
-      ConditionalEvaluation eval(*this);
-      {
-        ApplyDebugLocation DL(*this, Cond);
-        EmitBranchOnBoolExpr(CondBOp->getLHS(), LHSTrue, FalseBlock, RHSCount);
-        EmitBlock(LHSTrue);
-      }
-
-      incrementProfileCounter(CondBOp);
-      setCurrentProfileCount(getProfileCount(CondBOp->getRHS()));
-
-      // Any temporaries created here are conditional.
-      eval.begin(*this);
-      EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock, TrueCount);
-      eval.end(*this);
-
-      return;
-    }
-
-    if (CondBOp->getOpcode() == BO_LOr) {
-      // If we have "0 || X", simplify the code.  "1 || X" would have constant
-      // folded if the case was simple enough.
-      bool ConstantBool = false;
-      if (ConstantFoldsToSimpleInteger(CondBOp->getLHS(), ConstantBool) &&
-          !ConstantBool) {
-        // br(0 || X) -> br(X).
-        incrementProfileCounter(CondBOp);
-        return EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock,
-                                    TrueCount);
-      }
-
-      // If we have "X || 0", simplify the code to use an uncond branch.
-      // "X || 1" would have been constant folded to 1.
-      if (ConstantFoldsToSimpleInteger(CondBOp->getRHS(), ConstantBool) &&
-          !ConstantBool) {
-        // br(X || 0) -> br(X).
-        return EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, FalseBlock,
-                                    TrueCount);
-      }
-
-      // Emit the LHS as a conditional.  If the LHS conditional is true, we
-      // want to jump to the TrueBlock.
-      llvm::BasicBlock *LHSFalse = createBasicBlock("lor.lhs.false");
-      // We have the count for entry to the RHS and for the whole expression
-      // being true, so we can divy up True count between the short circuit and
-      // the RHS.
-      uint64_t LHSCount =
-          getCurrentProfileCount() - getProfileCount(CondBOp->getRHS());
-      uint64_t RHSCount = TrueCount - LHSCount;
-
-      ConditionalEvaluation eval(*this);
-      {
-        ApplyDebugLocation DL(*this, Cond);
-        EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, LHSFalse, LHSCount);
-        EmitBlock(LHSFalse);
-      }
-
-      incrementProfileCounter(CondBOp);
-      setCurrentProfileCount(getProfileCount(CondBOp->getRHS()));
-
-      // Any temporaries created here are conditional.
-      eval.begin(*this);
-      EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock, RHSCount);
-
-      eval.end(*this);
-
-      return;
-    }
-  }
-
-  if (const UnaryOperator *CondUOp = dyn_cast<UnaryOperator>(Cond)) {
-    // br(!x, t, f) -> br(x, f, t)
-    if (CondUOp->getOpcode() == UO_LNot) {
-      // Negate the count.
-      uint64_t FalseCount = getCurrentProfileCount() - TrueCount;
-      // Negate the condition and swap the destination blocks.
-      return EmitBranchOnBoolExpr(CondUOp->getSubExpr(), FalseBlock, TrueBlock,
-                                  FalseCount);
-    }
-  }
-
-  if (const ConditionalOperator *CondOp = dyn_cast<ConditionalOperator>(Cond)) {
-    // br(c ? x : y, t, f) -> br(c, br(x, t, f), br(y, t, f))
-    llvm::BasicBlock *LHSBlock = createBasicBlock("cond.true");
-    llvm::BasicBlock *RHSBlock = createBasicBlock("cond.false");
-
-    ConditionalEvaluation cond(*this);
-    EmitBranchOnBoolExpr(CondOp->getCond(), LHSBlock, RHSBlock,
-                         getProfileCount(CondOp));
-
-    // When computing PGO branch weights, we only know the overall count for
-    // the true block. This code is essentially doing tail duplication of the
-    // naive code-gen, introducing new edges for which counts are not
-    // available. Divide the counts proportionally between the LHS and RHS of
-    // the conditional operator.
-    uint64_t LHSScaledTrueCount = 0;
-    if (TrueCount) {
-      double LHSRatio =
-          getProfileCount(CondOp) / (double)getCurrentProfileCount();
-      LHSScaledTrueCount = TrueCount * LHSRatio;
-    }
-
-    cond.begin(*this);
-    EmitBlock(LHSBlock);
-    incrementProfileCounter(CondOp);
-    {
-      ApplyDebugLocation DL(*this, Cond);
-      EmitBranchOnBoolExpr(CondOp->getLHS(), TrueBlock, FalseBlock,
-                           LHSScaledTrueCount);
-    }
-    cond.end(*this);
-
-    cond.begin(*this);
-    EmitBlock(RHSBlock);
-    EmitBranchOnBoolExpr(CondOp->getRHS(), TrueBlock, FalseBlock,
-                         TrueCount - LHSScaledTrueCount);
-    cond.end(*this);
-
-    return;
-  }
-
-  if (const CXXThrowExpr *Throw = dyn_cast<CXXThrowExpr>(Cond)) {
-    // Conditional operator handling can give us a throw expression as a
-    // condition for a case like:
-    //   br(c ? throw x : y, t, f) -> br(c, br(throw x, t, f), br(y, t, f)
-    // Fold this to:
-    //   br(c, throw x, br(y, t, f))
-    EmitCXXThrowExpr(Throw, /*KeepInsertionPoint*/false);
-    return;
-  }
-
-  // If the branch has a condition wrapped by __builtin_unpredictable,
-  // create metadata that specifies that the branch is unpredictable.
-  // Don't bother if not optimizing because that metadata would not be used.
-  llvm::MDNode *Unpredictable = nullptr;
-  auto *Call = dyn_cast<CallExpr>(Cond);
-  if (Call && CGM.getCodeGenOpts().OptimizationLevel != 0) {
-    auto *FD = dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl());
-    if (FD && FD->getBuiltinID() == Builtin::BI__builtin_unpredictable) {
-      llvm::MDBuilder MDHelper(getLLVMContext());
-      Unpredictable = MDHelper.createUnpredictable();
-    }
-  }
-
-  // Create branch weights based on the number of times we get here and the
-  // number of times the condition should be true.
-  uint64_t CurrentCount = std::max(getCurrentProfileCount(), TrueCount);
-  llvm::MDNode *Weights =
-      createProfileWeights(TrueCount, CurrentCount - TrueCount);
-
-  // Emit the code with the fully general case.
-  llvm::Value *CondV;
-  {
-    ApplyDebugLocation DL(*this, Cond);
-    CondV = EvaluateExprAsBool(Cond);
-  }
-  Builder.CreateCondBr(CondV, TrueBlock, FalseBlock, Weights, Unpredictable);
-}
-
-// old code
-#if 0
 /// EmitBranchOnBoolExpr - Emit a branch on a boolean condition (e.g. for an if
 /// statement) to the specified blocks.  Based on the condition, this might try
 /// to simplify the codegen of the conditional based on the branch.
@@ -1585,6 +1383,9 @@ llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 /// with support for Sierra Vectors
 ///
 /// \param Cond the condition
+/// \param falseFirst if true, the false-successor will be scheduled before the
+///         true-successor, defaults to false
+/// \param mask the current mask that is to be applied to computations
 /// \param TrueBlock the ture-successor of the branch
 /// \param FalseBlock the false-successor of the branch
 /// \param TruePHI the phi-node placed at the entrance of the true-successor
@@ -1988,7 +1789,6 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
   Builder.CreateCondBr(CondV, TrueBlock, FalseBlock, Weights, Unpredictable);
   return nullptr;
 }
-#endif
 
 
 /// ErrorUnsupported - Print out an error that codegen doesn't support the

@@ -226,18 +226,6 @@ llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
   else
     Init = llvm::UndefValue::get(LTy);
 
-  // TODO XXX own
-  if (Ty->isSierraVectorType()) {
-    auto NameSimd = Name + "_SIMD";
-    new llvm::GlobalVariable(
-        getModule(), LTy, Ty.isConstant(getContext()), Linkage, Init, NameSimd,
-        nullptr, llvm::GlobalVariable::NotThreadLocal, AddrSpace);
-
-    LTy = LTy->getVectorElementType();
-    Init = llvm::UndefValue::get(LTy);
-  }
-  // TODO XXX own end
-
   llvm::GlobalVariable *GV =
     new llvm::GlobalVariable(getModule(), LTy,
                              Ty.isConstant(getContext()), Linkage,
@@ -903,12 +891,8 @@ static bool shouldUseMemSetPlusStoresToInitialize(llvm::Constant *Init,
 /// variable declaration with auto, register, or no storage class specifier.
 /// These turn into simple stack objects, or GlobalValues depending on target.
 void CodeGenFunction::EmitAutoVarDecl(const VarDecl &D) {
-  // TODO XXX own
-  Address AddrSimd = Address::invalid();
-  // TODO XXX own end
-  // the address is passed as argument in the following functions
-  AutoVarEmission emission = EmitAutoVarAlloca(D, AddrSimd);
-  EmitAutoVarInit(emission, AddrSimd);
+  AutoVarEmission emission = EmitAutoVarAlloca(D);
+  EmitAutoVarInit(emission);
   EmitAutoVarCleanups(emission);
 }
 
@@ -938,7 +922,7 @@ void CodeGenFunction::EmitLifetimeEnd(llvm::Value *Size, llvm::Value *Addr) {
 /// EmitAutoVarAlloca - Emit the alloca and debug information for a
 /// local variable.  Does not emit initialization or destruction.
 CodeGenFunction::AutoVarEmission
-CodeGenFunction::EmitAutoVarAlloca(const VarDecl &D, Address &AddrSimd) {
+CodeGenFunction::EmitAutoVarAlloca(const VarDecl &D) {
   QualType Ty = D.getType();
 
   AutoVarEmission emission(D);
@@ -1029,28 +1013,11 @@ CodeGenFunction::EmitAutoVarAlloca(const VarDecl &D, Address &AddrSimd) {
         allocaAlignment = alignment;
       }
 
-      // TODO XXX own
-      if (Ty->isSierraVectorType()) {
-        AddrSimd = CreateTempAlloca(allocaTy, allocaAlignment);
-        AddrSimd.getPointer()->setName(D.getNameAsString() + "_SIMD");
-        allocaTy = allocaTy->getVectorElementType();
-      }
-      // TODO XXX own end
-
       // Create the alloca.  Note that we set the name separately from
       // building the instruction so that it's there even in no-asserts
       // builds.
       address = CreateTempAlloca(allocaTy, allocaAlignment);
       address.getPointer()->setName(D.getName());
-
-      // TODO XXX own
-      if (Ty->isSierraVectorType()) {
-        auto AllocaInstSimd = cast<llvm::Instruction>(AddrSimd.getPointer());
-        auto Node = llvm::MDNode::get(
-            getLLVMContext(), llvm::ValueAsMetadata::get(address.getPointer()));
-        AllocaInstSimd->setMetadata(D.getName(), Node);
-      }
-      // TODO XXX own end
 
       // Don't emit lifetime markers for MSVC catch parameters. The lifetime of
       // the catch parameter starts in the catchpad instruction, and we can't
@@ -1190,8 +1157,7 @@ bool CodeGenFunction::isTrivialInitializer(const Expr *Init) {
   return false;
 }
 
-void CodeGenFunction::EmitAutoVarInit(const AutoVarEmission &emission,
-                                      Address &AddrSimd) {
+void CodeGenFunction::EmitAutoVarInit(const AutoVarEmission &emission) {
   assert(emission.Variable && "emission was not valid!");
 
   // If this was emitted as a global constant, we're done.
@@ -1223,14 +1189,8 @@ void CodeGenFunction::EmitAutoVarInit(const AutoVarEmission &emission,
   // emit the initializer first, then copy into the variable.
   bool capturedByInit = emission.IsByRef && isCapturedBy(D, Init);
 
-  // TODO XXX own
-  Address Loc = AddrSimd;
-  if (!Loc.getPointer()) {
-    Loc = capturedByInit ? AddrSimd : emission.getObjectAddress(*this);
-  }
-  // TODO XXX own end
-  //Address Loc =
-    //capturedByInit ? emission.Addr : emission.getObjectAddress(*this);
+  Address Loc =
+    capturedByInit ? emission.Addr : emission.getObjectAddress(*this);
 
   llvm::Constant *constant = nullptr;
   if (emission.IsConstantAggregate || D.isConstexpr()) {
