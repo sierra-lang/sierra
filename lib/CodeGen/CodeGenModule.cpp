@@ -2440,32 +2440,11 @@ llvm::Constant *CodeGenModule::GetAddrOfGlobalVar(const VarDecl *D,
   if (!Ty)
     Ty = getTypes().ConvertTypeForMem(ASTTy);
 
-  // TODO XXX own
-  StringRef MangledName = getMangledName(D);
-  auto Name = MangledName.str();
-  llvm::Constant *Res = nullptr;
-
-  if (ASTTy->isSierraVectorType()) {
-    auto ETy = Ty->getVectorElementType();
-    llvm::PointerType *PTy =
-        llvm::PointerType::get(ETy, getContext().getTargetAddressSpace(ASTTy));
-
-    Res = GetOrCreateLLVMGlobal(MangledName, PTy, D, IsForDefinition);
-    Name += "_SIMD";
-  }
-
   llvm::PointerType *PTy =
     llvm::PointerType::get(Ty, getContext().getTargetAddressSpace(ASTTy));
 
-  auto Res2 = GetOrCreateLLVMGlobal(Name, PTy, D, IsForDefinition);
-  return Res ? Res : Res2;
-  // TODO XXX own end
-
-  //llvm::PointerType *PTy =
-    //llvm::PointerType::get(Ty, getContext().getTargetAddressSpace(ASTTy));
-
-  //StringRef MangledName = getMangledName(D);
-  //return GetOrCreateLLVMGlobal(MangledName, PTy, D, IsForDefinition);
+  StringRef MangledName = getMangledName(D);
+  return GetOrCreateLLVMGlobal(MangledName, PTy, D, IsForDefinition);
 }
 
 /// CreateRuntimeVariable - Create a new runtime global variable with the
@@ -2659,18 +2638,6 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
   // Entry is now either a Function or GlobalVariable.
   auto *GV = dyn_cast<llvm::GlobalVariable>(Entry);
 
-  // TODO XXX own
-  bool Const = true;
-  auto Name = getMangledName(D).str() + "_SIMD";
-  llvm::GlobalVariable *EntrySimd = getModule().getGlobalVariable(Name);
-  if (GV && EntrySimd) {
-    Const = false;
-    auto InitScal = llvm::UndefValue::get(GV->getValueType());
-    EntrySimd->setInitializer(Init);
-    Init = InitScal;
-  }
-  // TODO XXX own end
-
   // We have a definition after a declaration with the wrong type.
   // We must make a new GlobalVariable* and update everything that used OldGV
   // (a declaration or tentative definition) with the new GlobalVariable*
@@ -2749,12 +2716,8 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
   GV->setInitializer(Init);
 
   // If it is safe to mark the global 'constant', do so now.
-  // TODO XXX own
-  GV->setConstant(!NeedsGlobalCtor && !NeedsGlobalDtor && Const &&
+  GV->setConstant(!NeedsGlobalCtor && !NeedsGlobalDtor &&
                   isTypeConstant(D->getType(), true));
-  // TODO XXX own end
-  //GV->setConstant(!NeedsGlobalCtor && !NeedsGlobalDtor &&
-                  //isTypeConstant(D->getType(), true));
 
   // If it is in a read-only section, mark it 'constant'.
   if (const SectionAttr *SA = D->getAttr<SectionAttr>()) {
@@ -3109,7 +3072,6 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
   llvm::Type *ScalRetType = Ty->getReturnType();
   if (ret->isSierraVectorType()) {
     hasSierra = true;
-    // assert(isa<llvm::VectorType>(Ty->getReturnType());
     ScalRetType = ScalRetType->getVectorElementType();
   }
 
@@ -3134,7 +3096,6 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
   if (hasSierra) {
     StringRef MangledName = getMangledName(GD);
     auto Name = MangledName.str() + "_SIMD";
-    // FIXME check whether it is ok to pass GD here
     GetOrCreateLLVMFunction(Name, Ty, GD, false, false);
 
     // create functiontype

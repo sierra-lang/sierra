@@ -2955,9 +2955,6 @@ Value *ScalarExprEmitter::EmitCompare(const BinaryOperator *E,
 
     // If this is a vector comparison, sign extend the result to the appropriate
     // vector integer type and return it (don't convert to bool).
-    //if (LHSTy->isSierraVectorType())
-      //return Builder.CreateZExt(Result, ConvertType(E->getType()), "sext");
-
     if (LHSTy->isVectorType())
       return Builder.CreateSExt(Result, ConvertType(E->getType()), "sext");
 
@@ -3069,7 +3066,7 @@ Value *ScalarExprEmitter::VisitBinAssign(const BinaryOperator *E) {
 
 Value *ScalarExprEmitter::VisitBinLAnd(const BinaryOperator *E) {
   // Perform vector logical and on comparisons with zero vectors.
-  if (E->getType()->isVectorType() && ! E->getType()->isSierraVectorType()) {
+  if (E->getType()->isVectorType()) {
     CGF.incrementProfileCounter(E);
 
     if (!E->getType()->isSierraVectorType()) {
@@ -3190,7 +3187,7 @@ Value *ScalarExprEmitter::VisitBinLAnd(const BinaryOperator *E) {
 
 Value *ScalarExprEmitter::VisitBinLOr(const BinaryOperator *E) {
   // Perform vector logical or on comparisons with zero vectors.
-  if (E->getType()->isVectorType() && ! E->getType()->isSierraVectorType()) {
+  if (E->getType()->isVectorType()) {
     CGF.incrementProfileCounter(E);
 
     if (! E->getType()->isSierraVectorType()) {

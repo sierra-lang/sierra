@@ -1383,9 +1383,6 @@ llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 /// with support for Sierra Vectors
 ///
 /// \param Cond the condition
-/// \param falseFirst if true, the false-successor will be scheduled before the
-///         true-successor, defaults to false
-/// \param mask the current mask that is to be applied to computations
 /// \param TrueBlock the ture-successor of the branch
 /// \param FalseBlock the false-successor of the branch
 /// \param TruePHI the phi-node placed at the entrance of the true-successor
