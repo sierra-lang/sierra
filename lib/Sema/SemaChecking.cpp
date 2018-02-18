@@ -11764,6 +11764,15 @@ void Sema::CheckArgumentWithTypeTag(const ArgumentWithTypeTagAttr *Attr,
   if (IsPointerAttr)
     RequiredType = Context.getPointerType(RequiredType);
 
+  // TODO XXX own
+  // check whether the argument is a vector with corresponding elementtype
+  QualType OldArgType = ArgumentType;
+  if (!RequiredType->isSierraVectorType() &&
+      ArgumentType->isSierraVectorType()) {
+    ArgumentType = ArgumentType->getAs<SierraVectorType>()->getElementType();
+  }
+  // TODO XXX own
+
   bool mismatch = false;
   if (!TypeInfo.LayoutCompatible) {
     mismatch = !Context.hasSameType(ArgumentType, RequiredType);
@@ -11785,6 +11794,11 @@ void Sema::CheckArgumentWithTypeTag(const ArgumentWithTypeTagAttr *Attr,
                                      RequiredType->getPointeeType());
     else
       mismatch = !isLayoutCompatible(Context, ArgumentType, RequiredType);
+
+  // TODO XXX own
+  // check whether the argument is a vector with corresponding elementtype
+  ArgumentType = OldArgType;
+  // TODO XXX own
 
   if (mismatch)
     Diag(ArgumentExpr->getExprLoc(), diag::warn_type_safety_type_mismatch)
@@ -11940,4 +11954,3 @@ void Sema::CheckAddressOfPackedMember(Expr *rhs) {
       rhs, std::bind(&Sema::AddPotentialMisalignedMembers, std::ref(*this), _1,
                      _2, _3, _4));
 }
-

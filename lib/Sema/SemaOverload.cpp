@@ -1593,6 +1593,16 @@ static bool IsStandardConversion(Sema &S, Expr* From, QualType ToType,
                                  bool AllowObjCWritebackConversion) {
   QualType FromType = From->getType();
 
+  // TODO XXX own
+  // allow conversion from FromType to ToType if FromType is a sierravectortype
+  // and ToType is compatible with the elementtype of FromType
+  // therefore set fromtype to its elementtype and continue checks with them
+  auto FromVecType = FromType->getAs<SierraVectorType>();
+  if (FromVecType && !ToType->isSierraVectorType()) {
+    FromType = FromVecType->getElementType();
+  }
+  // TODO XXX own end
+
   // Standard conversions (C++ [conv])
   SCS.setAsIdentityConversion();
   SCS.IncompatibleObjC = false;
