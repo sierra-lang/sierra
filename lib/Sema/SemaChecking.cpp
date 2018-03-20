@@ -11771,7 +11771,7 @@ void Sema::CheckArgumentWithTypeTag(const ArgumentWithTypeTagAttr *Attr,
       ArgumentType->isSierraVectorType()) {
     ArgumentType = ArgumentType->getAs<SierraVectorType>()->getElementType();
   }
-  // TODO XXX own
+  // TODO XXX own end
 
   bool mismatch = false;
   if (!TypeInfo.LayoutCompatible) {
@@ -11798,7 +11798,7 @@ void Sema::CheckArgumentWithTypeTag(const ArgumentWithTypeTagAttr *Attr,
   // TODO XXX own
   // check whether the argument is a vector with corresponding elementtype
   ArgumentType = OldArgType;
-  // TODO XXX own
+  // TODO XXX own end
 
   if (mismatch)
     Diag(ArgumentExpr->getExprLoc(), diag::warn_type_safety_type_mismatch)

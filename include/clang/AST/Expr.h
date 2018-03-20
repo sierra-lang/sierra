@@ -2195,6 +2195,10 @@ protected:
   unsigned getNumPreArgs() const { return CallExprBits.NumPreArgs; }
 
 public:
+  // TODO XXX own
+  QualType SierraReturn;
+  // TODO XXX own end
+
   CallExpr(const ASTContext& C, Expr *fn, ArrayRef<Expr*> args, QualType t,
            ExprValueKind VK, SourceLocation rparenloc);
 

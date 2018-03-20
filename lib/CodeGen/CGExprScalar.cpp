@@ -1552,6 +1552,11 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   case CK_VectorSplat: {
     llvm::Type *DstTy = ConvertType(DestTy);
     Value *Elt = Visit(const_cast<Expr*>(E));
+    // TODO XXX own
+    if (Elt->getType()->isVectorTy()) {
+      return Elt;
+    }
+    // TODO XXX own end
     // Splat the element across to all elements
     unsigned NumElements = DstTy->getVectorNumElements();
     return Builder.CreateVectorSplat(NumElements, Elt, "splat");

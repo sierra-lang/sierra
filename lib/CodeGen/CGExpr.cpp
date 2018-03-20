@@ -3965,6 +3965,18 @@ LValue CodeGenFunction::EmitBinaryOperatorLValue(const BinaryOperator *E) {
       break;
     }
 
+    //// TODO XXX own
+    if (E->getType()->isSierraVectorType()) {
+      Expr *Call = E->getRHS();
+      if (isa<CastExpr>(Call)) {
+        Call = cast<CastExpr>(Call)->getSubExpr();
+      }
+      if (isa<CallExpr>(Call)) {
+        cast<CallExpr>(Call)->SierraReturn = E->getType();
+      }
+    }
+    //// TODO XXX own end
+
     RValue RV = EmitAnyExpr(E->getRHS());
     LValue LV = EmitCheckedLValue(E->getLHS(), TCK_Store);
     EmitStoreThroughLValue(RV, LV);
@@ -4242,8 +4254,50 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
     }
   }
 
-  EmitCallArgs(Args, dyn_cast<FunctionProtoType>(FnType), E->arguments(),
+  // TODO XXX own
+  // check whether the types of the callexpr equals FnType. if not it the called
+  // function must be vectorized (TODO: is this always the case? normally, the
+  // types must be equal)
+
+  // by now i skip the checks and create a new type everytime
+
+  // return type
+  QualType RetTy = E->SierraReturn;
+  if (RetTy.isNull() || !RetTy->isSierraVectorType()) {
+    RetTy = FnType->getReturnType();
+  }
+
+  // arguments
+  llvm::SmallVector<QualType, 16> ArgTy;
+  int i = 0;
+  // this prototype has infos about the parameters whereas noproto does not
+  auto FnProtoTy = dyn_cast<FunctionProtoType>(FnType);
+  for (auto A : E->arguments()) {
+    auto T = FnProtoTy->getParamType(i++);
+    auto TA = A->getType();
+    if (TA->isSierraVectorType()) {
+      if (T->isLValueReferenceType()) {
+        T = getContext().getLValueReferenceType(TA);
+      } else if (T->isRValueReferenceType()) {
+        T = getContext().getRValueReferenceType(TA);
+      } else {
+        T = TA;
+      }
+    }
+    ArgTy.push_back(T);
+  }
+
+  // create clang functiontype
+  auto ProtoExt = FunctionProtoType::ExtProtoInfo();
+  ProtoExt.ExtInfo = FnType->getExtInfo();
+  auto NewFnType = (getContext().getFunctionType(RetTy, ArgTy, ProtoExt))
+               ->getAs<FunctionType>();
+  EmitCallArgs(Args, dyn_cast<FunctionProtoType>(NewFnType), E->arguments(),
                E->getDirectCallee(), /*ParamsToSkip*/ 0, Order);
+  // TODO XXX own end
+
+  //EmitCallArgs(Args, dyn_cast<FunctionProtoType>(FnType), E->arguments(),
+               //E->getDirectCallee(), [>ParamsToSkip<] 0, Order);
 
   const CGFunctionInfo &FnInfo = CGM.getTypes().arrangeFreeFunctionCall(
       Args, FnType, /*isChainCall=*/Chain);
@@ -4276,6 +4330,64 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
     CalleePtr = Builder.CreateBitCast(CalleePtr, CalleeTy, "callee.knr.cast");
     Callee.setFunctionPointer(CalleePtr);
   }
+
+  // TODO XXX own
+  bool Changed = false;
+
+  // create vectorized llvm function
+  auto ScalLlvmFun = Callee.getFunctionType();
+
+  // return type
+  auto RetLlvmTy = ScalLlvmFun->getReturnType();
+  if (RetTy->isSierraVectorType()) {
+    Changed = true;
+    RetLlvmTy = llvm::VectorType::get(
+        RetLlvmTy, RetTy->getAs<SierraVectorType>()->getNumElements());
+  }
+
+  // arguments
+  llvm::SmallVector<llvm::Type *, 32> ArgLlvmTy;
+  i = 0;
+  for (auto AT : ArgTy) {
+    auto Add = ScalLlvmFun->getParamType(i++);
+    auto SAT = AT->getAs<SierraVectorType>();
+    if (SAT) {
+      Changed = true;
+      Add = llvm::VectorType::get(Add, SAT->getNumElements());
+    }
+    ArgLlvmTy.push_back(Add);
+  }
+
+  // TODO do i need to add the spmd argument? i have to look up how RV handles
+  // this
+  unsigned SierraSpmd = FnInfo.getSierraSpmd();
+  if (SierraSpmd != 1) {
+    ArgLlvmTy.push_back(llvm::VectorType::get(
+        llvm::IntegerType::getInt1Ty(getLLVMContext()), SierraSpmd));
+  }
+
+  // create llvm decl for vectorized function
+  if (Changed) {
+    auto Name = Callee.getFunctionPointer()->getName().str() + "_SIMD";
+
+    auto VecFn =
+        llvm::FunctionType::get(RetLlvmTy, ArgLlvmTy, FnInfo.isVariadic());
+    auto VecFnPointer = VecFn->getPointerTo();
+
+    llvm::Value *VF = llvm::Function::Create(
+        VecFn, llvm::Function::ExternalLinkage, Name, &CGM.getModule());
+    VF = Builder.CreateBitCast(VF, VecFnPointer, "callee.knr.cast");
+
+    // overwrite the functiontype in Callee
+    Callee.setFunctionPointer(VF);
+
+    if (auto S = RetTy->getAs<SierraVectorType>()) {
+      int SierraReturn = S->getNumElements();
+      // TODO make a map, set or whatever to remember these functions for RV
+      return EmitCall(FnInfo, Callee, ReturnValue, Args, nullptr, SierraReturn);
+    }
+  }
+  // TODO XXX own end
 
   return EmitCall(FnInfo, Callee, ReturnValue, Args);
 }

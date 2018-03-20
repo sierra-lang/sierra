@@ -49,8 +49,8 @@ void CodeGenFunction::EmitStopPoint(const Stmt *S) {
 void CodeGenFunction::EmitStmt(const Stmt *S) {
   assert(S && "Null statement?");
 
-  // TODO XXX remove this
-  S->dumpColor(); S->dumpPretty(getContext());
+  //// TODO XXX remove this
+  //S->dumpColor(); S->dumpPretty(getContext());
 
   PGO.setCurrentStmt(S);
 

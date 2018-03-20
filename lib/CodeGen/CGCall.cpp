@@ -3575,7 +3575,11 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
                                  const CGCallee &Callee,
                                  ReturnValueSlot ReturnValue,
                                  const CallArgList &CallArgs,
-                                 llvm::Instruction **callOrInvoke) {
+                                 //llvm::Instruction **callOrInvoke) {
+                                 // TODO XXX own
+                                 llvm::Instruction **callOrInvoke,
+                                 int SierraReturn) {
+                                 // TODO XXX own end
   // FIXME: We no longer need the types from CallArgs; lift up and simplify.
 
   assert(Callee.isOrdinary());
@@ -3583,6 +3587,11 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   // Handle struct-return functions by passing a pointer to the
   // location that we would like to return into.
   QualType RetTy = CallInfo.getReturnType();
+  // TODO XXX own
+  if (SierraReturn) {
+    RetTy = getContext().getSierraVectorType(RetTy, SierraReturn);
+  }
+  // TODO XXX own end
   const ABIArgInfo &RetAI = CallInfo.getReturnInfo();
 
   llvm::FunctionType *IRFuncTy = Callee.getFunctionType();
