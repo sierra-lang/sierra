@@ -26,6 +26,7 @@
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/NSAPI.h"
+#include "clang/CodeGen/SierraMetadata.h"
 #include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/StringExtras.h"
@@ -4366,6 +4367,12 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
 
   // create llvm decl for vectorized function
   if (Changed) {
+    // remember the scalar function to be vectorized using metadata
+    auto CalleeFunPtr =
+        dyn_cast<llvm::GlobalObject>(Callee.getFunctionPointer());
+    assert(CalleeFunPtr);
+    meminstrument::setNoInstrument(CalleeFunPtr);
+
     auto Name = Callee.getFunctionPointer()->getName().str() + "_SIMD";
 
     auto VecFn =
