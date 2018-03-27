@@ -3965,7 +3965,7 @@ LValue CodeGenFunction::EmitBinaryOperatorLValue(const BinaryOperator *E) {
       break;
     }
 
-    //// TODO XXX own
+    // TODO XXX own
     if (E->getType()->isSierraVectorType()) {
       Expr *Call = E->getRHS();
       if (isa<CastExpr>(Call)) {
@@ -3975,7 +3975,7 @@ LValue CodeGenFunction::EmitBinaryOperatorLValue(const BinaryOperator *E) {
         cast<CallExpr>(Call)->SierraReturn = E->getType();
       }
     }
-    //// TODO XXX own end
+    // TODO XXX own end
 
     RValue RV = EmitAnyExpr(E->getRHS());
     LValue LV = EmitCheckedLValue(E->getLHS(), TCK_Store);
@@ -4273,15 +4273,13 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
   // this prototype has infos about the parameters whereas noproto does not
   auto FnProtoTy = dyn_cast<FunctionProtoType>(FnType);
   for (auto A : E->arguments()) {
-    auto T = FnProtoTy->getParamType(i++);
-    auto TA = A->getType();
-    if (TA->isSierraVectorType()) {
-      if (T->isLValueReferenceType()) {
-        T = getContext().getLValueReferenceType(TA);
-      } else if (T->isRValueReferenceType()) {
-        T = getContext().getRValueReferenceType(TA);
-      } else {
-        T = TA;
+    auto T = A->getType();
+    if (FnProtoTy && T->isSierraVectorType()) {
+      auto TP = FnProtoTy->getParamType(i++);
+      if (TP->isLValueReferenceType()) {
+        T = getContext().getLValueReferenceType(T);
+      } else if (TP->isRValueReferenceType()) {
+        T = getContext().getRValueReferenceType(T);
       }
     }
     ArgTy.push_back(T);

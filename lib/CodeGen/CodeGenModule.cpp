@@ -1641,50 +1641,6 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
       const CGFunctionInfo &FI = getTypes().arrangeGlobalDeclaration(GD);
       llvm::Type *Ty = getTypes().GetFunctionType(FI);
 
-      //// TODO XXX own
-      //llvm::FunctionType *Ty = getTypes().GetFunctionType(FI);
-
-      //bool hasSierra = false;
-
-      //// create scalar return Type
-      //QualType ret = FI.getReturnType();
-      //llvm::Type *ScalRetType = Ty->getReturnType();
-      //if (ret->isSierraVectorType()) {
-        //hasSierra = true;
-        ////assert(isa<llvm::VectorType>(Ty->getReturnType());
-        //ScalRetType = ScalRetType->getVectorElementType();
-      //}
-
-      //// create scalar arguments
-      //unsigned ArgNum = 0;
-      //SmallVector<llvm::Type *, 8> ScalArgTypes(Ty->getNumParams());
-      //for (auto &Arg : FI.arguments()) {
-        //QualType ArgTy = Arg.type;
-        //auto LlvmArg = Ty->getParamType(ArgNum);
-        //if (ArgTy->isSierraVectorType()) {
-          //hasSierra = true;
-          //LlvmArg = LlvmArg->getVectorElementType();
-        //}
-        //ScalArgTypes[ArgNum] = LlvmArg;
-        //++ArgNum;
-      //}
-      //if (FI.getSierraSpmd() != 1) {
-        //hasSierra = true;
-        //ScalArgTypes[ArgNum] = llvm::IntegerType::getInt1Ty(getLLVMContext());
-      //}
-
-      //if (hasSierra) {
-        //// create functiontype
-        //llvm::Type *ScalFunType =
-            //llvm::FunctionType::get(ScalRetType, ScalArgTypes, FI.isVariadic());
-        //// FIXME check whether it is ok to pass GD here
-        //GetOrCreateLLVMFunction(MangledName, ScalFunType, GD, false, false);
-      //}
-      //auto Name = MangledName.str() + "_SIMD";
-      //GetOrCreateLLVMFunction(Name, Ty, GD, [>ForVTable=<]false,
-                              //[>DontDefer=<]false);
-      //// TODO XXX own end
-
       GetOrCreateLLVMFunction(MangledName, Ty, GD, /*ForVTable=*/false,
                               /*DontDefer=*/false);
       return;
@@ -3063,45 +3019,6 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
   // Compute the function info and LLVM type.
   const CGFunctionInfo &FI = getTypes().arrangeGlobalDeclaration(GD);
   llvm::FunctionType *Ty = getTypes().GetFunctionType(FI);
-
-  //// TODO XXX own
-  //bool hasSierra = false;
-
-  //// create scalar return Type
-  //QualType ret = FI.getReturnType();
-  //llvm::Type *ScalRetType = Ty->getReturnType();
-  //if (ret->isSierraVectorType()) {
-    //hasSierra = true;
-    //ScalRetType = ScalRetType->getVectorElementType();
-  //}
-
-  //// create scalar arguments
-  //unsigned ArgNum = 0;
-  //SmallVector<llvm::Type *, 8> ScalArgTypes(Ty->getNumParams());
-  //for (auto &Arg : FI.arguments()) {
-    //QualType ArgTy = Arg.type;
-    //auto LlvmArg = Ty->getParamType(ArgNum);
-    //if (ArgTy->isSierraVectorType()) {
-      //hasSierra = true;
-      //LlvmArg = LlvmArg->getVectorElementType();
-    //}
-    //ScalArgTypes[ArgNum] = LlvmArg;
-    //++ArgNum;
-  //}
-  //if (FI.getSierraSpmd() != 1) {
-    //hasSierra = true;
-    //ScalArgTypes[ArgNum] = llvm::IntegerType::getInt1Ty(getLLVMContext());
-  //}
-
-  //if (hasSierra) {
-    //StringRef MangledName = getMangledName(GD);
-    //auto Name = MangledName.str() + "_SIMD";
-    //GetOrCreateLLVMFunction(Name, Ty, GD, false, false);
-
-    //// create functiontype
-    //Ty = llvm::FunctionType::get(ScalRetType, ScalArgTypes, FI.isVariadic());
-  //}
-  //// TODO XXX own end
 
   // Get or create the prototype for the function.
   if (!GV || (GV->getType()->getElementType() != Ty))
