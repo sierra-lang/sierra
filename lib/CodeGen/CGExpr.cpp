@@ -4259,44 +4259,58 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
   // check whether the types of the callexpr equals FnType. if not it the called
   // function must be vectorized (TODO: is this always the case? normally, the
   // types must be equal)
-
-  // by now i skip the checks and create a new type everytime
+  bool Changed = true;
 
   // return type
   QualType RetTy = E->SierraReturn;
   if (RetTy.isNull() || !RetTy->isSierraVectorType()) {
+    Changed = false; // the old returntype is kept --> no changes
     RetTy = FnType->getReturnType();
   }
 
   // arguments
   llvm::SmallVector<QualType, 16> ArgTy;
-  int i = 0;
+  unsigned i = 0;
   // this prototype has infos about the parameters whereas noproto does not
   auto FnProtoTy = dyn_cast<FunctionProtoType>(FnType);
-  for (auto A : E->arguments()) {
-    auto T = A->getType();
-    if (FnProtoTy && T->isSierraVectorType()) {
-      auto TP = FnProtoTy->getParamType(i++);
-      if (TP->isLValueReferenceType()) {
-        T = getContext().getLValueReferenceType(T);
-      } else if (TP->isRValueReferenceType()) {
-        T = getContext().getRValueReferenceType(T);
+  if (FnProtoTy) {
+    for (auto A : E->arguments()) {
+      // in case of variadic functions...
+      // TODO support sierra in changing the 'changed' variable (and maybe some
+      // other stuff)
+      if (i >= FnProtoTy->getNumParams()) {
+        ArgTy.push_back(A->getType());
+        continue;
       }
+      auto ToPush = FnProtoTy->getParamType(i++);
+      auto AType = A->getType();
+      if (AType->isSierraVectorType()) {
+        Changed = true;
+        if (ToPush->isLValueReferenceType()) {
+          ToPush = getContext().getLValueReferenceType(AType);
+        } else if (ToPush->isRValueReferenceType()) {
+          ToPush = getContext().getRValueReferenceType(AType);
+        } else {
+          ToPush = AType;
+        }
+      }
+      ArgTy.push_back(ToPush);
     }
-    ArgTy.push_back(T);
   }
 
-  // create clang functiontype
-  auto ProtoExt = FunctionProtoType::ExtProtoInfo();
-  ProtoExt.ExtInfo = FnType->getExtInfo();
-  auto NewFnType = (getContext().getFunctionType(RetTy, ArgTy, ProtoExt))
-               ->getAs<FunctionType>();
-  EmitCallArgs(Args, dyn_cast<FunctionProtoType>(NewFnType), E->arguments(),
-               E->getDirectCallee(), /*ParamsToSkip*/ 0, Order);
+  if (Changed) {
+    // create clang functiontype
+    auto ProtoExt = FunctionProtoType::ExtProtoInfo();
+    ProtoExt.ExtInfo = FnType->getExtInfo();
+    auto NewFnType = (getContext().getFunctionType(RetTy, ArgTy, ProtoExt))
+                         ->getAs<FunctionType>();
+    EmitCallArgs(Args, dyn_cast<FunctionProtoType>(NewFnType), E->arguments(),
+                 E->getDirectCallee(), /*ParamsToSkip*/ 0, Order);
+  } else
   // TODO XXX own end
 
-  //EmitCallArgs(Args, dyn_cast<FunctionProtoType>(FnType), E->arguments(),
-               //E->getDirectCallee(), [>ParamsToSkip<] 0, Order);
+    EmitCallArgs(Args, dyn_cast<FunctionProtoType>(FnType), E->arguments(),
+                 E->getDirectCallee(), /*ParamsToSkip*/ 0, Order);
 
   const CGFunctionInfo &FnInfo = CGM.getTypes().arrangeFreeFunctionCall(
       Args, FnType, /*isChainCall=*/Chain);
@@ -4331,47 +4345,51 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
   }
 
   // TODO XXX own
-  bool Changed = false;
-
-  // create vectorized llvm function
-  auto ScalLlvmFun = Callee.getFunctionType();
-
-  // return type
-  auto RetLlvmTy = ScalLlvmFun->getReturnType();
-  if (RetTy->isSierraVectorType()) {
-    Changed = true;
-    RetLlvmTy = llvm::VectorType::get(
-        RetLlvmTy, RetTy->getAs<SierraVectorType>()->getNumElements());
-  }
-
-  // arguments
-  llvm::SmallVector<llvm::Type *, 32> ArgLlvmTy;
-  i = 0;
-  for (auto AT : ArgTy) {
-    auto Add = ScalLlvmFun->getParamType(i++);
-    auto SAT = AT->getAs<SierraVectorType>();
-    if (SAT) {
-      Changed = true;
-      Add = llvm::VectorType::get(Add, SAT->getNumElements());
-    }
-    ArgLlvmTy.push_back(Add);
-  }
-
-  // TODO do i need to add the spmd argument? i have to look up how RV handles
-  // this
-  unsigned SierraSpmd = FnInfo.getSierraSpmd();
-  if (SierraSpmd != 1) {
-    ArgLlvmTy.push_back(llvm::VectorType::get(
-        llvm::IntegerType::getInt1Ty(getLLVMContext()), SierraSpmd));
-  }
-
-  // create llvm decl for vectorized function
   if (Changed) {
+
+    // create vectorized llvm function
+    auto ScalLlvmFun = Callee.getFunctionType();
+
+    // return type
+    auto RetLlvmTy = ScalLlvmFun->getReturnType();
+    if (RetTy->isSierraVectorType()) {
+      RetLlvmTy = llvm::VectorType::get(
+          RetLlvmTy, RetTy->getAs<SierraVectorType>()->getNumElements());
+    }
+
+    // arguments
+    llvm::SmallVector<llvm::Type *, 32> ArgLlvmTy;
+    i = 0;
+    for (auto AT : ArgTy) {
+      auto Add = ScalLlvmFun->getParamType(i++);
+
+      if (auto SAT = AT->getAs<SierraVectorType>()) {
+        Add = llvm::VectorType::get(Add, SAT->getNumElements());
+      } else if (auto RAT = AT->getAs<ReferenceType>()) {
+        // this may be a reference
+        if (auto SAT = RAT->getPointeeType()->getAs<SierraVectorType>()) {
+          Add = llvm::VectorType::get(Add, SAT->getNumElements());
+        }
+      }
+      ArgLlvmTy.push_back(Add);
+    }
+
+    unsigned SierraSpmd = FnInfo.getSierraSpmd();
+    if (SierraSpmd != 1) {
+      ArgLlvmTy.push_back(llvm::VectorType::get(
+          llvm::IntegerType::getInt1Ty(getLLVMContext()), SierraSpmd));
+    }
+
+    // create llvm decl for vectorized function
+
     // remember the scalar function to be vectorized using metadata
     auto CalleeFunPtr =
         dyn_cast<llvm::GlobalObject>(Callee.getFunctionPointer());
     assert(CalleeFunPtr);
     meminstrument::setNoInstrument(CalleeFunPtr);
+    if (SierraSpmd != 1) {
+      meminstrument::setMaskInstrument(CalleeFunPtr);
+    }
 
     auto Name = Callee.getFunctionPointer()->getName().str() + "_SIMD";
 
