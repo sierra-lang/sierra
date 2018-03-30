@@ -4261,6 +4261,9 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
   // types must be equal)
   bool Changed = true;
 
+  // TODO find a better solution. this one is ugly...
+  llvm::SmallVector<unsigned, 32> TyChanged;
+
   // return type
   QualType RetTy = E->SierraReturn;
   if (RetTy.isNull() || !RetTy->isSierraVectorType()) {
@@ -4280,23 +4283,32 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
       // other stuff)
       if (i >= FnProtoTy->getNumParams()) {
         ArgTy.push_back(A->getType());
+        TyChanged.push_back(0); // we dont support variadic functions
         continue;
       }
       auto ToPush = FnProtoTy->getParamType(i++);
       auto AType = A->getType();
+      unsigned length = 0;
       if (AType->isSierraVectorType()) {
-        Changed = true;
+        length = AType->getAs<SierraVectorType>()->getNumElements();
         if (ToPush->isLValueReferenceType()) {
-          ToPush = getContext().getLValueReferenceType(AType);
+          AType = getContext().getLValueReferenceType(AType);
         } else if (ToPush->isRValueReferenceType()) {
-          ToPush = getContext().getRValueReferenceType(AType);
-        } else {
-          ToPush = AType;
+          AType = getContext().getRValueReferenceType(AType);
         }
+      }
+      if (AType != ToPush && length > 1) {
+        ToPush = AType;
+        Changed = true;
+        TyChanged.push_back(length);
+      } else {
+        TyChanged.push_back(0);
       }
       ArgTy.push_back(ToPush);
     }
   }
+  // add this for sierra spmd (just in case)
+  TyChanged.push_back(0);
 
   if (Changed) {
     // create clang functiontype
@@ -4360,18 +4372,21 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
     // arguments
     llvm::SmallVector<llvm::Type *, 32> ArgLlvmTy;
     i = 0;
-    for (auto AT : ArgTy) {
-      auto Add = ScalLlvmFun->getParamType(i++);
-
-      if (auto SAT = AT->getAs<SierraVectorType>()) {
-        Add = llvm::VectorType::get(Add, SAT->getNumElements());
-      } else if (auto RAT = AT->getAs<ReferenceType>()) {
-        // this may be a reference
-        if (auto SAT = RAT->getPointeeType()->getAs<SierraVectorType>()) {
-          Add = llvm::VectorType::get(Add, SAT->getNumElements());
-        }
+    //assert(ScalLlvmFun->getNumParams() == TyChanged.size());
+    for (auto Add : ScalLlvmFun->params()) {
+      if (TyChanged[i] > 1) {
+        Add = llvm::VectorType::get(Add, TyChanged[i]);
+        //if (auto SAT = AT->getAs<SierraVectorType>()) {
+          //Add = llvm::VectorType::get(Add, SAT->getNumElements());
+        //} else if (auto RAT = AT->getAs<ReferenceType>()) {
+          //// this may be a reference
+          //if (auto SAT = RAT->getPointeeType()->getAs<SierraVectorType>()) {
+            //Add = llvm::VectorType::get(Add, SAT->getNumElements());
+          //}
+        //}
       }
       ArgLlvmTy.push_back(Add);
+      ++i;
     }
 
     unsigned SierraSpmd = FnInfo.getSierraSpmd();
