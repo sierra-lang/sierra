@@ -4269,6 +4269,9 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
   if (RetTy.isNull() || !RetTy->isSierraVectorType()) {
     Changed = false; // the old returntype is kept --> no changes
     RetTy = FnType->getReturnType();
+    TyChanged.push_back(0);
+  } else {
+    TyChanged.push_back(RetTy->getAs<SierraVectorType>()->getNumElements());
   }
 
   // arguments
@@ -4288,6 +4291,10 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
       }
       auto ToPush = FnProtoTy->getParamType(i++);
       auto AType = A->getType();
+      if (auto tmp = AType->getAs<AutoType>()) {
+        AType = tmp->desugar();
+      }
+
       unsigned length = 0;
       if (AType->isSierraVectorType()) {
         length = AType->getAs<SierraVectorType>()->getNumElements();
@@ -4364,26 +4371,17 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
 
     // return type
     auto RetLlvmTy = ScalLlvmFun->getReturnType();
-    if (RetTy->isSierraVectorType()) {
-      RetLlvmTy = llvm::VectorType::get(
-          RetLlvmTy, RetTy->getAs<SierraVectorType>()->getNumElements());
+    if (TyChanged[0] > 1) {
+      RetLlvmTy = llvm::VectorType::get(RetLlvmTy, TyChanged[0]);
     }
 
     // arguments
     llvm::SmallVector<llvm::Type *, 32> ArgLlvmTy;
-    i = 0;
+    i = 1;
     //assert(ScalLlvmFun->getNumParams() == TyChanged.size());
     for (auto Add : ScalLlvmFun->params()) {
       if (TyChanged[i] > 1) {
         Add = llvm::VectorType::get(Add, TyChanged[i]);
-        //if (auto SAT = AT->getAs<SierraVectorType>()) {
-          //Add = llvm::VectorType::get(Add, SAT->getNumElements());
-        //} else if (auto RAT = AT->getAs<ReferenceType>()) {
-          //// this may be a reference
-          //if (auto SAT = RAT->getPointeeType()->getAs<SierraVectorType>()) {
-            //Add = llvm::VectorType::get(Add, SAT->getNumElements());
-          //}
-        //}
       }
       ArgLlvmTy.push_back(Add);
       ++i;
