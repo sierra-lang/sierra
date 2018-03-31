@@ -124,8 +124,8 @@ llvm::Value *EmitVecToInt(CGBuilderTy &Builder, llvm::Value *Vec) {
 
 llvm::Value *EmitAnyTrue(CodeGenFunction &CGF, llvm::Value *V) {
   CGBuilderTy &Builder = CGF.Builder;
-  auto M = CGF.getSierraMask();
-  assert(M && "no current mask");
+  //auto M = CGF.getSierraMask();
+  //assert(M && "no current mask");
   llvm::Value *Result = EmitVecToInt(Builder, V);
   return Builder.CreateICmpNE(Result, AllFalseInt(Result->getType()));
 }

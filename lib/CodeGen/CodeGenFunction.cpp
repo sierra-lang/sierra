@@ -1306,15 +1306,19 @@ llvm::Value * CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                     llvm::PHINode **TruePhi /* = nullptr */,
                                                     llvm::PHINode **FalsePhi /* = nullptr */) {
   llvm::LLVMContext &Context = Builder.getContext();
+  // TODO XXX own
+  auto CondNew = Cond->IgnoreImpCasts();
+  // changed the following cond to condnew
+  // TODO XXX own end
 
-  if (not Cond->getType()->isSierraVectorType()) {
+  if (not CondNew->getType()->isSierraVectorType()) {
     _EmitBranchOnBoolExpr(Cond, TrueBlock, FalseBlock, TrueCount,
         /* TruePhi = */  nullptr,
         /* FalsePhi = */ nullptr);
     return nullptr;
   }
 
-  unsigned NumElems = Cond->getType()->getSierraVectorLength();
+  unsigned NumElems = CondNew->getType()->getSierraVectorLength();
   llvm::VectorType* MaskTy = llvm::VectorType::get(
       llvm::IntegerType::getInt1Ty(Context), NumElems);
 
@@ -1395,14 +1399,17 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
                                                     llvm::PHINode *TruePhi,
                                                     llvm::PHINode *FalsePhi) {
   Cond = Cond->IgnoreParens();
+  // TODO XXX own
+  auto CondNew = Cond->IgnoreImpCasts();
+  // TODO XXX own end
 
   if (const BinaryOperator *CondBOp = dyn_cast<BinaryOperator>(Cond)) {
     // Handle X && Y in a condition.
     if (CondBOp->getOpcode() == BO_LAnd) {
       /* Check whether the type of the condition is a Sierra Vector Type. */
-      if (Cond->getType()->isSierraVectorType()) {
+      if (CondNew->getType()->isSierraVectorType()) {
         llvm::LLVMContext &Context = Builder.getContext();
-        unsigned NumElems = Cond->getType()->getSierraVectorLength();
+        unsigned NumElems = CondNew->getType()->getSierraVectorLength();
 
         llvm::VectorType* MaskTy = llvm::VectorType::get(
           llvm::IntegerType::getInt1Ty(Context), NumElems);
@@ -1501,9 +1508,9 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
 
     if (CondBOp->getOpcode() == BO_LOr) {
       /* Check whether the type of the condition is a Sierra Vector Type. */
-      if (Cond->getType()->isSierraVectorType()) {
+      if (CondNew->getType()->isSierraVectorType()) {
         llvm::LLVMContext &Context = Builder.getContext();
-        unsigned NumElems = Cond->getType()->getSierraVectorLength();
+        unsigned NumElems = CondNew->getType()->getSierraVectorLength();
 
         llvm::VectorType* MaskTy = llvm::VectorType::get(
           llvm::IntegerType::getInt1Ty(Context), NumElems);
@@ -1611,7 +1618,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
       uint64_t FalseCount = getCurrentProfileCount() - TrueCount;
 
       // sierra codegen
-      if (Cond->getType()->isSierraVectorType()) {
+      if (CondNew->getType()->isSierraVectorType()) {
         /* To negate a vectorial expression we must swap both the target basic
          * blocks and the phi nodes.
          */
@@ -1630,12 +1637,16 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
   }
 
   if (const ConditionalOperator *CondOp = dyn_cast<ConditionalOperator>(Cond)) {
-    if (CondOp->getCond()->getType()->isSierraVectorType()) {
+    // TODO XXX own
+    auto CondOpNew = CondOp->getCond()->IgnoreImpCasts();
+    // following was CondOp->getCond()
+    // TODO XXX own end
+    if (CondOpNew->getType()->isSierraVectorType()) {
       llvm::BasicBlock *LHSBlock = createBasicBlock("sierra-cond.some-true");
       llvm::BasicBlock *RHSBlock = createBasicBlock("sierra-cond.some-false");
       llvm::BasicBlock *EndBlock = createBasicBlock("sierra-cond.end");
 
-      unsigned NumElems = Cond->getType()->getSierraVectorLength();
+      unsigned NumElems = CondNew->getType()->getSierraVectorLength();
       llvm::VectorType* MaskTy = llvm::VectorType::get(
           llvm::IntegerType::getInt1Ty(Builder.getContext()), NumElems);
 
@@ -1730,7 +1741,7 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
     return nullptr;
   }
 
-  if (Cond->getType()->isSierraVectorType()) {
+  if (CondNew->getType()->isSierraVectorType()) {
     if (const ImplicitCastExpr *CastExpr = dyn_cast< ImplicitCastExpr >(Cond)) {
       /* XXX This is a hack to bypass the implicit cast to immediately reach the
        * underlying expression. */
@@ -1745,7 +1756,13 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
 
     /* Evaluate the condition. */
     llvm::Value *Res = EvaluateExprAsBool(Cond);
-    return Builder.CreateAnd(Res, getSierraMask().CurrentMask);
+    auto Mask = getSierraMask().CurrentMask;
+    if (!Mask) {
+      Mask = CreateAllOnesVector(
+          getLLVMContext(),
+          CondNew->getType()->getAs<SierraVectorType>()->getNumElements());
+    }
+    return Builder.CreateAnd(Res, Mask);
   } // End Sierra Vector Type
 
   if (const CXXThrowExpr *Throw = dyn_cast<CXXThrowExpr>(Cond)) {
