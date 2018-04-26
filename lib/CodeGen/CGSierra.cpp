@@ -183,7 +183,7 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
   bool resetToScalar = not OldMask;
   if (resetToScalar) {
     /* Create a mask with all-true current and all-false continue. */
-    unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
+    unsigned NumElems = S.getCond()->IgnoreImpCasts()->getType()->getSierraVectorLength();
     OldMask = SierraMask(Builder.getContext(), NumElems);
     CGF.setSierraMask(OldMask);
   }

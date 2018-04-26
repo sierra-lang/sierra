@@ -5310,7 +5310,7 @@ QualType Sema::CXXCheckConditionalOperands(ExprResult &Cond, ExprResult &LHS,
 
     // --------- sierra
     int AllowedVectorLength = 1;
-    if ( Cond.get()->getType()->isSierraVectorType() )
+    if (Cond.get()->getType()->isSierraVectorType())
       AllowedVectorLength = Cond.get()->getType()->getSierraVectorLength();
     // --------- sierra end
 
@@ -5362,6 +5362,29 @@ QualType Sema::CXXCheckConditionalOperands(ExprResult &Cond, ExprResult &LHS,
       << LHS.get()->getSourceRange() << RHS.get()->getSourceRange();
     return QualType();
   }
+
+  // TODO XXX own
+  auto CondTy = Cond.get()->getType();
+  if (CondTy->isSierraVectorType()) {
+    auto LHSTy = LHS.get()->getType();
+    auto RHSTy = RHS.get()->getType();
+    // TODO
+    // build new LHS and RHS expression if they are not a sierra type whereas
+    // the condition is
+    if (!LHSTy->isSierraVectorType()) {
+      // TODO can i set the type like this?
+      LHSTy = getASTContext().getSierraVectorType(
+          LHSTy, CondTy->getSierraVectorLength());
+      LHS.get()->setType(LHSTy);
+    }
+    if (!RHSTy->isSierraVectorType()) {
+      // TODO can i set the type like this?
+      RHSTy = getASTContext().getSierraVectorType(
+          RHSTy, CondTy->getSierraVectorLength());
+      RHS.get()->setType(RHSTy);
+    }
+  }
+  // TODO XXX own end
 
   // Neither is void.
 

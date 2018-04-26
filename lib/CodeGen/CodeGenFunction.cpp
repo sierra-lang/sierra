@@ -1758,9 +1758,8 @@ llvm::Value* CodeGenFunction::_EmitBranchOnBoolExpr(const Expr *Cond,
     llvm::Value *Res = EvaluateExprAsBool(Cond);
     auto Mask = getSierraMask().CurrentMask;
     if (!Mask) {
-      Mask = CreateAllOnesVector(
-          getLLVMContext(),
-          CondNew->getType()->getAs<SierraVectorType>()->getNumElements());
+      Mask = CreateAllOnesVector(getLLVMContext(),
+                                 CondNew->getType()->getSierraVectorLength());
     }
     return Builder.CreateAnd(Res, Mask);
   } // End Sierra Vector Type

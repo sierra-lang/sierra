@@ -3417,14 +3417,11 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
     return tmp5;
   }
 
-  if (condExpr->getType()->isSierraVectorType()) {
+  if (condExpr->IgnoreImpCasts()->getType()->isSierraVectorType()) {
     auto OldMask = CGF.getSierraMask();
     if (not OldMask) {
       /* Create a mask with all-true current and all-false continue. */
-      // TODO check whether it is correct to take the type of E instead of the
-      // condexpr
-      unsigned NumElems = E->getType()->getSierraVectorLength();
-      //unsigned NumElems = condExpr->getType()->getSierraVectorLength();
+      unsigned NumElems = E->IgnoreImpCasts()->getType()->getSierraVectorLength();
       OldMask = SierraMask(Builder.getContext(), NumElems);
       CGF.setSierraMask(OldMask);
     }
@@ -3454,6 +3451,15 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
     /* Emit code for the TrueBlock. */
     CGF.EmitBlock(TrueBlock);
     llvm::Value *LHS = Visit(lhsExpr);
+    // TODO XXX own
+    // this is a ugly hack but i dont know what is called by this demn visitor
+    if (lhsExpr->IgnoreImpCasts()->getType()->isSierraVectorType() &&
+        !LHS->getType()->isVectorTy()) {
+      auto NumEle =
+          lhsExpr->IgnoreImpCasts()->getType()->getSierraVectorLength();
+      LHS = Builder.CreateVectorSplat(NumEle, LHS);
+    }
+    // TODO XXX own end
     FalsePhi->addIncoming(TruePhi, Builder.GetInsertBlock());
     vPhi    ->addIncoming(LHS,     Builder.GetInsertBlock());
     EndPhi  ->addIncoming(LHS,     Builder.GetInsertBlock());
@@ -3463,6 +3469,15 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
     CGF.EmitBlock(FalseBlock);
     Builder.Insert(vPhi);
     llvm::Value *RHS = Visit(rhsExpr);
+    // TODO XXX own
+    // this is a ugly hack but i dont know what is called by this demn visitor
+    if (rhsExpr->IgnoreImpCasts()->getType()->isSierraVectorType() &&
+        !RHS->getType()->isVectorTy()) {
+      auto NumEle =
+          rhsExpr->IgnoreImpCasts()->getType()->getSierraVectorLength();
+      RHS = Builder.CreateVectorSplat(NumEle, RHS);
+    }
+    // TODO XXX own end
     auto const Merged =
         Builder.CreateSelect(FalsePhi, vPhi, RHS, "sierra-conditional.merged");
     EndPhi->addIncoming(Merged, Builder.GetInsertBlock());

@@ -4270,6 +4270,9 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
     Changed = false; // the old returntype is kept --> no changes
     RetTy = FnType->getReturnType();
     TyChanged.push_back(0);
+  } else if (RetTy->isSierraVectorType()) {
+    TyChanged.push_back(0);
+    Changed = false;
   } else {
     TyChanged.push_back(RetTy->getAs<SierraVectorType>()->getNumElements());
   }
@@ -4289,7 +4292,20 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
         TyChanged.push_back(0); // we dont support variadic functions
         continue;
       }
+
       auto ToPush = FnProtoTy->getParamType(i++);
+
+      // if we already have a sierra type no changas to this will be applied
+      //auto STP = ToPush;
+      //if (auto TP = ToPush->getAs<ReferenceType>()) {
+        //STP = TP->getPointeeType();
+      //}
+      //if (STP->isSierraVectorType()) {
+        //TyChanged.push_back(0);
+        //ArgTy.push_back(ToPush);
+        //continue;
+      //}
+
       auto AType = A->getType();
       if (auto tmp = AType->getAs<AutoType>()) {
         AType = tmp->desugar();
@@ -4372,6 +4388,7 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
     // return type
     auto RetLlvmTy = ScalLlvmFun->getReturnType();
     if (TyChanged[0] > 1) {
+      RetLlvmTy->dump();
       RetLlvmTy = llvm::VectorType::get(RetLlvmTy, TyChanged[0]);
     }
 
@@ -4388,10 +4405,10 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
     }
 
     unsigned SierraSpmd = FnInfo.getSierraSpmd();
-    if (SierraSpmd != 1) {
-      ArgLlvmTy.push_back(llvm::VectorType::get(
-          llvm::IntegerType::getInt1Ty(getLLVMContext()), SierraSpmd));
-    }
+    //if (SierraSpmd != 1) {
+      //ArgLlvmTy.push_back(llvm::VectorType::get(
+          //llvm::IntegerType::getInt1Ty(getLLVMContext()), SierraSpmd));
+    //}
 
     // create llvm decl for vectorized function
 
@@ -4399,9 +4416,9 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
     auto CalleeFunPtr =
         dyn_cast<llvm::GlobalObject>(Callee.getFunctionPointer());
     assert(CalleeFunPtr);
-    meminstrument::setNoInstrument(CalleeFunPtr);
+    rvcginstrument::setVecInstrument(CalleeFunPtr);
     if (SierraSpmd != 1) {
-      meminstrument::setMaskInstrument(CalleeFunPtr);
+      rvcginstrument::setMaskInstrument(CalleeFunPtr);
     }
 
     auto Name = Callee.getFunctionPointer()->getName().str() + "_SIMD";

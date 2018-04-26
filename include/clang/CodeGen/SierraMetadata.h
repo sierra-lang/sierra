@@ -2,20 +2,20 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Metadata.h"
 
-#define MEMINSTRUMENT_MD "rv"
-#define NOINSTRUMENT_MD "vectorize_function"
+#define RVCGINSTRUMENT_MD "rvcg"
+#define VECINSTRUMENT_MD "vectorize_function"
 
-#define OPTINSTRUMENT_MD "rv_opt"
+#define OPTINSTRUMENT_MD "rvcg_opt"
 #define MASKINSTRUMENT_MD "mask"
 
 
 namespace {
-bool hasNoInstrumentImpl(llvm::MDNode *N) {
+bool hasVecInstrumentImpl(llvm::MDNode *N) {
   if (!N || N->getNumOperands() < 1) {
     return false;
   }
-  if (auto *Str = clang::dyn_cast<llvm::MDString>(N->getOperand(0))) {
-    if (Str->getString().equals(NOINSTRUMENT_MD)) {
+  if (auto *Str = llvm::dyn_cast<llvm::MDString>(N->getOperand(0))) {
+    if (Str->getString().equals(VECINSTRUMENT_MD)) {
       return true;
     }
   }
@@ -26,7 +26,7 @@ bool hasMaskInstrumentImpl(llvm::MDNode *N) {
   if (!N || N->getNumOperands() < 1) {
     return false;
   }
-  if (auto *Str = clang::dyn_cast<llvm::MDString>(N->getOperand(0))) {
+  if (auto *Str = llvm::dyn_cast<llvm::MDString>(N->getOperand(0))) {
     if (Str->getString().equals(MASKINSTRUMENT_MD)) {
       return true;
     }
@@ -36,12 +36,12 @@ bool hasMaskInstrumentImpl(llvm::MDNode *N) {
 } // namespace
 
 
-namespace meminstrument {
-void setNoInstrument(llvm::GlobalObject *O) {
+namespace rvcginstrument {
+void setVecInstrument(llvm::GlobalObject *O) {
   auto &Ctx = O->getContext();
   llvm::MDNode *N =
-      llvm::MDNode::get(Ctx, llvm::MDString::get(Ctx, NOINSTRUMENT_MD));
-  O->setMetadata(MEMINSTRUMENT_MD, N);
+      llvm::MDNode::get(Ctx, llvm::MDString::get(Ctx, VECINSTRUMENT_MD));
+  O->setMetadata(RVCGINSTRUMENT_MD, N);
 }
 
 void setMaskInstrument(llvm::GlobalObject *O) {
@@ -51,27 +51,27 @@ void setMaskInstrument(llvm::GlobalObject *O) {
   O->setMetadata(OPTINSTRUMENT_MD, N);
 }
 
-//void setNoInstrument(llvm::Instruction *I) {
-  //auto &Ctx = I->getContext();
-  //llvm::MDNode *N =
-      //llvm::MDNode::get(Ctx, llvm::MDString::get(Ctx, NOINSTRUMENT_MD));
-  //I->setMetadata(MEMINSTRUMENT_MD, N);
-//}
-
-//void setNoInstrument(llvm::Constant *C) {
-  //auto O = clang::cast<llvm::GlobalObject>(C);
-  //setNoInstrument(O);
-//}
-
-bool hasNoInstrument(llvm::GlobalObject *O) {
-  return hasNoInstrumentImpl(O->getMetadata(MEMINSTRUMENT_MD));
+bool hasVecInstrument(llvm::GlobalObject *O) {
+  return hasVecInstrumentImpl(O->getMetadata(RVCGINSTRUMENT_MD));
 }
 
 bool hasMaskInstrument(llvm::GlobalObject *O) {
   return hasMaskInstrumentImpl(O->getMetadata(OPTINSTRUMENT_MD));
 }
 
-//bool hasNoInstrument(llvm::Instruction *O) {
-  //return hasNoInstrumentImpl(O->getMetadata(MEMINSTRUMENT_MD));
+//void setVecInstrument(llvm::Instruction *I) {
+  //auto &Ctx = I->getContext();
+  //llvm::MDNode *N =
+      //llvm::MDNode::get(Ctx, llvm::MDString::get(Ctx, VECINSTRUMENT_MD));
+  //I->setMetadata(RVCGINSTRUMENT_MD, N);
 //}
-} // namespace meminstrument
+
+//void setVecInstrument(llvm::Constant *C) {
+  //auto O = llvm::cast<llvm::GlobalObject>(C);
+  //setVecInstrument(O);
+//}
+
+//bool hasVecInstrument(llvm::Instruction *O) {
+  //return hasVecInstrumentImpl(O->getMetadata(RVCGINSTRUMENT_MD));
+//}
+} // namespace rvcginstrument
