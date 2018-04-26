@@ -3968,11 +3968,8 @@ LValue CodeGenFunction::EmitBinaryOperatorLValue(const BinaryOperator *E) {
 
     // TODO XXX own
     if (E->getType()->isSierraVectorType()) {
-      Expr *Call = E->getRHS();
-      if (isa<CastExpr>(Call)) {
-        Call = cast<CastExpr>(Call)->getSubExpr();
-      }
-      if (isa<CallExpr>(Call)) {
+      Expr *Call = E->getRHS()->IgnoreImpCasts();
+      if (isa<CallExpr>(Call) && !Call->getType()->isSierraVectorType()) {
         cast<CallExpr>(Call)->SierraReturn = E->getType();
       }
     }
@@ -4266,13 +4263,13 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
 
   // return type
   QualType RetTy = E->SierraReturn;
-  if (RetTy.isNull() || !RetTy->isSierraVectorType()) {
+  if (RetTy.isNull()) {
     Changed = false; // the old returntype is kept --> no changes
     RetTy = FnType->getReturnType();
     TyChanged.push_back(0);
-  } else if (RetTy->isSierraVectorType()) {
-    TyChanged.push_back(0);
-    Changed = false;
+  //} else if (RetTy->isSierraVectorType()) {
+    //TyChanged.push_back(0);
+    //Changed = false;
   } else {
     TyChanged.push_back(RetTy->getAs<SierraVectorType>()->getNumElements());
   }
@@ -4388,7 +4385,6 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
     // return type
     auto RetLlvmTy = ScalLlvmFun->getReturnType();
     if (TyChanged[0] > 1) {
-      RetLlvmTy->dump();
       RetLlvmTy = llvm::VectorType::get(RetLlvmTy, TyChanged[0]);
     }
 
