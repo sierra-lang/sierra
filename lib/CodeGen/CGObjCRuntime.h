@@ -96,7 +96,7 @@ protected:
   /// NULL, then the function assumes that the EH personality function provides
   /// the thrown object directly.
   void EmitTryCatchStmt(CodeGenFunction &CGF,
-                        const ObjCAtTryStmt &S,
+                        ObjCAtTryStmt &S,
                         llvm::Constant *beginCatchFn,
                         llvm::Constant *endCatchFn,
                         llvm::Constant *exceptionRethrowFn);
@@ -109,7 +109,7 @@ protected:
   /// the object.  This function can be called by subclasses that use
   /// zero-cost exception handling.
   void EmitAtSynchronizedStmt(CodeGenFunction &CGF,
-                            const ObjCAtSynchronizedStmt &S,
+                            ObjCAtSynchronizedStmt &S,
                             llvm::Function *syncEnterFn,
                             llvm::Function *syncExitFn);
 
@@ -240,9 +240,9 @@ public:
   virtual llvm::Constant *EnumerationMutationFunction() = 0;
 
   virtual void EmitSynchronizedStmt(CodeGen::CodeGenFunction &CGF,
-                                    const ObjCAtSynchronizedStmt &S) = 0;
+                                    ObjCAtSynchronizedStmt &S) = 0;
   virtual void EmitTryStmt(CodeGen::CodeGenFunction &CGF,
-                           const ObjCAtTryStmt &S) = 0;
+                           ObjCAtTryStmt &S) = 0;
   virtual void EmitThrowStmt(CodeGen::CodeGenFunction &CGF,
                              const ObjCAtThrowStmt &S,
                              bool ClearInsertionPoint=true) = 0;

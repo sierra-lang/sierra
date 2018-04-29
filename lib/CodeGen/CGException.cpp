@@ -540,7 +540,7 @@ void CodeGenFunction::EmitEndEHSpec(const Decl *D) {
   }
 }
 
-void CodeGenFunction::EmitCXXTryStmt(const CXXTryStmt &S) {
+void CodeGenFunction::EmitCXXTryStmt(CXXTryStmt &S) {
   EnterCXXTryStmt(S);
   EmitStmt(S.getTryBlock());
   ExitCXXTryStmt(S);
@@ -1125,13 +1125,13 @@ namespace {
   };
 
   struct PerformFinally final : EHScopeStack::Cleanup {
-    const Stmt *Body;
+    Stmt *Body;
     llvm::Value *ForEHVar;
     llvm::Value *EndCatchFn;
     llvm::Value *RethrowFn;
     llvm::Value *SavedExnVar;
 
-    PerformFinally(const Stmt *Body, llvm::Value *ForEHVar,
+    PerformFinally(Stmt *Body, llvm::Value *ForEHVar,
                    llvm::Value *EndCatchFn,
                    llvm::Value *RethrowFn, llvm::Value *SavedExnVar)
       : Body(Body), ForEHVar(ForEHVar), EndCatchFn(EndCatchFn),
@@ -1198,7 +1198,7 @@ namespace {
 /// exceptions.  This is mostly general, but hard-codes some
 /// language/ABI-specific behavior in the catch-all sections.
 void CodeGenFunction::FinallyInfo::enter(CodeGenFunction &CGF,
-                                         const Stmt *body,
+                                         Stmt *body,
                                          llvm::Constant *beginCatchFn,
                                          llvm::Constant *endCatchFn,
                                          llvm::Constant *rethrowFn) {
@@ -1398,7 +1398,7 @@ llvm::BasicBlock *CodeGenFunction::getEHResumeBlock(bool isCleanup) {
   return EHResumeBlock;
 }
 
-void CodeGenFunction::EmitSEHTryStmt(const SEHTryStmt &S) {
+void CodeGenFunction::EmitSEHTryStmt(SEHTryStmt &S) {
   EnterSEHTryStmt(S);
   {
     JumpDest TryExit = getJumpDestInCurrentScope("__try.__leave");
@@ -1716,8 +1716,8 @@ CodeGenFunction::GenerateSEHFilterFunction(CodeGenFunction &ParentCGF,
 
 llvm::Function *
 CodeGenFunction::GenerateSEHFinallyFunction(CodeGenFunction &ParentCGF,
-                                            const SEHFinallyStmt &Finally) {
-  const Stmt *FinallyBlock = Finally.getBlock();
+                                            SEHFinallyStmt &Finally) {
+  Stmt *FinallyBlock = Finally.getBlock();
   startOutlinedSEHHelper(ParentCGF, false, FinallyBlock);
 
   // Emit the original filter expression, convert to i32, and return.
@@ -1788,9 +1788,9 @@ llvm::Value *CodeGenFunction::EmitSEHAbnormalTermination() {
   return Builder.CreateZExt(&*AI, Int32Ty);
 }
 
-void CodeGenFunction::EnterSEHTryStmt(const SEHTryStmt &S) {
+void CodeGenFunction::EnterSEHTryStmt(SEHTryStmt &S) {
   CodeGenFunction HelperCGF(CGM, /*suppressNewContext=*/true);
-  if (const SEHFinallyStmt *Finally = S.getFinallyHandler()) {
+  if (SEHFinallyStmt *Finally = S.getFinallyHandler()) {
     // Outline the finally block.
     llvm::Function *FinallyFunc =
         HelperCGF.GenerateSEHFinallyFunction(*this, *Finally);

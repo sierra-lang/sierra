@@ -4253,6 +4253,7 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
   }
 
   // TODO XXX own
+
   // check whether the types of the callexpr equals FnType. if not it the called
   // function must be vectorized (TODO: is this always the case? normally, the
   // types must be equal)

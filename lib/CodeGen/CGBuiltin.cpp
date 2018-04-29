@@ -312,6 +312,8 @@ static Value *EmitSignBit(CodeGenFunction &CGF, Value *V) {
 static RValue emitLibraryCall(CodeGenFunction &CGF, const FunctionDecl *FD,
                               const CallExpr *E, llvm::Constant *calleeValue) {
   CGCallee callee = CGCallee::forDirect(calleeValue, FD);
+#include "llvm/Support/raw_ostream.h"
+      llvm::errs() << "CGBuiltin.cpp:316\n";
   return CGF.EmitCall(E->getCallee()->getType(), callee, E, ReturnValueSlot());
 }
 
@@ -1600,6 +1602,8 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
         CGM.getTypes().arrangeBuiltinFunctionCall(E->getType(), Args);
     llvm::FunctionType *FTy = CGM.getTypes().GetFunctionType(FuncInfo);
     llvm::Constant *Func = CGM.CreateRuntimeFunction(FTy, LibCallName);
+#include "llvm/Support/raw_ostream.h"
+      llvm::errs() << "CGBuiltin.cpp:1606\n";
     return EmitCall(FuncInfo, CGCallee::forDirect(Func),
                     ReturnValueSlot(), Args);
   }
@@ -2115,6 +2119,8 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
   case Builtin::BI__builtin_call_with_static_chain: {
     const CallExpr *Call = cast<CallExpr>(E->getArg(0));
     const Expr *Chain = E->getArg(1);
+#include "llvm/Support/raw_ostream.h"
+      llvm::errs() << "CGBuiltin.cpp:2123\n";
     return EmitCall(Call->getCallee()->getType(),
                     EmitCallee(Call->getCallee()), Call, ReturnValue,
                     EmitScalarExpr(Chain));

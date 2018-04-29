@@ -36,8 +36,6 @@ namespace CodeGen {
 
 class CodeGenFunction;
 
-void createSIMDFunction(CodeGenFunction &);
-
 llvm::Constant *CreateAllOnesVector(llvm::LLVMContext &Context, unsigned NumElems);
 llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context, unsigned NumElems);
 
@@ -53,13 +51,13 @@ llvm::Value *EmitAllFalse(CodeGenFunction &CGF, llvm::Value* V);
 llvm::Value *EmitAnyTrue (CodeGenFunction &CGF, llvm::Value* V);
 llvm::Value *EmitAnyFalse(CodeGenFunction &CGF, llvm::Value* V);
 
-void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S);
-void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S);
-void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S);
-void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S);
-void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S);
-void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S);
-void EmitSierraReturnStmt(CodeGenFunction &CGF, const ReturnStmt &S);
+void EmitSierraIfStmt(CodeGenFunction &CGF, IfStmt &S);
+void EmitSierraWhileStmt(CodeGenFunction &CGF, WhileStmt &S);
+void EmitSierraDoStmt(CodeGenFunction &CGF, DoStmt &S);
+void EmitSierraForStmt(CodeGenFunction &CGF, ForStmt &S);
+void EmitSierraBreakStmt(CodeGenFunction &CGF, BreakStmt &S);
+void EmitSierraContinueStmt(CodeGenFunction &CGF, ContinueStmt &S);
+void EmitSierraReturnStmt(CodeGenFunction &CGF, ReturnStmt &S);
 
 /// \brief Holds masks used by the Sierra code generation.
 struct SierraMask {

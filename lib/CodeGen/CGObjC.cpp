@@ -1455,7 +1455,7 @@ QualType CodeGenFunction::TypeOfSelfObject() {
   return PTy->getPointeeType();
 }
 
-void CodeGenFunction::EmitObjCForCollectionStmt(const ObjCForCollectionStmt &S){
+void CodeGenFunction::EmitObjCForCollectionStmt(ObjCForCollectionStmt &S){
   llvm::Constant *EnumerationMutationFnPtr =
     CGM.getObjCRuntime().EnumerationMutationFunction();
   if (!EnumerationMutationFnPtr) {
@@ -1471,7 +1471,7 @@ void CodeGenFunction::EmitObjCForCollectionStmt(const ObjCForCollectionStmt &S){
 
   // The local variable comes into scope immediately.
   AutoVarEmission variable = AutoVarEmission::invalid();
-  if (const DeclStmt *SD = dyn_cast<DeclStmt>(S.getElement()))
+  if (DeclStmt *SD = dyn_cast<DeclStmt>(S.getElement()))
     variable = EmitAutoVarAlloca(*cast<VarDecl>(SD->getSingleDecl()));
 
   JumpDest LoopEnd = getJumpDestInCurrentScope("forcoll.end");
@@ -1746,7 +1746,7 @@ void CodeGenFunction::EmitObjCForCollectionStmt(const ObjCForCollectionStmt &S){
   EmitBlock(LoopEnd.getBlock());
 }
 
-void CodeGenFunction::EmitObjCAtTryStmt(const ObjCAtTryStmt &S) {
+void CodeGenFunction::EmitObjCAtTryStmt(ObjCAtTryStmt &S) {
   CGM.getObjCRuntime().EmitTryStmt(*this, S);
 }
 
@@ -1755,7 +1755,7 @@ void CodeGenFunction::EmitObjCAtThrowStmt(const ObjCAtThrowStmt &S) {
 }
 
 void CodeGenFunction::EmitObjCAtSynchronizedStmt(
-                                              const ObjCAtSynchronizedStmt &S) {
+                                              ObjCAtSynchronizedStmt &S) {
   CGM.getObjCRuntime().EmitSynchronizedStmt(*this, S);
 }
 
@@ -3125,9 +3125,9 @@ CodeGenFunction::EmitARCStoreAutoreleasing(const BinaryOperator *e) {
 }
 
 void CodeGenFunction::EmitObjCAutoreleasePoolStmt(
-                                          const ObjCAutoreleasePoolStmt &ARPS) {
-  const Stmt *subStmt = ARPS.getSubStmt();
-  const CompoundStmt &S = cast<CompoundStmt>(*subStmt);
+                                          ObjCAutoreleasePoolStmt &ARPS) {
+  Stmt *subStmt = ARPS.getSubStmt();
+  CompoundStmt &S = cast<CompoundStmt>(*subStmt);
 
   CGDebugInfo *DI = getDebugInfo();
   if (DI)
@@ -3143,7 +3143,7 @@ void CodeGenFunction::EmitObjCAutoreleasePoolStmt(
     EHStack.pushCleanup<CallObjCMRRAutoreleasePoolObject>(NormalCleanup, token);
   }
 
-  for (const auto *I : S.body())
+  for (auto *I : S.body())
     EmitStmt(I);
 
   if (DI)

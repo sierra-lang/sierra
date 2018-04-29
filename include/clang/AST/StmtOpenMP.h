@@ -719,7 +719,7 @@ public:
     return const_cast<Expr *>(reinterpret_cast<const Expr *>(
         *std::next(child_begin(), PrevUpperBoundVariableOffset)));
   }
-  const Stmt *getBody() const {
+  Stmt *getBody() const {
     // This relies on the loop form is already checked by Sema.
     Stmt *Body = getAssociatedStmt()->IgnoreContainers(true);
     Body = cast<ForStmt>(Body)->getBody();

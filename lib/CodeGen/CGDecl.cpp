@@ -36,7 +36,7 @@
 using namespace clang;
 using namespace CodeGen;
 
-void CodeGenFunction::EmitDecl(const Decl &D) {
+void CodeGenFunction::EmitDecl(Decl &D) {
   switch (D.getKind()) {
   case Decl::BuiltinTemplate:
   case Decl::TranslationUnit:
@@ -123,7 +123,7 @@ void CodeGenFunction::EmitDecl(const Decl &D) {
     return;
   case Decl::Var:
   case Decl::Decomposition: {
-    const VarDecl &VD = cast<VarDecl>(D);
+    VarDecl &VD = cast<VarDecl>(D);
     assert(VD.isLocalVarDecl() &&
            "Should not see file-scope variables inside a function!");
     EmitVarDecl(VD);
@@ -150,7 +150,7 @@ void CodeGenFunction::EmitDecl(const Decl &D) {
 
 /// EmitVarDecl - This method handles emission of any variable declaration
 /// inside a function, including static vars etc.
-void CodeGenFunction::EmitVarDecl(const VarDecl &D) {
+void CodeGenFunction::EmitVarDecl(VarDecl &D) {
   if (D.isStaticLocal()) {
     llvm::GlobalValue::LinkageTypes Linkage =
         CGM.getLLVMLinkageVarDefinition(&D, /*isConstant=*/false);
@@ -890,7 +890,7 @@ static bool shouldUseMemSetPlusStoresToInitialize(llvm::Constant *Init,
 /// EmitAutoVarDecl - Emit code and set up an entry in LocalDeclMap for a
 /// variable declaration with auto, register, or no storage class specifier.
 /// These turn into simple stack objects, or GlobalValues depending on target.
-void CodeGenFunction::EmitAutoVarDecl(const VarDecl &D) {
+void CodeGenFunction::EmitAutoVarDecl(VarDecl &D) {
   AutoVarEmission emission = EmitAutoVarAlloca(D);
   EmitAutoVarInit(emission);
   EmitAutoVarCleanups(emission);
@@ -922,7 +922,7 @@ void CodeGenFunction::EmitLifetimeEnd(llvm::Value *Size, llvm::Value *Addr) {
 /// EmitAutoVarAlloca - Emit the alloca and debug information for a
 /// local variable.  Does not emit initialization or destruction.
 CodeGenFunction::AutoVarEmission
-CodeGenFunction::EmitAutoVarAlloca(const VarDecl &D) {
+CodeGenFunction::EmitAutoVarAlloca(VarDecl &D) {
   QualType Ty = D.getType();
 
   AutoVarEmission emission(D);
@@ -1163,12 +1163,24 @@ void CodeGenFunction::EmitAutoVarInit(const AutoVarEmission &emission) {
   // If this was emitted as a global constant, we're done.
   if (emission.wasEmittedAsGlobal()) return;
 
-  const VarDecl &D = *emission.Variable;
+  VarDecl &D = *emission.Variable;
   auto DL = ApplyDebugLocation::CreateDefaultArtificial(*this, D.getLocation());
   QualType type = D.getType();
 
   // If this local has an initializer, emit it now.
-  const Expr *Init = D.getInit();
+  //const Expr *Init = D.getInit();
+
+  // TODO XXX own
+  Expr *Init = D.getInit(); // removed all const from before as well
+
+  if (Init && type->isSierraVectorType()) {
+    Expr *Call = Init->IgnoreImpCasts();
+    if (isa<CallExpr>(Call) && !Call->getType()->isSierraVectorType()) {
+      cast<CallExpr>(Call)->SierraReturn = getContext().getSierraVectorType(
+          Call->getType(), type->getSierraVectorLength());
+    }
+  }
+  // TODO XXX own end
 
   // If we are at an unreachable point, we don't need to emit the initializer
   // unless it contains a label.

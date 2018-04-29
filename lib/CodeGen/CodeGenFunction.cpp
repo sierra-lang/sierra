@@ -962,7 +962,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
 }
 
 void CodeGenFunction::EmitFunctionBody(FunctionArgList &Args,
-                                       const Stmt *Body) {
+                                       Stmt *Body) {
   incrementProfileCounter(Body);
   if (const CompoundStmt *S = dyn_cast<CompoundStmt>(Body))
     EmitCompoundStmtWithoutScope(*S);

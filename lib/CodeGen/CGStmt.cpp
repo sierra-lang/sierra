@@ -46,7 +46,7 @@ void CodeGenFunction::EmitStopPoint(const Stmt *S) {
   }
 }
 
-void CodeGenFunction::EmitStmt(const Stmt *S) {
+void CodeGenFunction::EmitStmt(Stmt *S) {
   assert(S && "Null statement?");
 
   //// TODO XXX remove this
@@ -342,7 +342,7 @@ void CodeGenFunction::EmitStmt(const Stmt *S) {
   }
 }
 
-bool CodeGenFunction::EmitSimpleStmt(const Stmt *S) {
+bool CodeGenFunction::EmitSimpleStmt(Stmt *S) {
   switch (S->getStmtClass()) {
   default: return false;
   case Stmt::NullStmtClass: break;
@@ -554,13 +554,13 @@ void CodeGenFunction::LexicalScope::rescopeLabels() {
 }
 
 
-void CodeGenFunction::EmitLabelStmt(const LabelStmt &S) {
+void CodeGenFunction::EmitLabelStmt(LabelStmt &S) {
   EmitLabel(S.getDecl());
   EmitStmt(S.getSubStmt());
 }
 
-void CodeGenFunction::EmitAttributedStmt(const AttributedStmt &S) {
-  const Stmt *SubStmt = S.getSubStmt();
+void CodeGenFunction::EmitAttributedStmt(AttributedStmt &S) {
+  Stmt *SubStmt = S.getSubStmt();
   switch (SubStmt->getStmtClass()) {
   case Stmt::DoStmtClass:
     EmitDoStmt(cast<DoStmt>(*SubStmt), S.getAttrs());
@@ -611,7 +611,7 @@ void CodeGenFunction::EmitIndirectGotoStmt(const IndirectGotoStmt &S) {
   EmitBranch(IndGotoBB);
 }
 
-void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
+void CodeGenFunction::EmitIfStmt(IfStmt &S) {
   // C99 6.8.4.1: The first substatement is executed if the expression compares
   // unequal to 0.  The condition must be a scalar type.
   LexicalScope ConditionScope(*this, S.getCond()->getSourceRange());
@@ -640,8 +640,8 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
   if (ConstantFoldsToSimpleInteger(S.getCond(), CondConstant,
                                    S.isConstexpr())) {
     // Figure out which block (then or else) is executed.
-    const Stmt *Executed = S.getThen();
-    const Stmt *Skipped  = S.getElse();
+    Stmt *Executed = S.getThen();
+    Stmt *Skipped  = S.getElse();
     if (!CondConstant)  // Condition false?
       std::swap(Executed, Skipped);
 
@@ -680,7 +680,7 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
   EmitBranch(ContBlock);
 
   // Emit the 'else' code if present.
-  if (const Stmt *Else = S.getElse()) {
+  if (Stmt *Else = S.getElse()) {
     {
       // There is no need to emit line number for an unconditional branch.
       auto NL = ApplyDebugLocation::CreateEmpty(*this);
@@ -702,7 +702,7 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
   setSierraMask(oldMask);
 }
 
-void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
+void CodeGenFunction::EmitWhileStmt(WhileStmt &S,
                                     ArrayRef<const Attr *> WhileAttrs) {
   if (S.getCond()->getType()->isSierraVectorType())
     return EmitSierraWhileStmt(*this, S);
@@ -797,7 +797,7 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
   setSierraMask(oldMask);
 }
 
-void CodeGenFunction::EmitDoStmt(const DoStmt &S,
+void CodeGenFunction::EmitDoStmt(DoStmt &S,
                                  ArrayRef<const Attr *> DoAttrs) {
   // What happens, if no condition exists?
   // See EmitWhileStmt
@@ -868,7 +868,7 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
   setSierraMask(oldMask);
 }
 
-void CodeGenFunction::EmitForStmt(const ForStmt &S,
+void CodeGenFunction::EmitForStmt(ForStmt &S,
                                   ArrayRef<const Attr *> ForAttrs) {
   if (S.getCond() && S.getCond()->getType()->isSierraVectorType())
     return EmitSierraForStmt( *this, S );
@@ -973,7 +973,7 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
 }
 
 void
-CodeGenFunction::EmitCXXForRangeStmt(const CXXForRangeStmt &S,
+CodeGenFunction::EmitCXXForRangeStmt(CXXForRangeStmt &S,
                                      ArrayRef<const Attr *> ForAttrs) {
   JumpDest LoopExit = getJumpDestInCurrentScope("for.end");
 
@@ -1064,7 +1064,7 @@ void CodeGenFunction::EmitReturnOfRValue(RValue RV, QualType Ty) {
 /// EmitReturnStmt - Note that due to GCC extensions, this can have an operand
 /// if the function returns void, or may be missing one if the function returns
 /// non-void.  Fun stuff :).
-void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
+void CodeGenFunction::EmitReturnStmt(ReturnStmt &S) {
   // Returning from an outlined SEH helper is UB, and we already warn on it.
   if (IsOutlinedSEHHelper) {
     Builder.CreateUnreachable();
@@ -1139,17 +1139,17 @@ void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
   EmitBranchThroughCleanup(ReturnBlock);
 }
 
-void CodeGenFunction::EmitDeclStmt(const DeclStmt &S) {
+void CodeGenFunction::EmitDeclStmt(DeclStmt &S) {
   // As long as debug info is modeled with instructions, we have to ensure we
   // have a place to insert here and write the stop point here.
   if (HaveInsertPoint())
     EmitStopPoint(&S);
 
-  for (const auto *I : S.decls())
+  for (auto *I : S.decls())
     EmitDecl(*I);
 }
 
-void CodeGenFunction::EmitBreakStmt(const BreakStmt &S) {
+void CodeGenFunction::EmitBreakStmt(BreakStmt &S) {
   assert(!BreakContinueStack.empty() && "break stmt not in a loop or switch!");
 
   // If this code is reachable then emit a stop point (if generating
@@ -1170,7 +1170,7 @@ void CodeGenFunction::EmitBreakStmt(const BreakStmt &S) {
   EmitBranchThroughCleanup(BreakContinueStack.back().BreakBlock);
 }
 
-void CodeGenFunction::EmitContinueStmt(const ContinueStmt &S) {
+void CodeGenFunction::EmitContinueStmt(ContinueStmt &S) {
   assert(!BreakContinueStack.empty() && "continue stmt not in a loop!");
 
   // If this code is reachable then emit a stop point (if generating
@@ -1194,7 +1194,7 @@ void CodeGenFunction::EmitContinueStmt(const ContinueStmt &S) {
 /// EmitCaseStmtRange - If case statement range is not too big then
 /// add multiple cases to switch instruction, one for each value within
 /// the range. If range is too big then emit "if" condition check.
-void CodeGenFunction::EmitCaseStmtRange(const CaseStmt &S) {
+void CodeGenFunction::EmitCaseStmtRange(CaseStmt &S) {
   assert(S.getRHS() && "Expected RHS value in CaseStmt");
 
   llvm::APSInt LHS = S.getLHS()->EvaluateKnownConstInt(getContext());
@@ -1272,7 +1272,7 @@ void CodeGenFunction::EmitCaseStmtRange(const CaseStmt &S) {
     Builder.ClearInsertionPoint();
 }
 
-void CodeGenFunction::EmitCaseStmt(const CaseStmt &S) {
+void CodeGenFunction::EmitCaseStmt(CaseStmt &S) {
   // If there is no enclosing switch instance that we're aware of, then this
   // case statement and its block can be elided.  This situation only happens
   // when we've constant-folded the switch, are emitting the constant case,
@@ -1331,8 +1331,8 @@ void CodeGenFunction::EmitCaseStmt(const CaseStmt &S) {
   // that falls through to the next case which is IR intensive.  It also causes
   // deep recursion which can run into stack depth limitations.  Handle
   // sequential non-range case statements specially.
-  const CaseStmt *CurCase = &S;
-  const CaseStmt *NextCase = dyn_cast<CaseStmt>(S.getSubStmt());
+  CaseStmt *CurCase = &S;
+  CaseStmt *NextCase = dyn_cast<CaseStmt>(S.getSubStmt());
 
   // Otherwise, iteratively add consecutive cases to this switch stmt.
   while (NextCase && NextCase->getRHS() == nullptr) {
@@ -1355,7 +1355,7 @@ void CodeGenFunction::EmitCaseStmt(const CaseStmt &S) {
   EmitStmt(CurCase->getSubStmt());
 }
 
-void CodeGenFunction::EmitDefaultStmt(const DefaultStmt &S) {
+void CodeGenFunction::EmitDefaultStmt(DefaultStmt &S) {
   // If there is no enclosing switch instance that we're aware of, then this
   // default statement can be elided. This situation only happens when we've
   // constant-folded the switch.
@@ -1397,17 +1397,17 @@ void CodeGenFunction::EmitDefaultStmt(const DefaultStmt &S) {
 /// true.
 ///
 enum CSFC_Result { CSFC_Failure, CSFC_FallThrough, CSFC_Success };
-static CSFC_Result CollectStatementsForCase(const Stmt *S,
+static CSFC_Result CollectStatementsForCase(Stmt *S,
                                             const SwitchCase *Case,
                                             bool &FoundCase,
-                              SmallVectorImpl<const Stmt*> &ResultStmts) {
+                              SmallVectorImpl<Stmt*> &ResultStmts) {
   // If this is a null statement, just succeed.
   if (!S)
     return Case ? CSFC_Success : CSFC_FallThrough;
 
   // If this is the switchcase (case 4: or default) that we're looking for, then
   // we're in business.  Just add the substatement.
-  if (const SwitchCase *SC = dyn_cast<SwitchCase>(S)) {
+  if (SwitchCase *SC = dyn_cast<SwitchCase>(S)) {
     if (S == Case) {
       FoundCase = true;
       return CollectStatementsForCase(SC->getSubStmt(), nullptr, FoundCase,
@@ -1552,9 +1552,9 @@ static CSFC_Result CollectStatementsForCase(const Stmt *S,
 /// then invoke CollectStatementsForCase to find the list of statements to emit
 /// for a switch on constant.  See the comment above CollectStatementsForCase
 /// for more details.
-static bool FindCaseStatementsForValue(const SwitchStmt &S,
+static bool FindCaseStatementsForValue(SwitchStmt &S,
                                        const llvm::APSInt &ConstantCondValue,
-                                SmallVectorImpl<const Stmt*> &ResultStmts,
+                                SmallVectorImpl<Stmt*> &ResultStmts,
                                        ASTContext &C,
                                        const SwitchCase *&ResultCase) {
   // First step, find the switch case that is being branched to.  We can do this
@@ -1605,7 +1605,7 @@ static bool FindCaseStatementsForValue(const SwitchStmt &S,
          FoundCase;
 }
 
-void CodeGenFunction::EmitSwitchStmt(const SwitchStmt &S) {
+void CodeGenFunction::EmitSwitchStmt(SwitchStmt &S) {
   // Handle nested switch statements.
   llvm::SwitchInst *SavedSwitchInsn = SwitchInsn;
   SmallVector<uint64_t, 16> *SavedSwitchWeights = SwitchWeights;
@@ -1615,7 +1615,7 @@ void CodeGenFunction::EmitSwitchStmt(const SwitchStmt &S) {
   // emit the live case statement (if any) of the switch.
   llvm::APSInt ConstantCondValue;
   if (ConstantFoldsToSimpleInteger(S.getCond(), ConstantCondValue)) {
-    SmallVector<const Stmt*, 4> CaseStmts;
+    SmallVector<Stmt*, 4> CaseStmts;
     const SwitchCase *Case = nullptr;
     if (FindCaseStatementsForValue(S, ConstantCondValue, CaseStmts,
                                    getContext(), Case)) {

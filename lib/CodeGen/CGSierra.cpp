@@ -176,7 +176,7 @@ llvm::Constant *CreateAllZerosVector(llvm::LLVMContext &Context,
 
 //------------------------------------------------------------------------------
 
-void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
+void EmitSierraIfStmt(CodeGenFunction &CGF, IfStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
 
   auto OldMask = CGF.getSierraMask();
@@ -258,7 +258,7 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
           Builder.CreateAnd(Builder.CreateNot(ElsePhi), OldMask.CurrentMask),
           OldMask.ContinueMask));
 
-    if (const Stmt *Else = S.getElse()) {
+    if (Stmt *Else = S.getElse()) {
       CodeGenFunction::RunCleanupsScope ElseScope(CGF);
       CGF.EmitStmt(Else);
     }
@@ -281,7 +281,7 @@ void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S) {
 
 //------------------------------------------------------------------------------
 
-void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
+void EmitSierraWhileStmt(CodeGenFunction &CGF, WhileStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
 
   auto OldMask = CGF.getSierraMask();
@@ -383,7 +383,7 @@ void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S) {
 }
 
 
-void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S) {
+void EmitSierraDoStmt(CodeGenFunction &CGF, DoStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
 
   auto OldMask = CGF.getSierraMask();
@@ -463,7 +463,7 @@ void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S) {
   CGF.setSierraMask(resetToScalar ? SierraMask() : OldMask);
 }
 
-void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S) {
+void EmitSierraForStmt(CodeGenFunction &CGF, ForStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
   unsigned NumElems = S.getCond()->getType()->getSierraVectorLength();
 
@@ -573,7 +573,7 @@ void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S) {
   CGF.setSierraMask(resetToScalar ? SierraMask() : OldMask);
 }
 
-void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S) {
+void EmitSierraBreakStmt(CodeGenFunction &CGF, BreakStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
 
   /* Insert the new Current mask to the Sierra mask map. */
@@ -600,7 +600,7 @@ void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S) {
   CGF.EmitBlock(AfterBB);
 }
 
-void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S) {
+void EmitSierraContinueStmt(CodeGenFunction &CGF, ContinueStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
 
   /* Insert the new Current and Continue mask to the Sierra mask map. */
@@ -633,7 +633,7 @@ void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S) {
   CGF.EmitBlock(AfterBB);
 }
 
-void EmitSierraReturnStmt(CodeGenFunction &CGF, const ReturnStmt &S) {
+void EmitSierraReturnStmt(CodeGenFunction &CGF, ReturnStmt &S) {
   CGBuilderTy &Builder = CGF.Builder;
 
   auto OldMask = CGF.getSierraMask();

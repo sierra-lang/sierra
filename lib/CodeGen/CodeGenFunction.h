@@ -140,13 +140,13 @@ class CodeGenFunction : public CodeGenTypeCache {
   friend class CGCXXABI;
 
   /* Declare Sierra code gen functions as friend. */
-  friend void EmitSierraIfStmt(CodeGenFunction &CGF, const IfStmt &S);
-  friend void EmitSierraForStmt(CodeGenFunction &CGF, const ForStmt &S);
-  friend void EmitSierraWhileStmt(CodeGenFunction &CGF, const WhileStmt &S);
-  friend void EmitSierraDoStmt(CodeGenFunction &CGF, const DoStmt &S);
-  friend void EmitSierraBreakStmt(CodeGenFunction &CGF, const BreakStmt &S);
-  friend void EmitSierraContinueStmt(CodeGenFunction &CGF, const ContinueStmt &S);
-  friend void EmitSierraReturnStmt(CodeGenFunction &CGF, const ReturnStmt &S);
+  friend void EmitSierraIfStmt(CodeGenFunction &CGF, IfStmt &S);
+  friend void EmitSierraForStmt(CodeGenFunction &CGF, ForStmt &S);
+  friend void EmitSierraWhileStmt(CodeGenFunction &CGF, WhileStmt &S);
+  friend void EmitSierraDoStmt(CodeGenFunction &CGF, DoStmt &S);
+  friend void EmitSierraBreakStmt(CodeGenFunction &CGF, BreakStmt &S);
+  friend void EmitSierraContinueStmt(CodeGenFunction &CGF, ContinueStmt &S);
+  friend void EmitSierraReturnStmt(CodeGenFunction &CGF, ReturnStmt &S);
 
 public:
   /// A jump destination is an abstract label, branching to which may
@@ -272,7 +272,7 @@ public:
     }
 
     /// \brief Emit the captured statement body.
-    virtual void EmitBody(CodeGenFunction &CGF, const Stmt *S) {
+    virtual void EmitBody(CodeGenFunction &CGF, Stmt *S) {
       CGF.incrementProfileCounter(S);
       CGF.EmitStmt(S);
     }
@@ -440,7 +440,7 @@ public:
     llvm::AllocaInst *SavedExnVar;
 
   public:
-    void enter(CodeGenFunction &CGF, const Stmt *Finally,
+    void enter(CodeGenFunction &CGF, Stmt *Finally,
                llvm::Constant *beginCatchFn, llvm::Constant *endCatchFn,
                llvm::Constant *rethrowFn);
     void exit(CodeGenFunction &CGF);
@@ -1580,7 +1580,7 @@ public:
   void EmitConstructorBody(FunctionArgList &Args);
   void EmitDestructorBody(FunctionArgList &Args);
   void emitImplicitAssignmentOperatorBody(FunctionArgList &Args);
-  void EmitFunctionBody(FunctionArgList &Args, const Stmt *Body);
+  void EmitFunctionBody(FunctionArgList &Args, Stmt *Body);
   void EmitBlockWithFallThrough(llvm::BasicBlock *BB, const Stmt *S);
 
   void EmitForwardingCallToLambda(const CXXMethodDecl *LambdaCallOperator,
@@ -2295,12 +2295,12 @@ public:
   /// EmitDecl - Emit a declaration.
   ///
   /// This function can be called with a null (unreachable) insert point.
-  void EmitDecl(const Decl &D);
+  void EmitDecl(Decl &D);
 
   /// EmitVarDecl - Emit a local variable declaration.
   ///
   /// This function can be called with a null (unreachable) insert point.
-  void EmitVarDecl(const VarDecl &D);
+  void EmitVarDecl(VarDecl &D);
 
   void EmitScalarInit(const Expr *init, const ValueDecl *D, LValue lvalue,
                       bool capturedByInit);
@@ -2315,12 +2315,12 @@ public:
   /// EmitAutoVarDecl - Emit an auto variable declaration.
   ///
   /// This function can be called with a null (unreachable) insert point.
-  void EmitAutoVarDecl(const VarDecl &D);
+  void EmitAutoVarDecl(VarDecl &D);
 
   class AutoVarEmission {
     friend class CodeGenFunction;
 
-    const VarDecl *Variable;
+    VarDecl *Variable;
 
     /// The address of the alloca.  Invalid if the variable was emitted
     /// as a global constant.
@@ -2341,7 +2341,7 @@ public:
     struct Invalid {};
     AutoVarEmission(Invalid) : Variable(nullptr), Addr(Address::invalid()) {}
 
-    AutoVarEmission(const VarDecl &variable)
+    AutoVarEmission(VarDecl &variable)
       : Variable(&variable), Addr(Address::invalid()), NRVOFlag(nullptr),
         IsByRef(false), IsConstantAggregate(false),
         SizeForLifetimeMarkers(nullptr) {}
@@ -2374,7 +2374,7 @@ public:
       return CGF.emitBlockByrefAddress(Addr, Variable, /*forward*/ false);
     }
   };
-  AutoVarEmission EmitAutoVarAlloca(const VarDecl &var);
+  AutoVarEmission EmitAutoVarAlloca(VarDecl &var);
   void EmitAutoVarInit(const AutoVarEmission &emission);
   void EmitAutoVarCleanups(const AutoVarEmission &emission);
   void emitAutoVarTypeCleanup(const AutoVarEmission &emission,
@@ -2438,7 +2438,7 @@ public:
   /// This function may clear the current insertion point; callers should use
   /// EnsureInsertPoint if they wish to subsequently generate code without first
   /// calling EmitBlock, EmitBranch, or EmitStmt.
-  void EmitStmt(const Stmt *S);
+  void EmitStmt(Stmt *S);
 
   /// EmitSimpleStmt - Try to emit a "simple" statement which does not
   /// necessarily require an insertion point or debug information; typically
@@ -2446,7 +2446,7 @@ public:
   /// statements.
   ///
   /// \return True if the statement was handled.
-  bool EmitSimpleStmt(const Stmt *S);
+  bool EmitSimpleStmt(Stmt *S);
 
   Address EmitCompoundStmt(const CompoundStmt &S, bool GetLast = false,
                            AggValueSlot AVS = AggValueSlot::ignored());
@@ -2459,32 +2459,32 @@ public:
   /// function even if there is no current insertion point.
   void EmitLabel(const LabelDecl *D); // helper for EmitLabelStmt.
 
-  void EmitLabelStmt(const LabelStmt &S);
-  void EmitAttributedStmt(const AttributedStmt &S);
+  void EmitLabelStmt(LabelStmt &S);
+  void EmitAttributedStmt(AttributedStmt &S);
   void EmitGotoStmt(const GotoStmt &S);
   void EmitIndirectGotoStmt(const IndirectGotoStmt &S);
-  void EmitIfStmt(const IfStmt &S);
+  void EmitIfStmt(IfStmt &S);
 
-  void EmitWhileStmt(const WhileStmt &S,
+  void EmitWhileStmt(WhileStmt &S,
                      ArrayRef<const Attr *> Attrs = None);
-  void EmitDoStmt(const DoStmt &S, ArrayRef<const Attr *> Attrs = None);
-  void EmitForStmt(const ForStmt &S,
+  void EmitDoStmt(DoStmt &S, ArrayRef<const Attr *> Attrs = None);
+  void EmitForStmt(ForStmt &S,
                    ArrayRef<const Attr *> Attrs = None);
-  void EmitReturnStmt(const ReturnStmt &S);
-  void EmitDeclStmt(const DeclStmt &S);
-  void EmitBreakStmt(const BreakStmt &S);
-  void EmitContinueStmt(const ContinueStmt &S);
-  void EmitSwitchStmt(const SwitchStmt &S);
-  void EmitDefaultStmt(const DefaultStmt &S);
-  void EmitCaseStmt(const CaseStmt &S);
-  void EmitCaseStmtRange(const CaseStmt &S);
+  void EmitReturnStmt(ReturnStmt &S);
+  void EmitDeclStmt(DeclStmt &S);
+  void EmitBreakStmt(BreakStmt &S);
+  void EmitContinueStmt(ContinueStmt &S);
+  void EmitSwitchStmt(SwitchStmt &S);
+  void EmitDefaultStmt(DefaultStmt &S);
+  void EmitCaseStmt(CaseStmt &S);
+  void EmitCaseStmtRange(CaseStmt &S);
   void EmitAsmStmt(const AsmStmt &S);
 
-  void EmitObjCForCollectionStmt(const ObjCForCollectionStmt &S);
-  void EmitObjCAtTryStmt(const ObjCAtTryStmt &S);
+  void EmitObjCForCollectionStmt(ObjCForCollectionStmt &S);
+  void EmitObjCAtTryStmt(ObjCAtTryStmt &S);
   void EmitObjCAtThrowStmt(const ObjCAtThrowStmt &S);
-  void EmitObjCAtSynchronizedStmt(const ObjCAtSynchronizedStmt &S);
-  void EmitObjCAutoreleasePoolStmt(const ObjCAutoreleasePoolStmt &S);
+  void EmitObjCAtSynchronizedStmt(ObjCAtSynchronizedStmt &S);
+  void EmitObjCAutoreleasePoolStmt(ObjCAutoreleasePoolStmt &S);
 
   void EmitCoroutineBody(const CoroutineBodyStmt &S);
   RValue EmitCoroutineIntrinsic(const CallExpr *E, unsigned int IID);
@@ -2492,10 +2492,10 @@ public:
   void EnterCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock = false);
   void ExitCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock = false);
 
-  void EmitCXXTryStmt(const CXXTryStmt &S);
-  void EmitSEHTryStmt(const SEHTryStmt &S);
+  void EmitCXXTryStmt(CXXTryStmt &S);
+  void EmitSEHTryStmt(SEHTryStmt &S);
   void EmitSEHLeaveStmt(const SEHLeaveStmt &S);
-  void EnterSEHTryStmt(const SEHTryStmt &S);
+  void EnterSEHTryStmt(SEHTryStmt &S);
   void ExitSEHTryStmt(const SEHTryStmt &S);
 
   void startOutlinedSEHHelper(CodeGenFunction &ParentCGF, bool IsFilter,
@@ -2505,7 +2505,7 @@ public:
                                             const SEHExceptStmt &Except);
 
   llvm::Function *GenerateSEHFinallyFunction(CodeGenFunction &ParentCGF,
-                                             const SEHFinallyStmt &Finally);
+                                             SEHFinallyStmt &Finally);
 
   void EmitSEHExceptionCodeSave(CodeGenFunction &ParentCGF,
                                 llvm::Value *ParentFP,
@@ -2529,7 +2529,7 @@ public:
                                     Address ParentVar,
                                     llvm::Value *ParentFP);
 
-  void EmitCXXForRangeStmt(const CXXForRangeStmt &S,
+  void EmitCXXForRangeStmt(CXXForRangeStmt &S,
                            ArrayRef<const Attr *> Attrs = None);
 
   /// Returns calculated size of the specified type.
@@ -2667,16 +2667,16 @@ public:
                                  const TaskGenTy &TaskGen, OMPTaskDataTy &Data);
 
   void EmitOMPParallelDirective(const OMPParallelDirective &S);
-  void EmitOMPSimdDirective(const OMPSimdDirective &S);
-  void EmitOMPForDirective(const OMPForDirective &S);
-  void EmitOMPForSimdDirective(const OMPForSimdDirective &S);
+  void EmitOMPSimdDirective(OMPSimdDirective &S);
+  void EmitOMPForDirective(OMPForDirective &S);
+  void EmitOMPForSimdDirective(OMPForSimdDirective &S);
   void EmitOMPSectionsDirective(const OMPSectionsDirective &S);
   void EmitOMPSectionDirective(const OMPSectionDirective &S);
   void EmitOMPSingleDirective(const OMPSingleDirective &S);
   void EmitOMPMasterDirective(const OMPMasterDirective &S);
   void EmitOMPCriticalDirective(const OMPCriticalDirective &S);
-  void EmitOMPParallelForDirective(const OMPParallelForDirective &S);
-  void EmitOMPParallelForSimdDirective(const OMPParallelForSimdDirective &S);
+  void EmitOMPParallelForDirective(OMPParallelForDirective &S);
+  void EmitOMPParallelForSimdDirective(OMPParallelForSimdDirective &S);
   void EmitOMPParallelSectionsDirective(const OMPParallelSectionsDirective &S);
   void EmitOMPTaskDirective(const OMPTaskDirective &S);
   void EmitOMPTaskyieldDirective(const OMPTaskyieldDirective &S);
@@ -2698,11 +2698,11 @@ public:
   void
   EmitOMPCancellationPointDirective(const OMPCancellationPointDirective &S);
   void EmitOMPCancelDirective(const OMPCancelDirective &S);
-  void EmitOMPTaskLoopBasedDirective(const OMPLoopDirective &S);
-  void EmitOMPTaskLoopDirective(const OMPTaskLoopDirective &S);
-  void EmitOMPTaskLoopSimdDirective(const OMPTaskLoopSimdDirective &S);
-  void EmitOMPDistributeDirective(const OMPDistributeDirective &S);
-  void EmitOMPDistributeLoop(const OMPDistributeDirective &S);
+  void EmitOMPTaskLoopBasedDirective(OMPLoopDirective &S);
+  void EmitOMPTaskLoopDirective(OMPTaskLoopDirective &S);
+  void EmitOMPTaskLoopSimdDirective(OMPTaskLoopSimdDirective &S);
+  void EmitOMPDistributeDirective(OMPDistributeDirective &S);
+  void EmitOMPDistributeLoop(OMPDistributeDirective &S);
   void EmitOMPDistributeParallelForDirective(
       const OMPDistributeParallelForDirective &S);
   void EmitOMPDistributeParallelForSimdDirective(
@@ -2761,7 +2761,7 @@ private:
   llvm::Value *EmitBlockLiteral(const CGBlockInfo &Info);
 
   /// Helpers for the OpenMP loop directives.
-  void EmitOMPLoopBody(const OMPLoopDirective &D, JumpDest LoopExit);
+  void EmitOMPLoopBody(OMPLoopDirective &D, JumpDest LoopExit);
   void EmitOMPSimdInit(const OMPLoopDirective &D, bool IsMonotonic = false);
   void EmitOMPSimdFinal(
       const OMPLoopDirective &D,
@@ -2769,18 +2769,18 @@ private:
   /// \brief Emit code for the worksharing loop-based directive.
   /// \return true, if this construct has any lastprivate clause, false -
   /// otherwise.
-  bool EmitOMPWorksharingLoop(const OMPLoopDirective &S);
+  bool EmitOMPWorksharingLoop(OMPLoopDirective &S);
   void EmitOMPOuterLoop(bool IsMonotonic, bool DynamicOrOrdered,
-      const OMPLoopDirective &S, OMPPrivateScope &LoopScope, bool Ordered,
+      OMPLoopDirective &S, OMPPrivateScope &LoopScope, bool Ordered,
       Address LB, Address UB, Address ST, Address IL, llvm::Value *Chunk);
   void EmitOMPForOuterLoop(const OpenMPScheduleTy &ScheduleKind,
-                           bool IsMonotonic, const OMPLoopDirective &S,
+                           bool IsMonotonic, OMPLoopDirective &S,
                            OMPPrivateScope &LoopScope, bool Ordered, Address LB,
                            Address UB, Address ST, Address IL,
                            llvm::Value *Chunk);
   void EmitOMPDistributeOuterLoop(
       OpenMPDistScheduleClauseKind ScheduleKind,
-      const OMPDistributeDirective &S, OMPPrivateScope &LoopScope,
+      OMPDistributeDirective &S, OMPPrivateScope &LoopScope,
       Address LB, Address UB, Address ST, Address IL, llvm::Value *Chunk);
   /// \brief Emit code for sections directive.
   void EmitSections(const OMPExecutableDirective &S);

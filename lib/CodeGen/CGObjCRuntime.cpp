@@ -143,8 +143,8 @@ LValue CGObjCRuntime::EmitValueForIvarAtOffset(CodeGen::CodeGenFunction &CGF,
 
 namespace {
   struct CatchHandler {
-    const VarDecl *Variable;
-    const Stmt *Body;
+    VarDecl *Variable;
+    Stmt *Body;
     llvm::BasicBlock *Block;
     llvm::Constant *TypeInfo;
   };
@@ -166,7 +166,7 @@ namespace {
 
 
 void CGObjCRuntime::EmitTryCatchStmt(CodeGenFunction &CGF,
-                                     const ObjCAtTryStmt &S,
+                                     ObjCAtTryStmt &S,
                                      llvm::Constant *beginCatchFn,
                                      llvm::Constant *endCatchFn,
                                      llvm::Constant *exceptionRethrowFn) {
@@ -176,7 +176,7 @@ void CGObjCRuntime::EmitTryCatchStmt(CodeGenFunction &CGF,
     Cont = CGF.getJumpDestInCurrentScope("eh.cont");
 
   CodeGenFunction::FinallyInfo FinallyInfo;
-  if (const ObjCAtFinallyStmt *Finally = S.getFinallyStmt())
+  if (ObjCAtFinallyStmt *Finally = S.getFinallyStmt())
     FinallyInfo.enter(CGF, Finally->getFinallyBody(),
                       beginCatchFn, endCatchFn, exceptionRethrowFn);
 
@@ -185,8 +185,8 @@ void CGObjCRuntime::EmitTryCatchStmt(CodeGenFunction &CGF,
   // Enter the catch, if there is one.
   if (S.getNumCatchStmts()) {
     for (unsigned I = 0, N = S.getNumCatchStmts(); I != N; ++I) {
-      const ObjCAtCatchStmt *CatchStmt = S.getCatchStmt(I);
-      const VarDecl *CatchDecl = CatchStmt->getCatchParamDecl();
+      ObjCAtCatchStmt *CatchStmt = S.getCatchStmt(I);
+      VarDecl *CatchDecl = CatchStmt->getCatchParamDecl();
 
       Handlers.push_back(CatchHandler());
       CatchHandler &Handler = Handlers.back();
@@ -243,7 +243,7 @@ void CGObjCRuntime::EmitTryCatchStmt(CodeGenFunction &CGF,
     }
 
     // Bind the catch parameter if it exists.
-    if (const VarDecl *CatchParam = Handler.Variable) {
+    if (VarDecl *CatchParam = Handler.Variable) {
       llvm::Type *CatchType = CGF.ConvertType(CatchParam->getType());
       llvm::Value *CastExn = CGF.Builder.CreateBitCast(Exn, CatchType);
 
@@ -310,7 +310,7 @@ namespace {
 }
 
 void CGObjCRuntime::EmitAtSynchronizedStmt(CodeGenFunction &CGF,
-                                           const ObjCAtSynchronizedStmt &S,
+                                           ObjCAtSynchronizedStmt &S,
                                            llvm::Function *syncEnterFn,
                                            llvm::Function *syncExitFn) {
   CodeGenFunction::RunCleanupsScope cleanups(CGF);

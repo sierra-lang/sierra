@@ -67,7 +67,7 @@ public:
   virtual const VarDecl *getThreadIDVariable() const = 0;
 
   /// \brief Emit the captured statement body.
-  void EmitBody(CodeGenFunction &CGF, const Stmt *S) override;
+  void EmitBody(CodeGenFunction &CGF, Stmt *S) override;
 
   /// \brief Get an LValue for the current ThreadID variable.
   /// \return LValue for thread id variable. This LValue always has type int32*.
@@ -362,7 +362,7 @@ public:
   }
 
   /// \brief Emit the captured statement body.
-  void EmitBody(CodeGenFunction &CGF, const Stmt *S) override {
+  void EmitBody(CodeGenFunction &CGF, Stmt *S) override {
     llvm_unreachable("No body for expressions");
   }
 
@@ -703,7 +703,7 @@ LValue CGOpenMPRegionInfo::getThreadIDVariableLValue(CodeGenFunction &CGF) {
       getThreadIDVariable()->getType()->castAs<PointerType>());
 }
 
-void CGOpenMPRegionInfo::EmitBody(CodeGenFunction &CGF, const Stmt * /*S*/) {
+void CGOpenMPRegionInfo::EmitBody(CodeGenFunction &CGF, Stmt * /*S*/) {
   if (!CGF.HaveInsertPoint())
     return;
   // 1.2.2 OpenMP Language Terminology

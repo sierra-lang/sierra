@@ -31,7 +31,7 @@ class OMPLexicalScope final : public CodeGenFunction::LexicalScope {
     for (const auto *C : S.clauses()) {
       if (auto *CPI = OMPClauseWithPreInit::get(C)) {
         if (auto *PreInit = cast_or_null<DeclStmt>(CPI->getPreInitStmt())) {
-          for (const auto *I : PreInit->decls()) {
+          for (auto *I : PreInit->decls()) {
             if (!I->hasAttr<OMPCaptureNoInitAttr>())
               CGF.EmitVarDecl(cast<VarDecl>(*I));
             else {
@@ -87,7 +87,7 @@ class OMPLoopScope : public CodeGenFunction::RunCleanupsScope {
   void emitPreInitStmt(CodeGenFunction &CGF, const OMPLoopDirective &S) {
     if (auto *LD = dyn_cast<OMPLoopDirective>(&S)) {
       if (auto *PreInits = cast_or_null<DeclStmt>(LD->getPreInits())) {
-        for (const auto *I : PreInits->decls())
+        for (auto *I : PreInits->decls())
           CGF.EmitVarDecl(cast<VarDecl>(*I));
       }
     }
@@ -637,7 +637,7 @@ bool CodeGenFunction::EmitOMPFirstprivateClause(const OMPExecutableDirective &D,
           // Get the address of the original variable captured in current
           // captured region.
           IsRegistered = PrivateScope.addPrivate(OrigVD, [&]() -> Address {
-            auto Emission = EmitAutoVarAlloca(*VD);
+            auto Emission = EmitAutoVarAlloca(const_cast<VarDecl &>(*VD));
             auto *Init = VD->getInit();
             if (!isa<CXXConstructExpr>(Init) || isTrivialInitializer(Init)) {
               // Perform simple memcpy.
@@ -668,7 +668,7 @@ bool CodeGenFunction::EmitOMPFirstprivateClause(const OMPExecutableDirective &D,
             // variable
             // (for proper handling of captured global variables).
             setAddrOfLocalVar(VDInit, OriginalAddr);
-            EmitDecl(*VD);
+            EmitDecl(const_cast<VarDecl &>(*VD));
             LocalDeclMap.erase(VDInit);
             return GetAddrOfLocalVar(VD);
           });
@@ -700,7 +700,7 @@ void CodeGenFunction::EmitOMPPrivateClause(
         bool IsRegistered =
             PrivateScope.addPrivate(OrigVD, [&]() -> Address {
               // Emit private VarDecl with copy init.
-              EmitDecl(*VD);
+              EmitDecl(const_cast<VarDecl &>(*VD));
               return GetAddrOfLocalVar(VD);
             });
         assert(IsRegistered && "private var already registered as private");
@@ -821,7 +821,7 @@ bool CodeGenFunction::EmitOMPLastprivateClauseInit(
           auto *VD = cast<VarDecl>(cast<DeclRefExpr>(IInit)->getDecl());
           bool IsRegistered = PrivateScope.addPrivate(OrigVD, [&]() -> Address {
             // Emit private VarDecl with copy init.
-            EmitDecl(*VD);
+            EmitDecl(const_cast<VarDecl &>(*VD));
             return GetAddrOfLocalVar(VD);
           });
           assert(IsRegistered &&
@@ -1007,7 +1007,7 @@ void CodeGenFunction::EmitOMPReductionClauseInit(
                                  ->getSizeExpr()),
                   RValue::get(Size));
               EmitVariablyModifiedType(PrivateVD->getType());
-              auto Emission = EmitAutoVarAlloca(*PrivateVD);
+              auto Emission = EmitAutoVarAlloca(const_cast<VarDecl &>(*PrivateVD));
               auto Addr = Emission.getAllocatedAddress();
               auto *Init = PrivateVD->getInit();
               EmitOMPAggregateInit(*this, Addr, PrivateVD->getType(),
@@ -1048,7 +1048,7 @@ void CodeGenFunction::EmitOMPReductionClauseInit(
             OrigVD, [this, OrigVD, PrivateVD, BaseLValue, ASELValue,
                      OriginalBaseLValue, DRD, IRed]() -> Address {
               // Emit private VarDecl with reduction init.
-              AutoVarEmission Emission = EmitAutoVarAlloca(*PrivateVD);
+              AutoVarEmission Emission = EmitAutoVarAlloca(const_cast<VarDecl &>(*PrivateVD));
               auto Addr = Emission.getAllocatedAddress();
               if (DRD && (DRD->getInitializer() || !PrivateVD->hasInit())) {
                 emitInitWithReductionInitializer(*this, DRD, *IRed, Addr,
@@ -1098,7 +1098,7 @@ void CodeGenFunction::EmitOMPReductionClauseInit(
                       getTypeSize(OrigVD->getType().getNonReferenceType())));
               EmitVariablyModifiedType(Type);
             }
-            auto Emission = EmitAutoVarAlloca(*PrivateVD);
+            auto Emission = EmitAutoVarAlloca(const_cast<VarDecl &>(*PrivateVD));
             auto Addr = Emission.getAllocatedAddress();
             auto *Init = PrivateVD->getInit();
             EmitOMPAggregateInit(*this, Addr, PrivateVD->getType(),
@@ -1130,7 +1130,7 @@ void CodeGenFunction::EmitOMPReductionClauseInit(
           bool IsRegistered = PrivateScope.addPrivate(
               OrigVD, [this, PrivateVD, OriginalAddr, DRD, IRed]() -> Address {
                 // Emit private VarDecl with reduction init.
-                AutoVarEmission Emission = EmitAutoVarAlloca(*PrivateVD);
+                AutoVarEmission Emission = EmitAutoVarAlloca(const_cast<VarDecl &>(*PrivateVD));
                 auto Addr = Emission.getAllocatedAddress();
                 if (DRD && (DRD->getInitializer() || !PrivateVD->hasInit())) {
                   emitInitWithReductionInitializer(*this, DRD, *IRed, Addr,
@@ -1271,7 +1271,7 @@ void CodeGenFunction::EmitOMPParallelDirective(const OMPParallelDirective &S) {
       *this, S, [](CodeGenFunction &) -> llvm::Value * { return nullptr; });
 }
 
-void CodeGenFunction::EmitOMPLoopBody(const OMPLoopDirective &D,
+void CodeGenFunction::EmitOMPLoopBody(OMPLoopDirective &D,
                                       JumpDest LoopExit) {
   RunCleanupsScope BodyScope(*this);
   // Update counters values on current iteration.
@@ -1351,7 +1351,7 @@ void CodeGenFunction::EmitOMPLinearClauseInit(const OMPLoopDirective &D) {
     for (auto *Init : C->inits()) {
       auto *VD = cast<VarDecl>(cast<DeclRefExpr>(Init)->getDecl());
       if (auto *Ref = dyn_cast<DeclRefExpr>(VD->getInit()->IgnoreImpCasts())) {
-        AutoVarEmission Emission = EmitAutoVarAlloca(*VD);
+        AutoVarEmission Emission = EmitAutoVarAlloca(const_cast<VarDecl &>(*VD));
         auto *OrigVD = cast<VarDecl>(Ref->getDecl());
         DeclRefExpr DRE(const_cast<VarDecl *>(OrigVD),
                         CapturedStmtInfo->lookup(OrigVD) != nullptr,
@@ -1362,7 +1362,7 @@ void CodeGenFunction::EmitOMPLinearClauseInit(const OMPLoopDirective &D) {
                        /*capturedByInit=*/false);
         EmitAutoVarCleanups(Emission);
       } else
-        EmitVarDecl(*VD);
+        EmitVarDecl(const_cast<VarDecl &>(*VD));
     }
     // Emit the linear steps for the linear clauses.
     // If a step is not constant, it is pre-calculated before the loop.
@@ -1517,14 +1517,14 @@ void CodeGenFunction::EmitOMPLinearClause(
       if (!SIMDLCVs.count(VD->getCanonicalDecl())) {
         bool IsRegistered = PrivateScope.addPrivate(VD, [&]() -> Address {
           // Emit private VarDecl with copy init.
-          EmitVarDecl(*PrivateVD);
+          EmitVarDecl(const_cast<VarDecl &>(*PrivateVD));
           return GetAddrOfLocalVar(PrivateVD);
         });
         assert(IsRegistered && "linear var already registered as private");
         // Silence the warning about unused variable.
         (void)IsRegistered;
       } else
-        EmitVarDecl(*PrivateVD);
+        EmitVarDecl(const_cast<VarDecl &>(*PrivateVD));
       ++CurPrivate;
     }
   }
@@ -1611,7 +1611,7 @@ void CodeGenFunction::EmitOMPSimdFinal(
     EmitBlock(DoneBB, /*IsFinished=*/true);
 }
 
-void CodeGenFunction::EmitOMPSimdDirective(const OMPSimdDirective &S) {
+void CodeGenFunction::EmitOMPSimdDirective(OMPSimdDirective &S) {
   auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
     OMPLoopScope PreInitScope(CGF, S);
     // if (PreCond) {
@@ -1638,8 +1638,8 @@ void CodeGenFunction::EmitOMPSimdDirective(const OMPSimdDirective &S) {
     }
 
     // Emit the loop iteration variable.
-    const Expr *IVExpr = S.getIterationVariable();
-    const VarDecl *IVDecl = cast<VarDecl>(cast<DeclRefExpr>(IVExpr)->getDecl());
+    Expr *IVExpr = S.getIterationVariable();
+    VarDecl *IVDecl = cast<VarDecl>(cast<DeclRefExpr>(IVExpr)->getDecl());
     CGF.EmitVarDecl(*IVDecl);
     CGF.EmitIgnoredExpr(S.getInit());
 
@@ -1694,7 +1694,7 @@ void CodeGenFunction::EmitOMPSimdDirective(const OMPSimdDirective &S) {
 }
 
 void CodeGenFunction::EmitOMPOuterLoop(bool DynamicOrOrdered, bool IsMonotonic,
-    const OMPLoopDirective &S, OMPPrivateScope &LoopScope, bool Ordered,
+    OMPLoopDirective &S, OMPPrivateScope &LoopScope, bool Ordered,
     Address LB, Address UB, Address ST, Address IL, llvm::Value *Chunk) {
   auto &RT = CGM.getOpenMPRuntime();
 
@@ -1790,7 +1790,7 @@ void CodeGenFunction::EmitOMPOuterLoop(bool DynamicOrOrdered, bool IsMonotonic,
 
 void CodeGenFunction::EmitOMPForOuterLoop(
     const OpenMPScheduleTy &ScheduleKind, bool IsMonotonic,
-    const OMPLoopDirective &S, OMPPrivateScope &LoopScope, bool Ordered,
+    OMPLoopDirective &S, OMPPrivateScope &LoopScope, bool Ordered,
     Address LB, Address UB, Address ST, Address IL, llvm::Value *Chunk) {
   auto &RT = CGM.getOpenMPRuntime();
 
@@ -1872,7 +1872,7 @@ void CodeGenFunction::EmitOMPForOuterLoop(
 
 void CodeGenFunction::EmitOMPDistributeOuterLoop(
     OpenMPDistScheduleClauseKind ScheduleKind,
-    const OMPDistributeDirective &S, OMPPrivateScope &LoopScope,
+    OMPDistributeDirective &S, OMPPrivateScope &LoopScope,
     Address LB, Address UB, Address ST, Address IL, llvm::Value *Chunk) {
 
   auto &RT = CGM.getOpenMPRuntime();
@@ -2056,7 +2056,7 @@ void CodeGenFunction::EmitOMPTargetTeamsDistributeSimdDirective(
 static LValue EmitOMPHelperVar(CodeGenFunction &CGF,
                                const DeclRefExpr *Helper) {
   auto VDecl = cast<VarDecl>(Helper->getDecl());
-  CGF.EmitVarDecl(*VDecl);
+  CGF.EmitVarDecl(const_cast<VarDecl &>(*VDecl));
   return CGF.EmitLValue(Helper);
 }
 
@@ -2072,7 +2072,7 @@ namespace {
   };
 } // namespace
 
-bool CodeGenFunction::EmitOMPWorksharingLoop(const OMPLoopDirective &S) {
+bool CodeGenFunction::EmitOMPWorksharingLoop(OMPLoopDirective &S) {
   // Emit the loop iteration variable.
   auto IVExpr = cast<DeclRefExpr>(S.getIterationVariable());
   auto IVDecl = cast<VarDecl>(IVExpr->getDecl());
@@ -2248,7 +2248,7 @@ bool CodeGenFunction::EmitOMPWorksharingLoop(const OMPLoopDirective &S) {
   return HasLastprivateClause;
 }
 
-void CodeGenFunction::EmitOMPForDirective(const OMPForDirective &S) {
+void CodeGenFunction::EmitOMPForDirective(OMPForDirective &S) {
   bool HasLastprivates = false;
   auto &&CodeGen = [&S, &HasLastprivates](CodeGenFunction &CGF,
                                           PrePostActionTy &) {
@@ -2267,7 +2267,7 @@ void CodeGenFunction::EmitOMPForDirective(const OMPForDirective &S) {
   }
 }
 
-void CodeGenFunction::EmitOMPForSimdDirective(const OMPForSimdDirective &S) {
+void CodeGenFunction::EmitOMPForSimdDirective(OMPForSimdDirective &S) {
   bool HasLastprivates = false;
   auto &&CodeGen = [&S, &HasLastprivates](CodeGenFunction &CGF,
                                           PrePostActionTy &) {
@@ -2518,7 +2518,7 @@ void CodeGenFunction::EmitOMPCriticalDirective(const OMPCriticalDirective &S) {
 }
 
 void CodeGenFunction::EmitOMPParallelForDirective(
-    const OMPParallelForDirective &S) {
+    OMPParallelForDirective &S) {
   // Emit directive as a combined directive that consists of two implicit
   // directives: 'parallel' with 'for' directive.
   auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
@@ -2529,7 +2529,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 }
 
 void CodeGenFunction::EmitOMPParallelForSimdDirective(
-    const OMPParallelForSimdDirective &S) {
+    OMPParallelForSimdDirective &S) {
   // Emit directive as a combined directive that consists of two implicit
   // directives: 'parallel' with 'for' directive.
   auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
@@ -2763,7 +2763,7 @@ void CodeGenFunction::EmitOMPFlushDirective(const OMPFlushDirective &S) {
   }(), S.getLocStart());
 }
 
-void CodeGenFunction::EmitOMPDistributeLoop(const OMPDistributeDirective &S) {
+void CodeGenFunction::EmitOMPDistributeLoop(OMPDistributeDirective &S) {
   // Emit the loop iteration variable.
   auto IVExpr = cast<DeclRefExpr>(S.getIterationVariable());
   auto IVDecl = cast<VarDecl>(IVExpr->getDecl());
@@ -2898,7 +2898,7 @@ void CodeGenFunction::EmitOMPDistributeLoop(const OMPDistributeDirective &S) {
 }
 
 void CodeGenFunction::EmitOMPDistributeDirective(
-    const OMPDistributeDirective &S) {
+    OMPDistributeDirective &S) {
   auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
     CGF.EmitOMPDistributeLoop(S);
   };
@@ -3592,7 +3592,7 @@ void CodeGenFunction::EmitOMPUseDevicePtrClause(
 
       // Emit private declaration, it will be initialized by the value we
       // declaration we just added to the local declarations map.
-      EmitDecl(*PvtVD);
+      EmitDecl(const_cast<VarDecl &>(*PvtVD));
 
       // The initialization variables reached its purpose in the emission
       // ofthe previous declaration, so we don't need it anymore.
@@ -3759,7 +3759,7 @@ static void mapParam(CodeGenFunction &CGF, const DeclRefExpr *Helper,
       VDecl, [&CGF, PVD]() -> Address { return CGF.GetAddrOfLocalVar(PVD); });
 }
 
-void CodeGenFunction::EmitOMPTaskLoopBasedDirective(const OMPLoopDirective &S) {
+void CodeGenFunction::EmitOMPTaskLoopBasedDirective(OMPLoopDirective &S) {
   assert(isOpenMPTaskLoopDirective(S.getDirectiveKind()));
   // Emit outlined function for task construct.
   auto CS = cast<CapturedStmt>(S.getAssociatedStmt());
@@ -3839,7 +3839,7 @@ void CodeGenFunction::EmitOMPTaskLoopBasedDirective(const OMPLoopDirective &S) {
     // Emit the loop iteration variable.
     const Expr *IVExpr = S.getIterationVariable();
     const VarDecl *IVDecl = cast<VarDecl>(cast<DeclRefExpr>(IVExpr)->getDecl());
-    CGF.EmitVarDecl(*IVDecl);
+    CGF.EmitVarDecl(const_cast<VarDecl &>(*IVDecl));
     CGF.EmitIgnoredExpr(S.getInit());
 
     // Emit the iterations count variable.
@@ -3887,12 +3887,12 @@ void CodeGenFunction::EmitOMPTaskLoopBasedDirective(const OMPLoopDirective &S) {
   EmitOMPTaskBasedDirective(S, BodyGen, TaskGen, Data);
 }
 
-void CodeGenFunction::EmitOMPTaskLoopDirective(const OMPTaskLoopDirective &S) {
+void CodeGenFunction::EmitOMPTaskLoopDirective(OMPTaskLoopDirective &S) {
   EmitOMPTaskLoopBasedDirective(S);
 }
 
 void CodeGenFunction::EmitOMPTaskLoopSimdDirective(
-    const OMPTaskLoopSimdDirective &S) {
+    OMPTaskLoopSimdDirective &S) {
   EmitOMPTaskLoopBasedDirective(S);
 }
 

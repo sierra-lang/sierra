@@ -521,9 +521,9 @@ public:
   llvm::Constant *EnumerationMutationFunction() override;
 
   void EmitTryStmt(CodeGenFunction &CGF,
-                   const ObjCAtTryStmt &S) override;
+                   ObjCAtTryStmt &S) override;
   void EmitSynchronizedStmt(CodeGenFunction &CGF,
-                            const ObjCAtSynchronizedStmt &S) override;
+                            ObjCAtSynchronizedStmt &S) override;
   void EmitThrowStmt(CodeGenFunction &CGF,
                      const ObjCAtThrowStmt &S,
                      bool ClearInsertionPoint=true) override;
@@ -2687,13 +2687,13 @@ llvm::Constant *CGObjCGNU::EnumerationMutationFunction() {
 }
 
 void CGObjCGNU::EmitSynchronizedStmt(CodeGenFunction &CGF,
-                                     const ObjCAtSynchronizedStmt &S) {
+                                     ObjCAtSynchronizedStmt &S) {
   EmitAtSynchronizedStmt(CGF, S, SyncEnterFn, SyncExitFn);
 }
 
 
 void CGObjCGNU::EmitTryStmt(CodeGenFunction &CGF,
-                            const ObjCAtTryStmt &S) {
+                            ObjCAtTryStmt &S) {
   // Unlike the Apple non-fragile runtimes, which also uses
   // unwind-based zero cost exceptions, the GNU Objective C runtime's
   // EH support isn't a veneer over C++ EH.  Instead, exception

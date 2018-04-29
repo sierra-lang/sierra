@@ -1332,10 +1332,10 @@ public:
   llvm::Constant *EnumerationMutationFunction() override;
 
   void EmitTryStmt(CodeGen::CodeGenFunction &CGF,
-                   const ObjCAtTryStmt &S) override;
+                   ObjCAtTryStmt &S) override;
   void EmitSynchronizedStmt(CodeGen::CodeGenFunction &CGF,
-                            const ObjCAtSynchronizedStmt &S) override;
-  void EmitTryOrSynchronizedStmt(CodeGen::CodeGenFunction &CGF, const Stmt &S);
+                            ObjCAtSynchronizedStmt &S) override;
+  void EmitTryOrSynchronizedStmt(CodeGen::CodeGenFunction &CGF, Stmt &S);
   void EmitThrowStmt(CodeGen::CodeGenFunction &CGF, const ObjCAtThrowStmt &S,
                      bool ClearInsertionPoint=true) override;
   llvm::Value * EmitObjCWeakRead(CodeGen::CodeGenFunction &CGF,
@@ -1627,9 +1627,9 @@ public:
   }
 
   void EmitTryStmt(CodeGen::CodeGenFunction &CGF,
-                   const ObjCAtTryStmt &S) override;
+                   ObjCAtTryStmt &S) override;
   void EmitSynchronizedStmt(CodeGen::CodeGenFunction &CGF,
-                            const ObjCAtSynchronizedStmt &S) override;
+                            ObjCAtSynchronizedStmt &S) override;
   void EmitThrowStmt(CodeGen::CodeGenFunction &CGF, const ObjCAtThrowStmt &S,
                      bool ClearInsertionPoint=true) override;
   llvm::Value * EmitObjCWeakRead(CodeGen::CodeGenFunction &CGF,
@@ -3978,23 +3978,23 @@ llvm::Constant *CGObjCMac::EnumerationMutationFunction() {
   return ObjCTypes.getEnumerationMutationFn();
 }
 
-void CGObjCMac::EmitTryStmt(CodeGenFunction &CGF, const ObjCAtTryStmt &S) {
+void CGObjCMac::EmitTryStmt(CodeGenFunction &CGF, ObjCAtTryStmt &S) {
   return EmitTryOrSynchronizedStmt(CGF, S);
 }
 
 void CGObjCMac::EmitSynchronizedStmt(CodeGenFunction &CGF,
-                                     const ObjCAtSynchronizedStmt &S) {
+                                     ObjCAtSynchronizedStmt &S) {
   return EmitTryOrSynchronizedStmt(CGF, S);
 }
 
 namespace {
   struct PerformFragileFinally final : EHScopeStack::Cleanup {
-    const Stmt &S;
+    Stmt &S;
     Address SyncArgSlot;
     Address CallTryExitVar;
     Address ExceptionData;
     ObjCTypesHelper &ObjCTypes;
-    PerformFragileFinally(const Stmt *S,
+    PerformFragileFinally(Stmt *S,
                           Address SyncArgSlot,
                           Address CallTryExitVar,
                           Address ExceptionData,
@@ -4019,7 +4019,7 @@ namespace {
       CGF.EmitBlock(FinallyNoCallExit);
 
       if (isa<ObjCAtTryStmt>(S)) {
-        if (const ObjCAtFinallyStmt* FinallyStmt =
+        if (ObjCAtFinallyStmt* FinallyStmt =
               cast<ObjCAtTryStmt>(S).getFinallyStmt()) {
           // Don't try to do the @finally if this is an EH cleanup.
           if (flags.isForEHCleanup()) return;
@@ -4313,7 +4313,7 @@ llvm::FunctionType *FragileHazards::GetAsmFnType() {
 */
 
 void CGObjCMac::EmitTryOrSynchronizedStmt(CodeGen::CodeGenFunction &CGF,
-                                          const Stmt &S) {
+                                          Stmt &S) {
   bool isTry = isa<ObjCAtTryStmt>(S);
 
   // A destination for the fall-through edges of the catch handlers to
@@ -4435,7 +4435,7 @@ void CGObjCMac::EmitTryOrSynchronizedStmt(CodeGen::CodeGenFunction &CGF,
     // benefit of any @throws in the handlers.
     CGF.ObjCEHValueStack.push_back(Caught);
 
-    const ObjCAtTryStmt* AtTryStmt = cast<ObjCAtTryStmt>(&S);
+    ObjCAtTryStmt* AtTryStmt = cast<ObjCAtTryStmt>(&S);
 
     bool HasFinally = (AtTryStmt->getFinallyStmt() != nullptr);
 
@@ -4476,9 +4476,9 @@ void CGObjCMac::EmitTryOrSynchronizedStmt(CodeGen::CodeGenFunction &CGF,
     // so.
     bool AllMatched = false;
     for (unsigned I = 0, N = AtTryStmt->getNumCatchStmts(); I != N; ++I) {
-      const ObjCAtCatchStmt *CatchStmt = AtTryStmt->getCatchStmt(I);
+      ObjCAtCatchStmt *CatchStmt = AtTryStmt->getCatchStmt(I);
 
-      const VarDecl *CatchParam = CatchStmt->getCatchParamDecl();
+      VarDecl *CatchParam = CatchStmt->getCatchParamDecl();
       const ObjCObjectPointerType *OPT = nullptr;
 
       // catch(...) always matches.
@@ -7445,7 +7445,7 @@ void CGObjCNonFragileABIMac::EmitObjCGlobalAssign(CodeGen::CodeGenFunction &CGF,
 
 void
 CGObjCNonFragileABIMac::EmitSynchronizedStmt(CodeGen::CodeGenFunction &CGF,
-                                             const ObjCAtSynchronizedStmt &S) {
+                                             ObjCAtSynchronizedStmt &S) {
   EmitAtSynchronizedStmt(CGF, S,
       cast<llvm::Function>(ObjCTypes.getSyncEnterFn()),
       cast<llvm::Function>(ObjCTypes.getSyncExitFn()));
@@ -7478,7 +7478,7 @@ CGObjCNonFragileABIMac::GetEHType(QualType T) {
 }
 
 void CGObjCNonFragileABIMac::EmitTryStmt(CodeGen::CodeGenFunction &CGF,
-                                         const ObjCAtTryStmt &S) {
+                                         ObjCAtTryStmt &S) {
   EmitTryCatchStmt(CGF, S,
       cast<llvm::Function>(ObjCTypes.getObjCBeginCatchFn()),
       cast<llvm::Function>(ObjCTypes.getObjCEndCatchFn()),
