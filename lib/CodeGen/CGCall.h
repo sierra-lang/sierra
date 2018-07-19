@@ -97,6 +97,10 @@ namespace CodeGen {
     }
 
   public:
+    // TODO XXX own
+    bool IsSimd = false;
+    // TODO XXX own end
+
     CGCallee() : KindOrFunctionPointer(SpecialKind::Invalid) {}
 
     /// Construct a callee.  Call this constructor directly when this

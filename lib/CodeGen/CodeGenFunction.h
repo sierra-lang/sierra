@@ -3043,7 +3043,7 @@ public:
   RValue EmitCall(const CGFunctionInfo &CallInfo, const CGCallee &Callee,
                   ReturnValueSlot ReturnValue, const CallArgList &Args,
                   llvm::Instruction **callOrInvoke = nullptr,
-                  int SierraReturn = 0);
+                  llvm::SmallVector<unsigned, 32> *TyChanged = nullptr);
   // TODO XXX own end
 
 
@@ -3594,16 +3594,16 @@ public:
                 E = CallArgTypeInfo->param_type_end();
            I != E; ++I, ++Arg) {
         assert(Arg != ArgRange.end() && "Running over edge of argument list!");
-        assert((isGenericMethod ||
-                ((*I)->isVariablyModifiedType() ||
-                 (*I).getNonReferenceType()->isObjCRetainableType() ||
-                 getContext()
-                         .getCanonicalType((*I).getNonReferenceType())
-                         .getTypePtr() ==
-                     getContext()
-                         .getCanonicalType((*Arg)->getType())
-                         .getTypePtr())) &&
-               "type mismatch in call argument!");
+        //assert((isGenericMethod ||
+                //((*I)->isVariablyModifiedType() ||
+                 //(*I).getNonReferenceType()->isObjCRetainableType() ||
+                 //getContext()
+                         //.getCanonicalType((*I).getNonReferenceType())
+                         //.getTypePtr() ==
+                     //getContext()
+                         //.getCanonicalType((*Arg)->getType())
+                         //.getTypePtr())) &&
+               //"type mismatch in call argument!");
         ArgTypes.push_back(*I);
       }
     }

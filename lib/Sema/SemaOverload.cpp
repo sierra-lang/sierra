@@ -1598,9 +1598,13 @@ static bool IsStandardConversion(Sema &S, Expr* From, QualType ToType,
   // and ToType is compatible with the elementtype of FromType
   // therefore set fromtype to its elementtype and continue checks with them
   auto FromVecType = FromType->getAs<SierraVectorType>();
-  if (FromVecType && !ToType->isSierraVectorType()) {
+  if (FromVecType && !ToType->isSierraVectorType()){
     FromType = FromVecType->getElementType();
   }
+  //auto ToVecType = ToType->getAs<SierraVectorType>();
+  //if (ToVecType && !FromType->isSierraVectorType()){
+    //ToType = ToVecType->getElementType();
+  //}
   // TODO XXX own end
 
   // Standard conversions (C++ [conv])
@@ -4240,6 +4244,12 @@ Sema::CompareReferenceRelationship(SourceLocation Loc,
     "T1 must be the pointee type of the reference type");
   assert(!OrigT2->isReferenceType() && "T2 cannot be a reference type");
 
+  // TODO XXX own
+  if (!OrigT1->isSierraVectorType() && OrigT2->isSierraVectorType()) {
+    OrigT2 = OrigT2->getAs<SierraVectorType>()->getElementType();
+  }
+  // TODO XXX own end
+
   QualType T1 = Context.getCanonicalType(OrigT1);
   QualType T2 = Context.getCanonicalType(OrigT2);
   Qualifiers T1Quals, T2Quals;
@@ -4468,6 +4478,12 @@ TryReferenceInit(Sema &S, Expr *Init, QualType DeclType,
                                                                 false, Found))
       T2 = Fn->getType();
   }
+
+  // TODO XXX own
+  if (!T2->isSierraVectorType() && T1->isSierraVectorType()) {
+    T1 = T1->getAs<SierraVectorType>()->getElementType();
+  }
+  // TODO XXX own end
 
   // Compute some basic properties of the types and the initializer.
   bool isRValRef = DeclType->isRValueReferenceType();

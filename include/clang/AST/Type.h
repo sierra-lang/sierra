@@ -2993,6 +2993,7 @@ class FunctionType : public Type {
     // have all the elements (when reading an AST file for example).
     ExtInfo(bool noReturn, bool hasRegParm, unsigned regParm, CallingConv cc,
             bool producesResult, unsigned spmd = 1) {
+
       assert((!hasRegParm || regParm < 7) && "Invalid regparm value");
       Bits = ((unsigned) cc) |
              (noReturn ? NoReturnMask : 0) |

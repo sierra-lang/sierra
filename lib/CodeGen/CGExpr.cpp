@@ -1399,6 +1399,13 @@ void CodeGenFunction::EmitStoreOfScalar(llvm::Value *Value, Address Addr,
                                         bool isInit, QualType TBAABaseType,
                                         uint64_t TBAAOffset,
                                         bool isNontemporal) {
+  // TODO XXX own
+  // if we assign a scalar value we have to ensure that it is properly
+  // transformed into a vector
+  if (Ty->isSierraVectorType() && !Value->getType()->isVectorTy()) {
+    Value = Builder.CreateVectorSplat(Ty->getSierraVectorLength(), Value);
+  }
+  // TODO XXX own end
 
   // Handle vectors differently to get better performance.
   if (Ty->isVectorType()) {
@@ -4268,9 +4275,9 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
     Changed = false; // the old returntype is kept --> no changes
     RetTy = FnType->getReturnType();
     TyChanged.push_back(0);
-  //} else if (RetTy->isSierraVectorType()) {
-    //TyChanged.push_back(0);
-    //Changed = false;
+  } else if (RetTy->isVoidType()) {
+    TyChanged.push_back(0);
+    Changed = false;
   } else {
     TyChanged.push_back(RetTy->getAs<SierraVectorType>()->getNumElements());
   }
@@ -4283,8 +4290,6 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
   if (FnProtoTy) {
     for (auto A : E->arguments()) {
       // in case of variadic functions...
-      // TODO support sierra in changing the 'changed' variable (and maybe some
-      // other stuff)
       if (i >= FnProtoTy->getNumParams()) {
         ArgTy.push_back(A->getType());
         TyChanged.push_back(0); // we dont support variadic functions
@@ -4292,17 +4297,6 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
       }
 
       auto ToPush = FnProtoTy->getParamType(i++);
-
-      // if we already have a sierra type no changas to this will be applied
-      //auto STP = ToPush;
-      //if (auto TP = ToPush->getAs<ReferenceType>()) {
-        //STP = TP->getPointeeType();
-      //}
-      //if (STP->isSierraVectorType()) {
-        //TyChanged.push_back(0);
-        //ArgTy.push_back(ToPush);
-        //continue;
-      //}
 
       auto AType = A->getType();
       if (auto tmp = AType->getAs<AutoType>()) {
@@ -4328,8 +4322,6 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
       ArgTy.push_back(ToPush);
     }
   }
-  // add this for sierra spmd (just in case)
-  TyChanged.push_back(0);
 
   if (Changed) {
     // create clang functiontype
@@ -4379,6 +4371,12 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
 
   // TODO XXX own
   if (Changed) {
+    unsigned SierraSpmd = FnInfo.getSierraSpmd();
+    assert(SierraSpmd);
+    if (SierraSpmd != 1) {
+      // add this for sierra spmd (just in case)
+      TyChanged.push_back(SierraSpmd);
+    }
 
     // create vectorized llvm function
     auto ScalLlvmFun = Callee.getFunctionType();
@@ -4392,7 +4390,6 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
     // arguments
     llvm::SmallVector<llvm::Type *, 32> ArgLlvmTy;
     i = 1;
-    //assert(ScalLlvmFun->getNumParams() == TyChanged.size());
     for (auto Add : ScalLlvmFun->params()) {
       if (TyChanged[i] > 1) {
         Add = llvm::VectorType::get(Add, TyChanged[i]);
@@ -4400,12 +4397,6 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
       ArgLlvmTy.push_back(Add);
       ++i;
     }
-
-    unsigned SierraSpmd = FnInfo.getSierraSpmd();
-    //if (SierraSpmd != 1) {
-      //ArgLlvmTy.push_back(llvm::VectorType::get(
-          //llvm::IntegerType::getInt1Ty(getLLVMContext()), SierraSpmd));
-    //}
 
     // create llvm decl for vectorized function
 
@@ -4430,16 +4421,12 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
 
     // overwrite the functiontype in Callee
     Callee.setFunctionPointer(VF);
-
-    if (auto S = RetTy->getAs<SierraVectorType>()) {
-      int SierraReturn = S->getNumElements();
-      // TODO make a map, set or whatever to remember these functions for RV
-      return EmitCall(FnInfo, Callee, ReturnValue, Args, nullptr, SierraReturn);
-    }
+    Callee.IsSimd = true;
   }
-  // TODO XXX own end
 
-  return EmitCall(FnInfo, Callee, ReturnValue, Args);
+  return EmitCall(FnInfo, Callee, ReturnValue, Args, nullptr, &TyChanged);
+  // TODO XXX own end
+  //return EmitCall(FnInfo, Callee, ReturnValue, Args);
 }
 
 LValue CodeGenFunction::

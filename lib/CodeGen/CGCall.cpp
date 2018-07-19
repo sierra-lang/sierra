@@ -1593,7 +1593,8 @@ CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
   unsigned SierraSpmd = FI.getSierraSpmd();
   assert(SierraSpmd != 0 && "TODO");
   if (SierraSpmd != 1)
-    ArgTypes.push_back(llvm::VectorType::get(llvm::IntegerType::getInt1Ty(getLLVMContext()), SierraSpmd));
+    ArgTypes.push_back(llvm::VectorType::get(
+        llvm::IntegerType::getInt1Ty(getLLVMContext()), SierraSpmd));
 
   bool Erased = FunctionsBeingProcessed.erase(&FI); (void)Erased;
   assert(Erased && "Not in set?");
@@ -3578,7 +3579,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
                                  //llvm::Instruction **callOrInvoke) {
                                  // TODO XXX own
                                  llvm::Instruction **callOrInvoke,
-                                 int SierraReturn) {
+                                 llvm::SmallVector<unsigned, 32> *TyChanged) {
                                  // TODO XXX own end
   // FIXME: We no longer need the types from CallArgs; lift up and simplify.
 
@@ -3588,8 +3589,8 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   // location that we would like to return into.
   QualType RetTy = CallInfo.getReturnType();
   // TODO XXX own
-  if (SierraReturn && !RetTy->isSierraVectorType()) {
-    RetTy = getContext().getSierraVectorType(RetTy, SierraReturn);
+  if (TyChanged && (*TyChanged)[0] > 1 && !RetTy->isSierraVectorType()) {
+    RetTy = getContext().getSierraVectorType(RetTy, (*TyChanged)[0]);
   }
   // TODO XXX own end
   const ABIArgInfo &RetAI = CallInfo.getReturnInfo();
@@ -3762,6 +3763,12 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
           V = RV.getScalarVal();
         else
           V = Builder.CreateLoad(RV.getAggregateAddress());
+        // TODO XXX own
+        auto x = ArgInfo.getCoerceToType();
+        if (x->isVectorTy() && !V->getType()->isVectorTy()) {
+          V = Builder.CreateVectorSplat(x->getVectorNumElements(), V);
+        }
+        // TODO XXX own end
 
         // Implement swifterror by copying into a new swifterror argument.
         // We'll write back in the normal path out of the call.
@@ -3844,6 +3851,12 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       } else {
         // In the simple case, just pass the coerced loaded value.
         assert(NumIRArgs == 1);
+        // TODO XXX own
+        if (TyChanged && (*TyChanged)[ArgNo + 1] > 1) {
+          auto LoadTy = IRFuncTy->getParamType(ArgNo);
+          IRCallArgs[FirstIRArg] = CreateCoercedLoad(Src, LoadTy, *this);
+        } else
+        // TODO XXX own
         IRCallArgs[FirstIRArg] =
           CreateCoercedLoad(Src, ArgInfo.getCoerceToType(), *this);
       }
@@ -4082,7 +4095,13 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
     *callOrInvoke = CI;
 
   // Apply the attributes and calling convention.
-  CS.setAttributes(Attrs);
+  // TODO XXX own
+  if (!Callee.IsSimd) {
+  // TODO XXX own end
+    CS.setAttributes(Attrs);
+  // TODO XXX own
+  }
+  // TODO XXX own end
   CS.setCallingConv(static_cast<llvm::CallingConv::ID>(CallingConv));
 
   // Apply various metadata.

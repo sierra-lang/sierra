@@ -28,6 +28,17 @@ namespace CodeGen {
 llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src,
                                   QualType SrcType, QualType DstType) {
   assert(SrcType->isSierraVectorType() && "must be a sierra vector");
+  // TODO XXX own
+  if (!Src->getType()->isVectorTy()) {
+    Src = CGF.Builder.CreateVectorSplat(SrcType->getSierraVectorLength(), Src);
+  }
+
+  auto SrcCan = CGF.getContext().getCanonicalType(SrcType);
+  auto DstCan = CGF.getContext().getCanonicalType(DstType);
+  if (SrcCan == DstCan) {
+    return Src;
+  }
+  // TODO XXX own end
 
   llvm::Type *SrcTy = CGF.ConvertType(SrcType);
   llvm::Type *DstTy = CGF.ConvertType(DstType);
@@ -653,6 +664,14 @@ void EmitSierraReturnStmt(CodeGenFunction &CGF, ReturnStmt &S) {
     RV = cleanups->getSubExpr();
   }
 
+  // TODO XXX own
+  if (!RV->getType()->isSierraVectorType()) {
+    auto Val = CGF.EmitScalarExpr(RV);
+    Val = Builder.CreateVectorSplat(
+        CGF.ReturnValue.getElementType()->getVectorNumElements(), Val);
+    EmitMaskedStore(Builder, OldMask.CurrentMask, Val, CGF.ReturnValue, false);
+  } else
+  // TODO XXX own end
   EmitMaskedStore(Builder,
                   OldMask.CurrentMask,
                   CGF.EmitScalarExpr(RV),
