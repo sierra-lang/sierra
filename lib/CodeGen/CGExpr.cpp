@@ -4370,14 +4370,12 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
   }
 
   // TODO XXX own
-  if (Changed) {
-    unsigned SierraSpmd = FnInfo.getSierraSpmd();
-    assert(SierraSpmd);
-    if (SierraSpmd != 1) {
-      // add this for sierra spmd (just in case)
-      TyChanged.push_back(SierraSpmd);
-    }
+  unsigned SierraSpmd = FnInfo.getSierraSpmd();
+  assert(SierraSpmd);
+  // add this for sierra spmd (just in case)
+  TyChanged.push_back(SierraSpmd);
 
+  if (Changed) {
     // create vectorized llvm function
     auto ScalLlvmFun = Callee.getFunctionType();
 
@@ -4391,7 +4389,7 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
     llvm::SmallVector<llvm::Type *, 32> ArgLlvmTy;
     i = 1;
     for (auto Add : ScalLlvmFun->params()) {
-      if (TyChanged[i] > 1) {
+      if (TyChanged[i] > 1 && !Add->isVectorTy()) {
         Add = llvm::VectorType::get(Add, TyChanged[i]);
       }
       ArgLlvmTy.push_back(Add);

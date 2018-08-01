@@ -3856,7 +3856,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
           auto LoadTy = IRFuncTy->getParamType(ArgNo);
           IRCallArgs[FirstIRArg] = CreateCoercedLoad(Src, LoadTy, *this);
         } else
-        // TODO XXX own
+        // TODO XXX own end
         IRCallArgs[FirstIRArg] =
           CreateCoercedLoad(Src, ArgInfo.getCoerceToType(), *this);
       }
