@@ -4023,6 +4023,12 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
     if (IRFunctionArgs.hasInallocaArg() &&
         i == IRFunctionArgs.getInallocaArgNo())
       continue;
+    //if (i < IRFuncTy->getNumParams()) {
+      //auto ca = IRCallArgs[i]->getType()->isPointerTy();
+      //auto fa = IRFuncTy->getParamType(i);
+      //IRFuncTy->setparamt
+      //assert(IRCallArgs[i]->getType() == IRFuncTy->getParamType(i));
+    //}
     if (i < IRFuncTy->getNumParams())
       assert(IRCallArgs[i]->getType() == IRFuncTy->getParamType(i));
   }

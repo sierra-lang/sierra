@@ -73,9 +73,9 @@ SierraVectorOperandsChecker::SierraVectorOperandsChecker(Sema &S,
 
   LV      = LHSType->getAs<SierraVectorType>();
   RV      = RHSType->getAs<SierraVectorType>();
-  LE      =      LV->getElementType();
+  LE      = LV ? LV->getElementType() : LHSType;
   RE      = RV ? RV->getElementType() : RHSType;
-  LNum    = LV->getNumElements();
+  LNum    = LV ? LV->getNumElements() : 0;
   RNum    = RV ? RV->getNumElements() : 0;
 }
 

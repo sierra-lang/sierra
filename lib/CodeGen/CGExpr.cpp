@@ -4310,7 +4310,9 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
           AType = getContext().getLValueReferenceType(AType);
         } else if (ToPush->isRValueReferenceType()) {
           AType = getContext().getRValueReferenceType(AType);
-        }
+        } //else if (ToPush->isPointerType()) {
+          //AType = getContext().getPointerType(AType);
+        //}
       }
       if (AType != ToPush && length > 1) {
         ToPush = AType;
