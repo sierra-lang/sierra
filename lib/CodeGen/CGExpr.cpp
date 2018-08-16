@@ -4271,9 +4271,11 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
 
   // return type
   QualType RetTy = E->SierraReturn;
-  if (RetTy.isNull()) {
-    Changed = false; // the old returntype is kept --> no changes
+  bool RetTyIsNull = RetTy.isNull();
+  int VecLength = 1;
+  if (RetTyIsNull) {
     RetTy = FnType->getReturnType();
+    Changed = false; // the old returntype is kept --> no changes
     TyChanged.push_back(0);
   } else if (RetTy->isVoidType()) {
     TyChanged.push_back(0);
@@ -4306,13 +4308,12 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
       unsigned length = 0;
       if (AType->isSierraVectorType()) {
         length = AType->getAs<SierraVectorType>()->getNumElements();
+        VecLength = length;
         if (ToPush->isLValueReferenceType()) {
           AType = getContext().getLValueReferenceType(AType);
         } else if (ToPush->isRValueReferenceType()) {
           AType = getContext().getRValueReferenceType(AType);
-        } //else if (ToPush->isPointerType()) {
-          //AType = getContext().getPointerType(AType);
-        //}
+        }
       }
       if (AType != ToPush && length > 1) {
         ToPush = AType;
@@ -4323,6 +4324,11 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
       }
       ArgTy.push_back(ToPush);
     }
+  }
+
+  if (RetTyIsNull && !RetTy->isVoidType() && !RetTy->isVectorType() &&
+      VecLength > 1) {
+    RetTy = getContext().getSierraVectorType(RetTy, VecLength);
   }
 
   if (Changed) {

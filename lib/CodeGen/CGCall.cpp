@@ -3707,12 +3707,19 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
     case ABIArgInfo::Indirect: {
       assert(NumIRArgs == 1);
       if (RV.isScalar() || RV.isComplex()) {
+        // TODO XXX own
+        if (FirstIRArg < IRFuncTy->getNumParams() &&
+            !IRFuncTy->getParamType(FirstIRArg)->isPointerTy()) {
+          IRCallArgs[FirstIRArg] = RV.getScalarVal();
+        } else {
+          // TODO XXX own end
         // Make a temporary alloca to pass the argument.
         Address Addr = CreateMemTemp(I->Ty, ArgInfo.getIndirectAlign());
         IRCallArgs[FirstIRArg] = Addr.getPointer();
 
         LValue argLV = MakeAddrLValue(Addr, I->Ty);
         EmitInitStoreOfNonAggregate(*this, RV, argLV);
+        }
       } else {
         // We want to avoid creating an unnecessary temporary+copy here;
         // however, we need one in three cases:
@@ -3796,6 +3803,8 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
         // If the argument doesn't match, perform a bitcast to coerce it.  This
         // can happen due to trivial type mismatches.
+        //V->dump();
+        //IRFuncTy->getParamType(FirstIRArg);
         if (FirstIRArg < IRFuncTy->getNumParams() &&
             V->getType() != IRFuncTy->getParamType(FirstIRArg))
           V = Builder.CreateBitCast(V, IRFuncTy->getParamType(FirstIRArg));
@@ -4024,10 +4033,10 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
         i == IRFunctionArgs.getInallocaArgNo())
       continue;
     //if (i < IRFuncTy->getNumParams()) {
-      //auto ca = IRCallArgs[i]->getType()->isPointerTy();
-      //auto fa = IRFuncTy->getParamType(i);
-      //IRFuncTy->setparamt
-      //assert(IRCallArgs[i]->getType() == IRFuncTy->getParamType(i));
+//#include "llvm/Support/raw_ostream.h"
+      //llvm::errs() << "\nprint argno: " << i << "\n";
+      //IRCallArgs[i]->getType()->dump();
+      //IRFuncTy->getParamType(i)->dump();
     //}
     if (i < IRFuncTy->getNumParams())
       assert(IRCallArgs[i]->getType() == IRFuncTy->getParamType(i));

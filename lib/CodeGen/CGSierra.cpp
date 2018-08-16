@@ -38,6 +38,11 @@ llvm::Value *EmitSierraConversion(CodeGenFunction &CGF, Value *Src,
   if (SrcCan == DstCan) {
     return Src;
   }
+
+  if (!DstType->isSierraVectorType()) {
+    DstType = CGF.getContext().getSierraVectorType(
+        DstType, SrcType->getSierraVectorLength());
+  }
   // TODO XXX own end
 
   llvm::Type *SrcTy = CGF.ConvertType(SrcType);
